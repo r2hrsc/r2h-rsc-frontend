@@ -26,7 +26,7 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
       const res = await fetch(`${apiUrl}/auth/google`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credential: resp.credential }),
+        body: JSON.stringify({ idToken: resp.credential }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || 'Google auth failed');
@@ -46,27 +46,30 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
     setStatus('Requesting nonce…');
     setError('');
     try {
+      const walletAddr = publicKey.toBase58();
+
+      // 1. Get nonce + server-constructed message
       const nonceRes = await fetch(`${apiUrl}/auth/wallet/nonce`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ wallet: publicKey.toBase58() }),
+        body: JSON.stringify({ walletAddress: walletAddr }),
       });
-      const { nonce } = await nonceRes.json();
-      if (!nonce) throw new Error('Server did not return a nonce.');
+      const nonceData = await nonceRes.json();
+      if (!nonceData.ok || !nonceData.message) throw new Error(nonceData.error || 'Server did not return a nonce.');
 
-      const message = new TextEncoder().encode(
-        `Sign in to R2H RSC\nNonce: ${nonce}\nWallet: ${publicKey.toBase58()}`
-      );
-      const signature = await signMessage(message);
+      // 2. Sign the EXACT message from the server
+      const messageBytes = new TextEncoder().encode(nonceData.message);
+      const signature = await signMessage(messageBytes);
 
+      // 3. Send walletAddress + message + signature
       setStatus('Verifying signature…');
       const authRes = await fetch(`${apiUrl}/auth/wallet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          wallet: publicKey.toBase58(),
+          walletAddress: walletAddr,
+          message: nonceData.message,
           signature: btoa(String.fromCharCode(...signature)),
-          nonce,
         }),
       });
       const data = await authRes.json();

@@ -9,7 +9,7 @@ if (typeof window !== 'undefined') {
   (window as any).global = window;
 }
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '293122558789-cs1p629kksvtulqsv6rpmh7mtctfuup1.apps.googleusercontent.com';
 
 function Root() {
   if (!GOOGLE_CLIENT_ID) {
