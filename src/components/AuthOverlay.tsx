@@ -127,7 +127,7 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
         ) : (
           <button style={styles.btnPhantom} onClick={() => setWalletModalVisible(true)}>
             <img
-              src="https://phantom.app/img/phantom-logo.svg"
+              src="/icons/phantom.svg"
               alt=""
               width={20}
               height={20}

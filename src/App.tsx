@@ -31,7 +31,7 @@ export default function App() {
     <ConnectionProvider endpoint={endpoint}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
-          <GameCanvas wsUrl={WS_URL} />
+          <GameCanvas wsUrl={WS_URL} rscUsername={rscCredentials?.username} rscPassword={rscCredentials?.password} />
           {overlayVisible && (
             <AuthOverlay apiUrl={API_URL} onSuccess={handleAuthSuccess} />
           )}

@@ -1,70 +1,54 @@
 import { useEffect, useRef } from 'react';
 
-const CACHE_CDN = import.meta.env.VITE_CACHE_CDN_URL || 'https://cache.r2hrsc.xyz';
+const CACHE_CDN = import.meta.env.VITE_CACHE_CDN_URL || 'https://game.r2hrsc.xyz/rsc-client';
 
 interface GameCanvasProps {
   wsUrl: string;
+  rscUsername?: string;
+  rscPassword?: string;
 }
 
-export default function GameCanvas({ wsUrl }: GameCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const initialized = useRef(false);
+export default function GameCanvas({ wsUrl, rscUsername, rscPassword }: GameCanvasProps) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
+    if (!rscUsername || !rscPassword || !iframeRef.current?.contentWindow) return;
 
-    // If the mudclient script is already loaded (hot reload), skip
-    if ((window as any).__rscClientLoaded) return;
-
-    const script = document.createElement('script');
-    script.src = `${CACHE_CDN}/client/mudclient.js`;
-    script.async = true;
-
-    script.onload = () => {
-      (window as any).__rscClientLoaded = true;
-
-      // The compiled mudclient looks for these globals before booting
-      (window as any).RSC_CONFIG = {
-        cacheUrl: CACHE_CDN,
-        wsUrl: wsUrl,
-        canvasId: 'game-canvas',
-      };
-
-      // If the client exposes an explicit init function, call it
-      if (typeof (window as any).startMudClient === 'function') {
-        (window as any).startMudClient();
-      }
-      // Otherwise the script's IIFE auto-bootstraps on load
+    const sendCreds = () => {
+      iframeRef.current?.contentWindow?.postMessage(
+        {
+          type: 'R2H_AUTH',
+          username: rscUsername,
+          password: rscPassword,
+        },
+        '*'
+      );
     };
 
-    script.onerror = () => {
-      console.error('[R2H] Failed to load mudclient from', script.src);
-    };
-
-    document.body.appendChild(script);
+    sendCreds();
+    const interval = setInterval(sendCreds, 1000);
+    const timeout = setTimeout(() => clearInterval(interval), 10000);
 
     return () => {
-      // Don't remove the script on unmount — the client is stateful
-      // Only cleanup on full page unload
+      clearInterval(interval);
+      clearTimeout(timeout);
     };
-  }, [wsUrl]);
+  }, [rscUsername, rscPassword]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      id="game-canvas"
-      width={765}
-      height={503}
+    <iframe
+      ref={iframeRef}
+      src={CACHE_CDN}
       style={{
         position: 'fixed',
         top: 0,
         left: 0,
         width: '100vw',
         height: '100vh',
-        imageRendering: 'pixelated',
-        cursor: 'default',
+        border: 'none',
       }}
+      title="R2H RSC Game"
+      allow="autoplay; gamepad"
     />
   );
 }
