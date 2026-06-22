@@ -143,14 +143,14 @@ export default function WalletConnectQR({
   };
 
   // QR encodes Phantom's universal link so Android camera triggers the app
-  // Generic walletconnect.org link just opens a website — Phantom's domain triggers App Intent
+  // Phantom's WC handler: /ul/v1/connect?wcUri=<raw wc: string>
   const qrPayload = uri
-    ? `https://phantom.app/ul/wc?uri=${encodeURIComponent(uri)}`
+    ? `https://phantom.app/ul/v1/connect?wcUri=${encodeURIComponent(uri)}`
     : '';
 
   // Deep link for users already on their phone browser
   const phantomDeepLink = uri
-    ? `phantom://wc?uri=${encodeURIComponent(uri)}`
+    ? `phantom://ul/v1/connect?wcUri=${encodeURIComponent(uri)}`
     : '';
 
   return (
