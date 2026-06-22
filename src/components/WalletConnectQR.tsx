@@ -142,15 +142,16 @@ export default function WalletConnectQR({
     }
   };
 
-  // QR encodes Phantom's universal link so Android camera triggers the app
-  // Phantom's WC handler: /ul/v1/connect?wcUri=<raw wc: string>
-  const qrPayload = uri
-    ? `https://phantom.app/ul/v1/connect?wcUri=${encodeURIComponent(uri)}`
-    : '';
+  // QR encodes the raw wc: URI — this is what WalletConnect recommends.
+  // Phantom/Backpack built-in scanners recognize wc: natively.
+  // The phone's default camera will NOT scan this correctly.
+  // Users must open Phantom → Scan QR.
+  const qrPayload = uri || '';
 
-  // Deep link for users already on their phone browser
+  // Universal link fallback — opens Phantom but may not trigger WC dialog.
+  // Works better on iOS than Android.
   const phantomDeepLink = uri
-    ? `phantom://ul/v1/connect?wcUri=${encodeURIComponent(uri)}`
+    ? `https://phantom.app/ul/v1/connect?uri=${encodeURIComponent(uri)}`
     : '';
 
   return (
@@ -196,16 +197,19 @@ export default function WalletConnectQR({
 
         <div style={qrStyles.infoBox}>
           <p style={qrStyles.infoTitle}>
-            📱 How to scan
+            📱 How to connect
           </p>
           <p style={qrStyles.infoSteps}>
-            <strong>iPhone:</strong> Open your camera app and scan
+            <strong>1.</strong> Open <strong>Phantom</strong> on your phone
           </p>
           <p style={qrStyles.infoSteps}>
-            <strong>Android:</strong> Open your camera app — it will open Phantom or Backpack automatically
+            <strong>2.</strong> Tap the <strong>Menu</strong> icon (bottom right)
           </p>
           <p style={qrStyles.infoSteps}>
-            Or open <strong>Phantom</strong> → <strong>Menu</strong> → <strong>Scan QR</strong>
+            <strong>3.</strong> Tap <strong>Scan QR</strong> and point at this code
+          </p>
+          <p style={{ ...qrStyles.infoSteps, color: '#888', fontSize: 11, marginTop: 8 }}>
+            ⚠️ Do NOT use your phone's camera app — it won't work
           </p>
         </div>
       </div>
