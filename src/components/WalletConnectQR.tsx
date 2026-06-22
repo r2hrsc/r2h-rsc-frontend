@@ -32,6 +32,7 @@ export default function WalletConnectQR({
 }) {
   const [uri, setUri] = useState('');
   const [status, setStatus] = useState('Initializing…');
+  const [copied, setCopied] = useState(false);
   const clientRef = useRef<InstanceType<typeof SignClient> | null>(null);
 
   const init = useCallback(async () => {
@@ -181,6 +182,17 @@ export default function WalletConnectQR({
     };
   }, [init]);
 
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(uri);
+      setCopied(true);
+      console.log('[WC] Copied URI to clipboard:', uri.substring(0, 50) + '…');
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('[WC] Failed to copy:', err);
+    }
+  };
+
   return (
     <div style={qrStyles.overlay}>
       <div style={qrStyles.card}>
@@ -207,12 +219,27 @@ export default function WalletConnectQR({
           )}
         </div>
 
+        {uri && (
+          <button style={qrStyles.copyBtn} onClick={handleCopyLink}>
+            {copied ? '✓ Copied!' : 'Copy Connection Link'}
+          </button>
+        )}
+
         <p style={qrStyles.instructions}>
           {status}
         </p>
-        <p style={qrStyles.hint}>
-          Open Phantom or Backpack → Scan QR
-        </p>
+
+        <div style={qrStyles.warningBox}>
+          <p style={qrStyles.warningTitle}>
+            ⚠️ Do NOT use your phone's default camera app
+          </p>
+          <p style={qrStyles.warningText}>
+            The default camera won't recognize this QR code.
+          </p>
+          <p style={qrStyles.warningSteps}>
+            <strong>Instead:</strong> Open <strong>Phantom</strong> or <strong>Backpack</strong> → tap the <strong>Menu</strong> icon → <strong>Scan QR</strong>
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -226,7 +253,7 @@ const qrStyles: Record<string, React.CSSProperties> = {
   },
   card: {
     background: '#0a0a0a', border: '1px solid #333', borderRadius: 16,
-    padding: '28px 28px 24px', width: 340, maxWidth: '90vw',
+    padding: '28px 28px 24px', width: 360, maxWidth: '90vw',
     display: 'flex', flexDirection: 'column', alignItems: 'center',
   },
   header: {
@@ -253,12 +280,31 @@ const qrStyles: Record<string, React.CSSProperties> = {
     borderTop: '3px solid #888', borderRadius: '50%',
     animation: 'spin 1s linear infinite',
   },
+  copyBtn: {
+    marginTop: 12, padding: '8px 16px', borderRadius: 6,
+    border: '1px solid #444', background: 'transparent',
+    color: '#aaa', fontSize: 12, cursor: 'pointer',
+    transition: 'all 0.2s',
+  },
   instructions: {
     color: '#aaa', fontSize: 14, textAlign: 'center' as const,
-    marginTop: 16, marginBottom: 0,
+    marginTop: 12, marginBottom: 0,
   },
-  hint: {
-    color: '#555', fontSize: 12, textAlign: 'center' as const,
-    marginTop: 6, marginBottom: 0,
+  warningBox: {
+    marginTop: 16, padding: '12px 16px', borderRadius: 8,
+    background: '#1a1a00', border: '1px solid #333',
+    width: '100%', boxSizing: 'border-box' as const,
+  },
+  warningTitle: {
+    color: '#ffcc00', fontSize: 13, fontWeight: 700,
+    margin: '0 0 6px', textAlign: 'center' as const,
+  },
+  warningText: {
+    color: '#aaa', fontSize: 12, margin: '0 0 8px',
+    textAlign: 'center' as const,
+  },
+  warningSteps: {
+    color: '#fff', fontSize: 12, margin: 0,
+    textAlign: 'center' as const, lineHeight: 1.5,
   },
 };
