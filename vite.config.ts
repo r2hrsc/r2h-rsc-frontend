@@ -10,6 +10,9 @@ export default defineConfig({
       globals: { Buffer: true, process: true },
     }),
   ],
+  define: {
+    global: 'globalThis',
+  },
   server: {
     port: 5173,
     host: true,
