@@ -1,23 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import SignClient from '@walletconnect/sign-client';
+import { UniversalProvider } from '@walletconnect/universal-provider';
 import { PublicKey } from '@solana/web3.js';
 
 const PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '';
 
-// Solana chain IDs — include both current and deprecated for maximum wallet compat
+// Both current and deprecated Solana mainnet chain IDs
 const SOLANA_MAINNET = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
 const SOLANA_MAINNET_DEPRECATED = 'solana:4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ';
-
-const SOLANA_METHODS = [
-  'solana_signMessage',
-  'solana_signTransaction',
-  'solana_signAndSendTransaction',
-];
+const SOLANA_METHODS = ['solana_signMessage', 'solana_signTransaction'];
 
 interface QRResult {
   publicKey: PublicKey;
-  topic: string;
   signMessage: (msg: Uint8Array) => Promise<Uint8Array>;
 }
 
@@ -33,13 +27,13 @@ export default function WalletConnectQR({
   const [uri, setUri] = useState('');
   const [status, setStatus] = useState('Initializing…');
   const [copied, setCopied] = useState(false);
-  const clientRef = useRef<InstanceType<typeof SignClient> | null>(null);
+  const providerRef = useRef<Awaited<ReturnType<typeof UniversalProvider.init>> | null>(null);
+  const cancelledRef = useRef(false);
 
   const init = useCallback(async () => {
-    let client: InstanceType<typeof SignClient>;
     try {
-      console.log('[WC] Initializing SignClient…');
-      client = await SignClient.init({
+      console.log('[WC] Initializing UniversalProvider…');
+      const provider = await UniversalProvider.init({
         projectId: PROJECT_ID,
         metadata: {
           name: 'R2H RSC',
@@ -48,53 +42,30 @@ export default function WalletConnectQR({
           icons: ['https://r2hrsc.xyz/icons/phantom.svg'],
         },
       });
-      clientRef.current = client;
-      console.log('[WC] SignClient initialized, core relayer:', client.core.relayer.connected);
-    } catch (initErr: any) {
-      console.error('[WC] Init failed:', initErr);
-      onError(`WalletConnect init failed: ${initErr?.message}`);
-      return;
-    }
+      providerRef.current = provider;
+      console.log('[WC] UniversalProvider initialized');
 
-    // ── Event listeners for debugging ───────────────────────────
-    client.on('session_proposal', (event) => {
-      console.log('[WC] session_proposal:', JSON.stringify(event, null, 2));
-    });
+      // Listen for the pairing URI — this is what the QR code should encode
+      provider.on('display_uri', async (data: string) => {
+        if (cancelledRef.current) return;
+        console.log('[WC] display_uri:', data.substring(0, 50) + '…');
+        setUri(data);
+        setStatus('Scan with your phone camera or Phantom app');
+      });
 
-    client.on('session_connect', (event) => {
-      console.log('[WC] session_connect:', JSON.stringify(event, null, 2));
-    });
+      // Also listen on the pairing layer
+      provider.client.core.pairing.events.on('display_uri', (data: any) => {
+        if (cancelledRef.current) return;
+        const uriStr = typeof data === 'string' ? data : data?.uri || '';
+        if (uriStr && uriStr.startsWith('wc:') && !uri) {
+          console.log('[WC] pairing display_uri:', uriStr.substring(0, 50) + '…');
+          setUri(uriStr);
+          setStatus('Scan with your phone camera or Phantom app');
+        }
+      });
 
-    client.on('session_update', (event) => {
-      console.log('[WC] session_update:', JSON.stringify(event, null, 2));
-    });
-
-    client.on('session_delete', (event) => {
-      console.log('[WC] session_delete:', JSON.stringify(event, null, 2));
-    });
-
-    client.on('session_expire', (event) => {
-      console.warn('[WC] session_expire:', event);
-    });
-
-    // ── Display URI event (some SDKs emit this) ─────────────────
-    client.core.pairing.events.on('display_uri', (data: any) => {
-      console.log('[WC] pairing display_uri:', data);
-    });
-
-    try {
-      console.log('[WC] Calling client.connect()…');
-      console.log('[WC] Namespaces:', JSON.stringify({
-        solana: {
-          methods: SOLANA_METHODS,
-          chains: [SOLANA_MAINNET, SOLANA_MAINNET_DEPRECATED],
-          events: [],
-        },
-      }, null, 2));
-
-      const { uri: proposalUri, approval } = await client.connect({
-        // Use optionalNamespaces so wallets that only support
-        // the deprecated chain ID can still connect
+      console.log('[WC] Calling provider.connect()…');
+      const session = await provider.connect({
         optionalNamespaces: {
           solana: {
             methods: SOLANA_METHODS,
@@ -104,46 +75,27 @@ export default function WalletConnectQR({
         },
       });
 
-      console.log('[WC] connect() returned, uri:', proposalUri);
+      if (cancelledRef.current) return;
+      console.log('[WC] Session established! Topic:', session.topic);
 
-      if (proposalUri) {
-      console.log('[WC] URI length:', proposalUri.length);
-      console.log('[WC] URI prefix:', proposalUri.substring(0, 30) + '…');
-      setUri(proposalUri);
-      const universalLink = `https://walletconnect.org/wc?uri=${encodeURIComponent(proposalUri)}`;
-      console.log('[WC] Universal link:', universalLink.substring(0, 60) + '…');
-      setStatus('Scan with your phone camera or Phantom app');
-      } else {
-        console.error('[WC] No URI returned from connect()');
-        onError('WalletConnect did not return a pairing URI.');
-        return;
-      }
-
-      // Wait for the user to scan and approve (or reject / timeout)
-      console.log('[WC] Waiting for approval…');
-      const session = await approval();
-      console.log('[WC] Session approved! Topic:', session.topic);
-      console.log('[WC] Session namespaces:', JSON.stringify(session.namespaces, null, 2));
-
-      // Extract the Solana account from the session
+      // Extract Solana account
       const accounts = session.namespaces.solana?.accounts || [];
       console.log('[WC] Accounts:', accounts);
 
       if (accounts.length === 0) {
-        throw new Error('No Solana account in the WalletConnect session.');
+        throw new Error('No Solana account in session.');
       }
 
-      // Format: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:<address>"
       const address = accounts[0].split(':')[2];
-      console.log('[WC] Connected address:', address);
+      const chainId = accounts[0].split(':').slice(0, 2).join(':');
+      console.log('[WC] Connected address:', address, 'chain:', chainId);
       const publicKey = new PublicKey(address);
 
-      // Create a signMessage function that uses the WalletConnect session
       const signMessage = async (msg: Uint8Array): Promise<Uint8Array> => {
         console.log('[WC] Signing message, length:', msg.length);
-        const result = await client.request({
+        const result = await provider.client.request({
           topic: session.topic,
-          chainId: accounts[0].split(':').slice(0, 2).join(':'),
+          chainId,
           request: {
             method: 'solana_signMessage',
             params: {
@@ -153,14 +105,14 @@ export default function WalletConnectQR({
           },
         });
         console.log('[WC] Sign result:', result);
-        // Result is { signature: string } — base64 encoded
         const sig = (result as any).signature;
         return Uint8Array.from(atob(sig), (c) => c.charCodeAt(0));
       };
 
-      onConnect({ publicKey, topic: session.topic, signMessage });
+      onConnect({ publicKey, signMessage });
     } catch (err: any) {
-      console.error('[WC] Error during connect/approval:', err);
+      if (cancelledRef.current) return;
+      console.error('[WC] Error:', err);
       if (err?.message?.includes('expired') || err?.message?.includes('Proposal expired')) {
         onError('QR code expired. Please try again.');
       } else if (err?.message?.includes('rejected')) {
@@ -174,11 +126,8 @@ export default function WalletConnectQR({
   useEffect(() => {
     init();
     return () => {
-      clientRef.current?.removeAllListeners('session_proposal');
-      clientRef.current?.removeAllListeners('session_connect');
-      clientRef.current?.removeAllListeners('session_update');
-      clientRef.current?.removeAllListeners('session_delete');
-      clientRef.current?.removeAllListeners('session_expire');
+      cancelledRef.current = true;
+      providerRef.current?.disconnect().catch(() => {});
     };
   }, [init]);
 
@@ -186,15 +135,14 @@ export default function WalletConnectQR({
     try {
       await navigator.clipboard.writeText(uri);
       setCopied(true);
-      console.log('[WC] Copied RAW wc: URI to clipboard');
+      console.log('[WC] Copied raw wc: URI');
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('[WC] Failed to copy:', err);
     }
   };
 
-  // The QR code encodes the universal link so Android camera opens the wallet app
-  // The copy button copies the raw wc: URI for debugging
+  // QR encodes universal link so Android camera opens the wallet app
   const qrPayload = uri
     ? `https://walletconnect.org/wc?uri=${encodeURIComponent(uri)}`
     : '';
@@ -235,17 +183,17 @@ export default function WalletConnectQR({
           {status}
         </p>
 
-        <div style={qrStyles.warningBox}>
-          <p style={qrStyles.warningTitle}>
+        <div style={qrStyles.infoBox}>
+          <p style={qrStyles.infoTitle}>
             📱 How to scan
           </p>
-          <p style={qrStyles.warningSteps}>
-            <strong>iPhone:</strong> Open your camera app and scan the QR code
+          <p style={qrStyles.infoSteps}>
+            <strong>iPhone:</strong> Open your camera app and scan
           </p>
-          <p style={qrStyles.warningSteps}>
-            <strong>Android:</strong> Open your camera app and scan — it will open Phantom or Backpack automatically
+          <p style={qrStyles.infoSteps}>
+            <strong>Android:</strong> Open your camera app — it will open Phantom or Backpack automatically
           </p>
-          <p style={qrStyles.warningSteps}>
+          <p style={qrStyles.infoSteps}>
             Or open <strong>Phantom</strong> → <strong>Menu</strong> → <strong>Scan QR</strong>
           </p>
         </div>
@@ -293,27 +241,22 @@ const qrStyles: Record<string, React.CSSProperties> = {
     marginTop: 12, padding: '8px 16px', borderRadius: 6,
     border: '1px solid #444', background: 'transparent',
     color: '#aaa', fontSize: 12, cursor: 'pointer',
-    transition: 'all 0.2s',
   },
   instructions: {
     color: '#aaa', fontSize: 14, textAlign: 'center' as const,
     marginTop: 12, marginBottom: 0,
   },
-  warningBox: {
+  infoBox: {
     marginTop: 16, padding: '12px 16px', borderRadius: 8,
-    background: '#1a1a00', border: '1px solid #333',
+    background: '#111', border: '1px solid #222',
     width: '100%', boxSizing: 'border-box' as const,
   },
-  warningTitle: {
-    color: '#ffcc00', fontSize: 13, fontWeight: 700,
+  infoTitle: {
+    color: '#fff', fontSize: 13, fontWeight: 700,
     margin: '0 0 6px', textAlign: 'center' as const,
   },
-  warningText: {
-    color: '#aaa', fontSize: 12, margin: '0 0 8px',
-    textAlign: 'center' as const,
-  },
-  warningSteps: {
-    color: '#fff', fontSize: 12, margin: 0,
+  infoSteps: {
+    color: '#aaa', fontSize: 12, margin: '4px 0',
     textAlign: 'center' as const, lineHeight: 1.5,
   },
 };
