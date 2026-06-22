@@ -107,12 +107,12 @@ export default function WalletConnectQR({
       console.log('[WC] connect() returned, uri:', proposalUri);
 
       if (proposalUri) {
-        // The uri starts with "wc:" — this is the raw WalletConnect pairing URI
-        // It must go directly into the QR code, NOT wrapped in a deep link
-        console.log('[WC] URI length:', proposalUri.length);
-        console.log('[WC] URI prefix:', proposalUri.substring(0, 30) + '…');
-        setUri(proposalUri);
-        setStatus('Scan with Phantom or Backpack on your phone');
+      console.log('[WC] URI length:', proposalUri.length);
+      console.log('[WC] URI prefix:', proposalUri.substring(0, 30) + '…');
+      setUri(proposalUri);
+      const universalLink = `https://walletconnect.org/wc?uri=${encodeURIComponent(proposalUri)}`;
+      console.log('[WC] Universal link:', universalLink.substring(0, 60) + '…');
+      setStatus('Scan with your phone camera or Phantom app');
       } else {
         console.error('[WC] No URI returned from connect()');
         onError('WalletConnect did not return a pairing URI.');
@@ -186,12 +186,18 @@ export default function WalletConnectQR({
     try {
       await navigator.clipboard.writeText(uri);
       setCopied(true);
-      console.log('[WC] Copied URI to clipboard:', uri.substring(0, 50) + '…');
+      console.log('[WC] Copied RAW wc: URI to clipboard');
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('[WC] Failed to copy:', err);
     }
   };
+
+  // The QR code encodes the universal link so Android camera opens the wallet app
+  // The copy button copies the raw wc: URI for debugging
+  const qrPayload = uri
+    ? `https://walletconnect.org/wc?uri=${encodeURIComponent(uri)}`
+    : '';
 
   return (
     <div style={qrStyles.overlay}>
@@ -202,9 +208,9 @@ export default function WalletConnectQR({
         </div>
 
         <div style={qrStyles.qrBox}>
-          {uri ? (
+          {qrPayload ? (
             <QRCodeSVG
-              value={uri}
+              value={qrPayload}
               size={260}
               bgColor="#000"
               fgColor="#fff"
@@ -231,13 +237,16 @@ export default function WalletConnectQR({
 
         <div style={qrStyles.warningBox}>
           <p style={qrStyles.warningTitle}>
-            ⚠️ Do NOT use your phone's default camera app
-          </p>
-          <p style={qrStyles.warningText}>
-            The default camera won't recognize this QR code.
+            📱 How to scan
           </p>
           <p style={qrStyles.warningSteps}>
-            <strong>Instead:</strong> Open <strong>Phantom</strong> or <strong>Backpack</strong> → tap the <strong>Menu</strong> icon → <strong>Scan QR</strong>
+            <strong>iPhone:</strong> Open your camera app and scan the QR code
+          </p>
+          <p style={qrStyles.warningSteps}>
+            <strong>Android:</strong> Open your camera app and scan — it will open Phantom or Backpack automatically
+          </p>
+          <p style={qrStyles.warningSteps}>
+            Or open <strong>Phantom</strong> → <strong>Menu</strong> → <strong>Scan QR</strong>
           </p>
         </div>
       </div>
