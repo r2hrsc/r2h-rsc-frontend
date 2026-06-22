@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 const CACHE_CDN = import.meta.env.VITE_CACHE_CDN_URL || 'https://game.r2hrsc.xyz/rsc-client';
+const IFRAME_ORIGIN = 'https://game.r2hrsc.xyz';
 
 interface GameCanvasProps {
   wsUrl: string;
@@ -17,17 +18,18 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword }: GameCanv
     const sendCreds = () => {
       iframeRef.current?.contentWindow?.postMessage(
         {
-          type: 'R2H_AUTH',
+          type: 'RSC_LOGIN',
           username: rscUsername,
           password: rscPassword,
         },
-        '*'
+        IFRAME_ORIGIN
       );
     };
 
+    // Send immediately, then retry every 1s for 15s (iframe may still be loading)
     sendCreds();
     const interval = setInterval(sendCreds, 1000);
-    const timeout = setTimeout(() => clearInterval(interval), 10000);
+    const timeout = setTimeout(() => clearInterval(interval), 15000);
 
     return () => {
       clearInterval(interval);

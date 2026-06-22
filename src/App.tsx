@@ -6,7 +6,6 @@ import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
 import { clusterApiUrl } from '@solana/web3.js';
 import GameCanvas from './components/GameCanvas';
 import AuthOverlay from './components/AuthOverlay';
-import { useAutoLogin } from './hooks/useAutoLogin';
 
 import '@solana/wallet-adapter-react-ui/styles.css';
 
@@ -24,8 +23,6 @@ export default function App() {
     setRscCredentials({ username, password });
     setOverlayVisible(false);
   }, []);
-
-  useAutoLogin(rscCredentials);
 
   return (
     <ConnectionProvider endpoint={endpoint}>
