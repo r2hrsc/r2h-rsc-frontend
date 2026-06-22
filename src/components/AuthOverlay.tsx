@@ -1,9 +1,12 @@
-import { useState, lazy, Suspense } from 'react';
+import { useState, lazy, Suspense, useRef } from 'react';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+import type { PublicKey } from '@solana/web3.js';
 
 const DevDiagnostics = lazy(() => import('./DevDiagnostics'));
+const WalletConnectQR = lazy(() => import('./WalletConnectQR'));
+
 interface AuthOverlayProps {
   apiUrl: string;
   onSuccess: (rscUsername: string, rscPassword: string) => void;
@@ -13,8 +16,13 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
   const [status, setStatus] = useState('');
   const [error, setError]   = useState('');
   const [showDiag, setShowDiag] = useState(false);
+  const [showQR, setShowQR] = useState(false);
 
-  const { publicKey, signMessage, connected, disconnect, select, connect, wallets } = useWallet();
+  // WalletConnect state (managed outside the adapter)
+  const wcPublicKey = useRef<PublicKey | null>(null);
+  const wcSignMessage = useRef<((msg: Uint8Array) => Promise<Uint8Array>) | null>(null);
+
+  const { publicKey, signMessage, connected, disconnect } = useWallet();
   const { setVisible: setWalletModalVisible } = useWalletModal();
 
   // ── Google (ID token flow) ──────────────────────────────────────
@@ -40,18 +48,11 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
     }
   };
 
-  // ── Solana wallet (extension flow) ──────────────────────────────
-  const handleWalletAuth = async () => {
-    if (!connected || !publicKey || !signMessage) {
-      setWalletModalVisible(true);
-      return;
-    }
+  // ── Shared nonce-signing logic ──────────────────────────────────
+  const doWalletAuth = async (walletAddr: string, sign: (msg: Uint8Array) => Promise<Uint8Array>) => {
     setStatus('Requesting nonce…');
     setError('');
     try {
-      const walletAddr = publicKey.toBase58();
-
-      // 1. Get nonce + server-constructed message
       const nonceRes = await fetch(`${apiUrl}/auth/wallet/nonce`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,11 +61,9 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
       const nonceData = await nonceRes.json();
       if (!nonceData.ok || !nonceData.message) throw new Error(nonceData.error || 'Server did not return a nonce.');
 
-      // 2. Sign the EXACT message from the server
       const messageBytes = new TextEncoder().encode(nonceData.message);
-      const signature = await signMessage(messageBytes);
+      const signature = await sign(messageBytes);
 
-      // 3. Send walletAddress + message + signature
       setStatus('Verifying signature…');
       const authRes = await fetch(`${apiUrl}/auth/wallet`, {
         method: 'POST',
@@ -84,40 +83,49 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
     }
   };
 
-  // ── WalletConnect QR code flow ──────────────────────────────────
-  const handleQRConnect = async () => {
-    setError('');
-    setStatus('Opening QR code…');
-    try {
-      // Find the WalletConnect adapter from the registered wallets
-      const wcWallet = wallets.find(
-        (w) => w.adapter.name === 'WalletConnect'
-      );
-      if (!wcWallet) {
-        setError('WalletConnect is not configured. Add VITE_WALLETCONNECT_PROJECT_ID.');
-        setStatus('');
-        return;
-      }
-      select(wcWallet.adapter.name);
-      // Small tick so select() registers before connect()
-      await new Promise((r) => setTimeout(r, 50));
-      await connect();
-    } catch (err: any) {
-      setError(err.message || 'WalletConnect failed');
-      setStatus('');
+  // ── Solana wallet (extension flow) ──────────────────────────────
+  const handleWalletAuth = async () => {
+    if (!connected || !publicKey || !signMessage) {
+      setWalletModalVisible(true);
+      return;
     }
+    await doWalletAuth(publicKey.toBase58(), signMessage);
+  };
+
+  // ── WalletConnect QR flow ───────────────────────────────────────
+  const handleQRConnect = () => {
+    setError('');
+    setShowQR(true);
+  };
+
+  const handleQRConnected = async (result: { publicKey: PublicKey; signMessage: (msg: Uint8Array) => Promise<Uint8Array> }) => {
+    setShowQR(false);
+    wcPublicKey.current = result.publicKey;
+    wcSignMessage.current = result.signMessage;
+    await doWalletAuth(result.publicKey.toBase58(), result.signMessage);
+  };
+
+  const handleQRError = (msg: string) => {
+    setShowQR(false);
+    setError(msg);
+    setStatus('');
   };
 
   const handleDisconnect = () => {
     disconnect();
+    wcPublicKey.current = null;
+    wcSignMessage.current = null;
     setError('');
     setStatus('');
   };
 
-  // Check if WalletConnect adapter is registered
-  const hasWalletConnect = wallets.some(
-    (w) => w.adapter.name === 'WalletConnect'
-  );
+  // Check if WalletConnect is configured
+  const hasWalletConnect = !!import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
+
+  // Determine if we're in a connected state (extension OR WalletConnect)
+  const isExtensionConnected = connected && publicKey;
+  const isWCConnected = !!wcPublicKey.current;
+  const activePublicKey = isExtensionConnected ? publicKey : wcPublicKey.current;
 
   return (
     <div style={styles.overlay}>
@@ -128,7 +136,7 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
         {error && <p style={styles.error}>{error}</p>}
         {status && <p style={styles.status}>{status}</p>}
 
-        {/* Google — renders the official Google button */}
+        {/* Google */}
         <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
           <GoogleLogin
             onSuccess={handleGoogleSuccess}
@@ -147,10 +155,10 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
         </div>
 
         {/* Solana wallet */}
-        {connected && publicKey ? (
+        {activePublicKey ? (
           <div style={{ width: '100%' }}>
             <p style={styles.walletAddr}>
-              {publicKey.toBase58().slice(0, 4)}…{publicKey.toBase58().slice(-4)}
+              {activePublicKey.toBase58().slice(0, 4)}…{activePublicKey.toBase58().slice(-4)}
             </p>
             <button style={styles.btn} onClick={handleWalletAuth}>
               Sign in with Wallet
@@ -194,6 +202,17 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
           ⚡ Run Diagnostics
         </button>
       </div>
+
+      {/* QR overlay */}
+      {showQR && (
+        <Suspense fallback={null}>
+          <WalletConnectQR
+            onConnect={handleQRConnected}
+            onError={handleQRError}
+            onClose={() => setShowQR(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Diagnostics overlay */}
       {showDiag && (
