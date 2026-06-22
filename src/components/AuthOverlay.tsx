@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
+
+const DevDiagnostics = lazy(() => import('./DevDiagnostics'));
 interface AuthOverlayProps {
   apiUrl: string;
   onSuccess: (rscUsername: string, rscPassword: string) => void;
@@ -10,6 +12,7 @@ interface AuthOverlayProps {
 export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
   const [status, setStatus] = useState('');
   const [error, setError]   = useState('');
+  const [showDiag, setShowDiag] = useState(false);
 
   const { publicKey, signMessage, connected, disconnect, select, connect, wallets } = useWallet();
   const { setVisible: setWalletModalVisible } = useWalletModal();
@@ -185,7 +188,19 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
             )}
           </>
         )}
+
+        {/* Diagnostics link */}
+        <button style={styles.diagLink} onClick={() => setShowDiag(true)}>
+          ⚡ Run Diagnostics
+        </button>
       </div>
+
+      {/* Diagnostics overlay */}
+      {showDiag && (
+        <Suspense fallback={null}>
+          <DevDiagnostics onClose={() => setShowDiag(false)} />
+        </Suspense>
+      )}
     </div>
   );
 }
@@ -239,5 +254,10 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%', padding: '10px 0', borderRadius: 8,
     border: '1px solid #333', background: 'transparent', color: '#888',
     fontSize: 13, cursor: 'pointer', marginTop: 6,
+  },
+  diagLink: {
+    background: 'none', border: 'none', color: '#555', fontSize: 11,
+    cursor: 'pointer', padding: '4px 0', marginTop: 4,
+    textDecoration: 'underline',
   },
 };
