@@ -142,9 +142,15 @@ export default function WalletConnectQR({
     }
   };
 
-  // QR encodes universal link so Android camera opens the wallet app
+  // QR encodes Phantom's universal link so Android camera triggers the app
+  // Generic walletconnect.org link just opens a website — Phantom's domain triggers App Intent
   const qrPayload = uri
-    ? `https://walletconnect.org/wc?uri=${encodeURIComponent(uri)}`
+    ? `https://phantom.app/ul/wc?uri=${encodeURIComponent(uri)}`
+    : '';
+
+  // Deep link for users already on their phone browser
+  const phantomDeepLink = uri
+    ? `phantom://wc?uri=${encodeURIComponent(uri)}`
     : '';
 
   return (
@@ -174,9 +180,14 @@ export default function WalletConnectQR({
         </div>
 
         {uri && (
-          <button style={qrStyles.copyBtn} onClick={handleCopyLink}>
-            {copied ? '✓ Copied!' : 'Copy Connection Link'}
-          </button>
+          <>
+            <button style={qrStyles.copyBtn} onClick={handleCopyLink}>
+              {copied ? '✓ Copied!' : 'Copy Connection Link'}
+            </button>
+            <a href={phantomDeepLink} style={qrStyles.deepLink}>
+              Open in Phantom (Mobile)
+            </a>
+          </>
         )}
 
         <p style={qrStyles.instructions}>
@@ -241,6 +252,13 @@ const qrStyles: Record<string, React.CSSProperties> = {
     marginTop: 12, padding: '8px 16px', borderRadius: 6,
     border: '1px solid #444', background: 'transparent',
     color: '#aaa', fontSize: 12, cursor: 'pointer',
+  },
+  deepLink: {
+    marginTop: 6, padding: '10px 20px', borderRadius: 8,
+    border: 'none', background: '#ab9ff2',
+    color: '#fff', fontSize: 14, fontWeight: 600,
+    textDecoration: 'none', textAlign: 'center' as const,
+    display: 'block', width: '100%', boxSizing: 'border-box' as const,
   },
   instructions: {
     color: '#aaa', fontSize: 14, textAlign: 'center' as const,
