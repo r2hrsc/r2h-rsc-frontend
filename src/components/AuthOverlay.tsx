@@ -11,7 +11,7 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
   const [status, setStatus] = useState('');
   const [error, setError]   = useState('');
 
-  const { publicKey, signMessage, connected, disconnect } = useWallet();
+  const { publicKey, signMessage, connected, disconnect, select, connect, wallets } = useWallet();
   const { setVisible: setWalletModalVisible } = useWalletModal();
 
   // ── Google (ID token flow) ──────────────────────────────────────
@@ -37,7 +37,7 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
     }
   };
 
-  // ── Solana wallet ───────────────────────────────────────────────
+  // ── Solana wallet (extension flow) ──────────────────────────────
   const handleWalletAuth = async () => {
     if (!connected || !publicKey || !signMessage) {
       setWalletModalVisible(true);
@@ -81,11 +81,40 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
     }
   };
 
+  // ── WalletConnect QR code flow ──────────────────────────────────
+  const handleQRConnect = async () => {
+    setError('');
+    setStatus('Opening QR code…');
+    try {
+      // Find the WalletConnect adapter from the registered wallets
+      const wcWallet = wallets.find(
+        (w) => w.adapter.name === 'WalletConnect'
+      );
+      if (!wcWallet) {
+        setError('WalletConnect is not configured. Add VITE_WALLETCONNECT_PROJECT_ID.');
+        setStatus('');
+        return;
+      }
+      select(wcWallet.adapter.name);
+      // Small tick so select() registers before connect()
+      await new Promise((r) => setTimeout(r, 50));
+      await connect();
+    } catch (err: any) {
+      setError(err.message || 'WalletConnect failed');
+      setStatus('');
+    }
+  };
+
   const handleDisconnect = () => {
     disconnect();
     setError('');
     setStatus('');
   };
+
+  // Check if WalletConnect adapter is registered
+  const hasWalletConnect = wallets.some(
+    (w) => w.adapter.name === 'WalletConnect'
+  );
 
   return (
     <div style={styles.overlay}>
@@ -128,16 +157,33 @@ export default function AuthOverlay({ apiUrl, onSuccess }: AuthOverlayProps) {
             </button>
           </div>
         ) : (
-          <button style={styles.btnPhantom} onClick={() => setWalletModalVisible(true)}>
-            <img
-              src="/icons/phantom.svg"
-              alt=""
-              width={20}
-              height={20}
-              style={{ marginRight: 10 }}
-            />
-            Connect Phantom / Solflare
-          </button>
+          <>
+            <button style={styles.btnPhantom} onClick={() => setWalletModalVisible(true)}>
+              <img
+                src="/icons/phantom.svg"
+                alt=""
+                width={20}
+                height={20}
+                style={{ marginRight: 10 }}
+              />
+              Connect Phantom / Solflare
+            </button>
+
+            {hasWalletConnect && (
+              <button style={styles.btnQR} onClick={handleQRConnect}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 10 }}>
+                  <rect x="2" y="2" width="8" height="8" rx="1" />
+                  <rect x="14" y="2" width="8" height="8" rx="1" />
+                  <rect x="2" y="14" width="8" height="8" rx="1" />
+                  <rect x="14" y="14" width="4" height="4" rx="0.5" />
+                  <rect x="20" y="14" width="2" height="2" />
+                  <rect x="14" y="20" width="2" height="2" />
+                  <rect x="20" y="20" width="2" height="2" />
+                </svg>
+                Mobile / QR Code
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>
@@ -182,6 +228,11 @@ const styles: Record<string, React.CSSProperties> = {
   btnPhantom: {
     width: '100%', padding: '12px 0', borderRadius: 8, border: 'none',
     background: '#ab9ff2', color: '#fff', fontSize: 15, fontWeight: 600,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
+  btnQR: {
+    width: '100%', padding: '12px 0', borderRadius: 8, border: '1px solid #333',
+    background: 'transparent', color: '#fff', fontSize: 15, fontWeight: 600,
     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
   btnSecondary: {
