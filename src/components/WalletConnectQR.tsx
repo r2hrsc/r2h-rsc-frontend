@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { PublicKey } from '@solana/web3.js';
 import { UniversalProvider } from '@walletconnect/universal-provider';
-import { createAppKit } from '@reown/appkit/core';
-import { solana, solanaDevnet } from '@reown/appkit/networks';
 
 const PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '';
+
+// Both current and deprecated Solana mainnet chain IDs
+const SOLANA_MAINNET = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
+const SOLANA_MAINNET_DEPRECATED = 'solana:4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ';
+const SOLANA_METHODS = ['solana_signMessage', 'solana_signTransaction'];
 
 interface QRResult {
   publicKey: PublicKey;
@@ -21,9 +25,11 @@ export default function WalletConnectQR({
   onError: (err: string) => void;
   onClose: () => void;
 }) {
+  const [uri, setUri] = useState('');
   const [status, setStatus] = useState('Initializing…');
+  const [copied, setCopied] = useState(false);
   const providerRef = useRef<Awaited<ReturnType<typeof UniversalProvider.init>> | null>(null);
-  const modalRef = useRef<ReturnType<typeof createAppKit> | null>(null);
+  const cancelledRef = useRef(false);
 
   const init = useCallback(async () => {
     try {
@@ -40,51 +46,38 @@ export default function WalletConnectQR({
       providerRef.current = provider;
       console.log('[WC] UniversalProvider initialized');
 
-      // Create the AppKit modal — this is what the official adapter uses.
-      // It handles QR code generation, universal links, wallet detection,
-      // and deep linking automatically. This is the battle-tested approach.
-      const modal = createAppKit({
-        projectId: PROJECT_ID,
-        universalProvider: provider,
-        networks: [solana, solanaDevnet],
-        manualWCControl: true,
-        featuredWallets: [],
+      // Listen for the pairing URI
+      provider.on('display_uri', async (data: string) => {
+        if (cancelledRef.current) return;
+        console.log('[WC] display_uri:', data.substring(0, 50) + '…');
+        setUri(data);
+        setStatus('Scan with Phantom or Backpack');
       });
-      modalRef.current = modal;
 
-      // Open the modal — it shows the QR code with the correct
-      // universal link format that Android/iOS cameras recognize
-      console.log('[WC] Opening AppKit modal…');
-      modal.open();
-      setStatus('Scan the QR code with your phone camera');
-
-      // Now call connect — this triggers the WalletConnect session proposal.
-      // The modal displays the QR code automatically via the relay.
       console.log('[WC] Calling provider.connect()…');
       const sessionResult = await provider.connect({
         optionalNamespaces: {
           solana: {
-            methods: ['solana_signMessage', 'solana_signTransaction'],
-            chains: ['solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp', 'solana:4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ'],
+            methods: SOLANA_METHODS,
+            chains: [SOLANA_MAINNET, SOLANA_MAINNET_DEPRECATED],
             events: [],
           },
         },
       });
 
-      const session = sessionResult!;
+      const session = sessionResult;
       if (!session) {
         throw new Error('WalletConnect session was not established.');
       }
 
+      if (cancelledRef.current) return;
       console.log('[WC] Session established:', session.topic);
-      modal.close();
 
-      // Extract Solana account from session
       const accounts = session.namespaces.solana?.accounts || [];
       console.log('[WC] Accounts:', accounts);
 
       if (accounts.length === 0) {
-        throw new Error('No Solana account in the WalletConnect session.');
+        throw new Error('No Solana account in session.');
       }
 
       const address = accounts[0].split(':')[2];
@@ -92,7 +85,6 @@ export default function WalletConnectQR({
       console.log('[WC] Connected address:', address);
       const publicKey = new PublicKey(address);
 
-      // signMessage function using the UniversalProvider
       const signMessage = async (msg: Uint8Array): Promise<Uint8Array> => {
         console.log('[WC] Signing message, length:', msg.length);
         const result = await provider.client.request({
@@ -113,8 +105,8 @@ export default function WalletConnectQR({
 
       onConnect({ publicKey, topic: session.topic, signMessage });
     } catch (err: any) {
+      if (cancelledRef.current) return;
       console.error('[WC] Error:', err);
-      modalRef.current?.close();
       if (err?.message?.includes('expired') || err?.message?.includes('Proposal expired')) {
         onError('QR code expired. Please try again.');
       } else if (err?.message?.includes('rejected')) {
@@ -128,10 +120,21 @@ export default function WalletConnectQR({
   useEffect(() => {
     init();
     return () => {
-      modalRef.current?.close();
+      cancelledRef.current = true;
       providerRef.current?.disconnect?.().catch(() => {});
     };
   }, [init]);
+
+  const handleCopyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(uri);
+      setCopied(true);
+      console.log('[WC] Copied raw wc: URI');
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('[WC] Failed to copy:', err);
+    }
+  };
 
   return (
     <div style={qrStyles.overlay}>
@@ -141,29 +144,53 @@ export default function WalletConnectQR({
           <button style={qrStyles.close} onClick={onClose}>✕</button>
         </div>
 
-        <p style={qrStyles.instructions}>
-          {status}
-        </p>
+        <div style={qrStyles.qrBox}>
+          {uri ? (
+            <QRCodeSVG
+              value={uri}
+              size={240}
+              bgColor="#000"
+              fgColor="#fff"
+              level="M"
+              style={{ borderRadius: 8 }}
+            />
+          ) : (
+            <div style={qrStyles.loading}>
+              <div style={qrStyles.spinner} />
+              Connecting to relay…
+            </div>
+          )}
+        </div>
 
-        <div style={qrStyles.infoBox}>
-          <p style={qrStyles.infoTitle}>How to connect</p>
-          <p style={qrStyles.infoStep}>
-            <strong>1.</strong> A QR code is showing in the popup window
+        {uri && (
+          <button style={qrStyles.copyBtn} onClick={handleCopyLink}>
+            {copied ? '✓ Copied!' : 'Copy Connection Link'}
+          </button>
+        )}
+
+        <div style={qrStyles.steps}>
+          <p style={qrStyles.stepTitle}>How to connect</p>
+          <p style={qrStyles.step}>
+            <strong>1.</strong> Open <strong>Phantom</strong> on your phone
           </p>
-          <p style={qrStyles.infoStep}>
-            <strong>2.</strong> Open your phone camera and scan it
+          <p style={qrStyles.step}>
+            <strong>2.</strong> Tap the <strong>scan icon</strong> (top right corner)
           </p>
-          <p style={qrStyles.infoStep}>
-            <strong>3.</strong> Your wallet app will open — approve the connection
-          </p>
-          <p style={qrStyles.infoStep}>
-            Or: Open <strong>Phantom</strong> → <strong>Scan QR</strong>
+          <p style={qrStyles.step}>
+            <strong>3.</strong> Point your phone at this QR code
           </p>
         </div>
 
-        <p style={qrStyles.hint}>
-          Close this panel if the WalletConnect popup is already open
-        </p>
+        <div style={qrStyles.warning}>
+          <p style={qrStyles.warningText}>
+            ⚠️ Your phone's camera app will NOT work.
+          </p>
+          <p style={qrStyles.warningText}>
+            You MUST use Phantom's built-in scanner.
+          </p>
+        </div>
+
+        <p style={qrStyles.status}>{status}</p>
       </div>
     </div>
   );
@@ -177,36 +204,60 @@ const qrStyles: Record<string, React.CSSProperties> = {
   },
   card: {
     background: '#0a0a0a', border: '1px solid #333', borderRadius: 16,
-    padding: '28px 28px 24px', width: 360, maxWidth: '90vw',
+    padding: '24px 24px 20px', width: 340, maxWidth: '90vw',
     display: 'flex', flexDirection: 'column', alignItems: 'center',
   },
   header: {
     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-    width: '100%', marginBottom: 16,
+    width: '100%', marginBottom: 12,
   },
   title: { color: '#fff', fontSize: 18, fontWeight: 700, margin: 0 },
   close: {
     background: 'none', border: 'none', color: '#888', fontSize: 22,
     cursor: 'pointer', padding: '0 4px',
   },
-  instructions: {
-    color: '#aaa', fontSize: 14, textAlign: 'center' as const,
-    marginTop: 0, marginBottom: 16,
-  },
-  infoBox: {
-    background: '#111', borderRadius: 8, padding: '14px 18px',
-    width: '100%', boxSizing: 'border-box' as const,
+  qrBox: {
+    background: '#000', borderRadius: 12, padding: 14,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
     border: '1px solid #222',
   },
-  infoTitle: {
+  loading: {
+    width: 240, height: 240, display: 'flex', flexDirection: 'column' as const,
+    alignItems: 'center', justifyContent: 'center', gap: 12,
+    color: '#555', fontSize: 13,
+  },
+  spinner: {
+    width: 24, height: 24, border: '3px solid #333',
+    borderTop: '3px solid #888', borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
+  },
+  copyBtn: {
+    marginTop: 10, padding: '6px 14px', borderRadius: 6,
+    border: '1px solid #444', background: 'transparent',
+    color: '#aaa', fontSize: 12, cursor: 'pointer',
+  },
+  steps: {
+    marginTop: 14, padding: '12px 14px', borderRadius: 8,
+    background: '#111', border: '1px solid #222',
+    width: '100%', boxSizing: 'border-box' as const,
+  },
+  stepTitle: {
     color: '#fff', fontSize: 13, fontWeight: 700,
     margin: '0 0 8px',
   },
-  infoStep: {
+  step: {
     color: '#aaa', fontSize: 12, margin: '0 0 4px', lineHeight: 1.5,
   },
-  hint: {
-    color: '#555', fontSize: 11, textAlign: 'center' as const,
-    marginTop: 12, marginBottom: 0,
+  warning: {
+    marginTop: 10, padding: '8px 12px', borderRadius: 6,
+    background: '#1a0a00', border: '1px solid #331',
+    width: '100%', boxSizing: 'border-box' as const,
+  },
+  warningText: {
+    color: '#f80', fontSize: 11, margin: '2px 0', textAlign: 'center' as const,
+    fontWeight: 600,
+  },
+  status: {
+    color: '#555', fontSize: 11, marginTop: 8, marginBottom: 0,
   },
 };
