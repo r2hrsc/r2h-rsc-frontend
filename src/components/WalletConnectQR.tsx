@@ -4,7 +4,16 @@ import SignClient from '@walletconnect/sign-client';
 import { PublicKey } from '@solana/web3.js';
 
 const PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '';
+
+// Solana chain IDs — include both current and deprecated for maximum wallet compat
 const SOLANA_MAINNET = 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp';
+const SOLANA_MAINNET_DEPRECATED = 'solana:4sGjMW1sUnHzSxGspuhpqLDx6wiyjNtZ';
+
+const SOLANA_METHODS = [
+  'solana_signMessage',
+  'solana_signTransaction',
+  'solana_signAndSendTransaction',
+];
 
 interface QRResult {
   publicKey: PublicKey;
@@ -24,11 +33,12 @@ export default function WalletConnectQR({
   const [uri, setUri] = useState('');
   const [status, setStatus] = useState('Initializing…');
   const clientRef = useRef<InstanceType<typeof SignClient> | null>(null);
-  const cleanupRef = useRef<(() => void) | null>(null);
 
   const init = useCallback(async () => {
+    let client: InstanceType<typeof SignClient>;
     try {
-      const client = await SignClient.init({
+      console.log('[WC] Initializing SignClient…');
+      client = await SignClient.init({
         projectId: PROJECT_ID,
         metadata: {
           name: 'R2H RSC',
@@ -38,46 +48,101 @@ export default function WalletConnectQR({
         },
       });
       clientRef.current = client;
+      console.log('[WC] SignClient initialized, core relayer:', client.core.relayer.connected);
+    } catch (initErr: any) {
+      console.error('[WC] Init failed:', initErr);
+      onError(`WalletConnect init failed: ${initErr?.message}`);
+      return;
+    }
+
+    // ── Event listeners for debugging ───────────────────────────
+    client.on('session_proposal', (event) => {
+      console.log('[WC] session_proposal:', JSON.stringify(event, null, 2));
+    });
+
+    client.on('session_connect', (event) => {
+      console.log('[WC] session_connect:', JSON.stringify(event, null, 2));
+    });
+
+    client.on('session_update', (event) => {
+      console.log('[WC] session_update:', JSON.stringify(event, null, 2));
+    });
+
+    client.on('session_delete', (event) => {
+      console.log('[WC] session_delete:', JSON.stringify(event, null, 2));
+    });
+
+    client.on('session_expire', (event) => {
+      console.warn('[WC] session_expire:', event);
+    });
+
+    // ── Display URI event (some SDKs emit this) ─────────────────
+    client.core.pairing.events.on('display_uri', (data: any) => {
+      console.log('[WC] pairing display_uri:', data);
+    });
+
+    try {
+      console.log('[WC] Calling client.connect()…');
+      console.log('[WC] Namespaces:', JSON.stringify({
+        solana: {
+          methods: SOLANA_METHODS,
+          chains: [SOLANA_MAINNET, SOLANA_MAINNET_DEPRECATED],
+          events: [],
+        },
+      }, null, 2));
 
       const { uri: proposalUri, approval } = await client.connect({
-        requiredNamespaces: {
+        // Use optionalNamespaces so wallets that only support
+        // the deprecated chain ID can still connect
+        optionalNamespaces: {
           solana: {
-            methods: ['solana_signMessage', 'solana_signTransaction'],
-            chains: [SOLANA_MAINNET],
+            methods: SOLANA_METHODS,
+            chains: [SOLANA_MAINNET, SOLANA_MAINNET_DEPRECATED],
             events: [],
           },
         },
       });
 
+      console.log('[WC] connect() returned, uri:', proposalUri);
+
       if (proposalUri) {
+        // The uri starts with "wc:" — this is the raw WalletConnect pairing URI
+        // It must go directly into the QR code, NOT wrapped in a deep link
+        console.log('[WC] URI length:', proposalUri.length);
+        console.log('[WC] URI prefix:', proposalUri.substring(0, 30) + '…');
         setUri(proposalUri);
         setStatus('Scan with Phantom or Backpack on your phone');
+      } else {
+        console.error('[WC] No URI returned from connect()');
+        onError('WalletConnect did not return a pairing URI.');
+        return;
       }
 
-      // Cleanup function for timeout/cancel
-      const cleanup = () => {
-        client.removeAllListeners();
-      };
-      cleanupRef.current = cleanup;
-
-      // Wait for the user to scan and approve
+      // Wait for the user to scan and approve (or reject / timeout)
+      console.log('[WC] Waiting for approval…');
       const session = await approval();
+      console.log('[WC] Session approved! Topic:', session.topic);
+      console.log('[WC] Session namespaces:', JSON.stringify(session.namespaces, null, 2));
 
       // Extract the Solana account from the session
       const accounts = session.namespaces.solana?.accounts || [];
+      console.log('[WC] Accounts:', accounts);
+
       if (accounts.length === 0) {
         throw new Error('No Solana account in the WalletConnect session.');
       }
 
       // Format: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp:<address>"
       const address = accounts[0].split(':')[2];
+      console.log('[WC] Connected address:', address);
       const publicKey = new PublicKey(address);
 
       // Create a signMessage function that uses the WalletConnect session
       const signMessage = async (msg: Uint8Array): Promise<Uint8Array> => {
+        console.log('[WC] Signing message, length:', msg.length);
         const result = await client.request({
           topic: session.topic,
-          chainId: SOLANA_MAINNET,
+          chainId: accounts[0].split(':').slice(0, 2).join(':'),
           request: {
             method: 'solana_signMessage',
             params: {
@@ -86,6 +151,7 @@ export default function WalletConnectQR({
             },
           },
         });
+        console.log('[WC] Sign result:', result);
         // Result is { signature: string } — base64 encoded
         const sig = (result as any).signature;
         return Uint8Array.from(atob(sig), (c) => c.charCodeAt(0));
@@ -93,8 +159,11 @@ export default function WalletConnectQR({
 
       onConnect({ publicKey, topic: session.topic, signMessage });
     } catch (err: any) {
-      if (err?.message?.includes('expired') || err?.message?.includes('rejected')) {
+      console.error('[WC] Error during connect/approval:', err);
+      if (err?.message?.includes('expired') || err?.message?.includes('Proposal expired')) {
         onError('QR code expired. Please try again.');
+      } else if (err?.message?.includes('rejected')) {
+        onError('Connection rejected on your phone.');
       } else {
         onError(err?.message || 'WalletConnect failed');
       }
@@ -104,8 +173,11 @@ export default function WalletConnectQR({
   useEffect(() => {
     init();
     return () => {
-      cleanupRef.current?.();
-      clientRef.current?.removeAllListeners();
+      clientRef.current?.removeAllListeners('session_proposal');
+      clientRef.current?.removeAllListeners('session_connect');
+      clientRef.current?.removeAllListeners('session_update');
+      clientRef.current?.removeAllListeners('session_delete');
+      clientRef.current?.removeAllListeners('session_expire');
     };
   }, [init]);
 
@@ -128,7 +200,10 @@ export default function WalletConnectQR({
               style={{ borderRadius: 8 }}
             />
           ) : (
-            <div style={qrStyles.loading}>Loading…</div>
+            <div style={qrStyles.loading}>
+              <div style={qrStyles.spinner} />
+              Connecting to relay…
+            </div>
           )}
         </div>
 
@@ -136,7 +211,7 @@ export default function WalletConnectQR({
           {status}
         </p>
         <p style={qrStyles.hint}>
-          Open Phantom or Backpack → Settings → Scan QR
+          Open Phantom or Backpack → Scan QR
         </p>
       </div>
     </div>
@@ -166,12 +241,17 @@ const qrStyles: Record<string, React.CSSProperties> = {
   qrBox: {
     background: '#000', borderRadius: 12, padding: 16,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    border: '1px solid #222',
+    border: '1px solid #222', minHeight: 292,
   },
   loading: {
-    width: 260, height: 260, display: 'flex',
-    alignItems: 'center', justifyContent: 'center',
-    color: '#555', fontSize: 14,
+    width: 260, height: 260, display: 'flex', flexDirection: 'column' as const,
+    alignItems: 'center', justifyContent: 'center', gap: 12,
+    color: '#555', fontSize: 13,
+  },
+  spinner: {
+    width: 24, height: 24, border: '3px solid #333',
+    borderTop: '3px solid #888', borderRadius: '50%',
+    animation: 'spin 1s linear infinite',
   },
   instructions: {
     color: '#aaa', fontSize: 14, textAlign: 'center' as const,
