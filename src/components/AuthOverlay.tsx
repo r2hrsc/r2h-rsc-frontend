@@ -169,7 +169,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
 
 const styles: Record<string, React.CSSProperties> = {
   overlay: {
-    position: 'fixed', inset: 0, zIndex: 9999,
+    position: 'fixed', inset: 0, zIndex: 1039,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'rgba(0,0,0,0.85)',
     backdropFilter: 'blur(6px)',
