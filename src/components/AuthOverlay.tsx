@@ -15,28 +15,61 @@ interface AuthOverlayProps {
 export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: AuthOverlayProps) {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
+  const [connecting, setConnecting] = useState(false);
   const walletAuthAttempted = useRef(false);
 
   // AppKit hooks
   const { address, isConnected } = useAppKitAccount();
   const { walletProvider } = useAppKitProvider<Provider>('solana');
   const { disconnect } = useDisconnect();
-  const { open } = useAppKit();
+  const { open, close } = useAppKit();
+
+  // Debug: log every render's hook state
+  console.log('[Auth] Render — hooks:', {
+    address: address ? address.slice(0, 8) + '…' : null,
+    isConnected,
+    hasProvider: !!walletProvider,
+    providerName: walletProvider?.name,
+  });
 
   // ── Auto-trigger wallet auth when connected ─────────────────
   useEffect(() => {
+    console.log('[Auth] useEffect[connect] fired:', { isConnected, address: address?.slice(0, 8), hasProvider: !!walletProvider });
     if (!isConnected || !address || !walletProvider) return;
-    if (walletAuthAttempted.current) return;
+    if (walletAuthAttempted.current) {
+      console.log('[Auth] Already attempted, skipping');
+      return;
+    }
     walletAuthAttempted.current = true;
+    setConnecting(false);
+    console.log('[Auth] Triggering doWalletAuth for', address);
     doWalletAuth(address, walletProvider);
   }, [isConnected, address, walletProvider]);
 
   // Reset the guard when disconnected
   useEffect(() => {
     if (!isConnected) {
+      console.log('[Auth] Disconnected — resetting guard');
       walletAuthAttempted.current = false;
+      setConnecting(false);
     }
   }, [isConnected]);
+
+  // ── Connect wallet button handler ───────────────────────────
+  const handleConnectWallet = async () => {
+    console.log('[Auth] Connect Wallet clicked');
+    setError('');
+    setConnecting(true);
+    try {
+      console.log('[Auth] Calling open()…');
+      await open({ view: 'Connect' });
+      console.log('[Auth] open() resolved');
+    } catch (err: any) {
+      console.error('[Auth] open() error:', err);
+      setError(err.message || 'Failed to open wallet modal');
+      setConnecting(false);
+    }
+  };
 
   // ── Google (ID token flow) ──────────────────────────────────
   const handleGoogleSuccess = async (resp: CredentialResponse) => {
@@ -70,41 +103,50 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     setStatus('Requesting nonce…');
     setError('');
     try {
-      console.log('[Auth] Wallet connected:', walletAddr);
+      console.log('[Auth] doWalletAuth start:', walletAddr);
+      console.log('[Auth] Fetching nonce from', `${apiUrl}/auth/wallet/nonce`);
       const nonceRes = await fetch(`${apiUrl}/auth/wallet/nonce`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ walletAddress: walletAddr }),
       });
+      console.log('[Auth] Nonce response status:', nonceRes.status);
       const nonceData = await nonceRes.json();
+      console.log('[Auth] Nonce data:', nonceData);
       if (!nonceData.ok || !nonceData.message) throw new Error(nonceData.error || 'Server did not return a nonce.');
-      console.log('[Auth] Nonce received:', nonceData.message.substring(0, 60) + '…');
 
       const messageBytes = new TextEncoder().encode(nonceData.message);
-      console.log('[Auth] Signing message with wallet provider…');
+      console.log('[Auth] Signing message, length:', messageBytes.length);
+      console.log('[Auth] Provider:', provider.name, 'publicKey:', provider.publicKey?.toBase58());
       const signature = await provider.signMessage(messageBytes);
-      console.log('[Auth] Signature received, length:', signature.length);
+      console.log('[Auth] ✅ Signature received, length:', signature.length);
 
       setStatus('Verifying signature…');
+      const sigB64 = btoa(String.fromCharCode(...signature));
+      console.log('[Auth] Posting to', `${apiUrl}/auth/wallet`);
       const authRes = await fetch(`${apiUrl}/auth/wallet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           walletAddress: walletAddr,
           message: nonceData.message,
-          signature: btoa(String.fromCharCode(...signature)),
+          signature: sigB64,
         }),
       });
+      console.log('[Auth] Verify response status:', authRes.status);
       const data = await authRes.json();
+      console.log('[Auth] Verify data:', data);
       if (!authRes.ok || !data.ok) throw new Error(data.error || 'Wallet auth failed');
-      console.log('[Auth] Wallet auth success:', data);
+      console.log('[Auth] ✅ Wallet auth complete');
       if (data.existing && data.rscUsername && data.rscPassword) {
         onExistingUser(data.provider || 'wallet', data.externalId || walletAddr, data.rscUsername, data.rscPassword);
       } else {
         onAuthComplete(data.provider || 'wallet', data.externalId || walletAddr);
       }
     } catch (err: any) {
-      console.error('[Auth] Wallet auth error:', err);
+      console.error('[Auth] ❌ Wallet auth error:', err);
+      console.error('[Auth]   message:', err?.message);
+      console.error('[Auth]   stack:', err?.stack);
       setError(err.message);
       setStatus('');
       walletAuthAttempted.current = false;
@@ -112,10 +154,12 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
   };
 
   const handleDisconnect = () => {
+    console.log('[Auth] Disconnect clicked');
     disconnect();
     setError('');
     setStatus('');
     walletAuthAttempted.current = false;
+    setConnecting(false);
   };
 
   return (
@@ -157,11 +201,13 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
             </button>
           </div>
         ) : (
-          <>
-            {/* w3m-button: handles Phantom/Solflare extensions, WalletConnect QR, and mobile */}
-            {/* @ts-expect-error web component registered by AppKit */}
-            <w3m-button size="md" label="Connect Wallet" loadingLabel="Connecting…" />
-          </>
+          <button
+            style={styles.btnConnect}
+            onClick={handleConnectWallet}
+            disabled={connecting}
+          >
+            {connecting ? 'Connecting…' : 'Connect Wallet'}
+          </button>
         )}
       </div>
     </div>
@@ -194,6 +240,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   dividerLine: { flex: 1, height: 1, background: '#333' },
   dividerText: { color: '#555', fontSize: 12, textTransform: 'uppercase' as const },
+  btnConnect: {
+    width: '100%', padding: '12px 0', borderRadius: 8, border: 'none',
+    background: '#3b82f6', color: '#fff', fontSize: 15, fontWeight: 600,
+    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
   btnSecondary: {
     width: '100%', padding: '10px 0', borderRadius: 8,
     border: '1px solid #333', background: 'transparent', color: '#888',
