@@ -1,11 +1,14 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useMemo, useState, useCallback, useEffect } from 'react';
+import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
+import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
+import { clusterApiUrl } from '@solana/web3.js';
 import GameCanvas from './components/GameCanvas';
 import AuthOverlay from './components/AuthOverlay';
 import UsernamePicker from './components/UsernamePicker';
+import '@solana/wallet-adapter-react-ui/styles.css';
 import './index.css';
-
-// Initialize AppKit (side-effect import — registers web components)
-import './config/appkit';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
 const WS_URL  = import.meta.env.VITE_WS_URL  || 'wss://game.r2hrsc.xyz';
@@ -13,6 +16,9 @@ const WS_URL  = import.meta.env.VITE_WS_URL  || 'wss://game.r2hrsc.xyz';
 type AppState = 'auth' | 'username' | 'loading' | 'playing';
 
 export default function App() {
+  const endpoint = useMemo(() => clusterApiUrl('mainnet-beta'), []);
+  const wallets  = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
+
   const [appState, setAppState] = useState<AppState>('auth');
   const [authProvider, setAuthProvider] = useState('');
   const [authExternalId, setAuthExternalId] = useState('');
@@ -58,33 +64,33 @@ export default function App() {
   const showGame = appState === 'loading' || appState === 'playing';
 
   return (
-    <>
-      {showGame && (
-        <GameCanvas
-          wsUrl={WS_URL}
-          rscUsername={rscCredentials?.username}
-          rscPassword={rscCredentials?.password}
-          hidden={appState === 'loading'}
-          onLoginComplete={handleLoginComplete}
-        />
-      )}
+    <ConnectionProvider endpoint={endpoint}>
+      <WalletProvider wallets={wallets} autoConnect>
+        <WalletModalProvider>
+          {showGame && (
+            <GameCanvas
+              wsUrl={WS_URL}
+              rscUsername={rscCredentials?.username}
+              rscPassword={rscCredentials?.password}
+              hidden={appState === 'loading'}
+              onLoginComplete={handleLoginComplete}
+            />
+          )}
 
-      {appState === 'auth' && (
-        <AuthOverlay
-          apiUrl={API_URL}
-          onAuthComplete={handleAuthComplete}
-          onExistingUser={handleExistingUser}
-        />
-      )}
+          {appState === 'auth' && (
+            <AuthOverlay apiUrl={API_URL} onAuthComplete={handleAuthComplete} onExistingUser={handleExistingUser} />
+          )}
 
-      {appState === 'username' && (
-        <UsernamePicker
-          apiUrl={API_URL}
-          provider={authProvider}
-          externalId={authExternalId}
-          onComplete={handleUsernameComplete}
-        />
-      )}
-    </>
+          {appState === 'username' && (
+            <UsernamePicker
+              apiUrl={API_URL}
+              provider={authProvider}
+              externalId={authExternalId}
+              onComplete={handleUsernameComplete}
+            />
+          )}
+        </WalletModalProvider>
+      </WalletProvider>
+    </ConnectionProvider>
   );
 }

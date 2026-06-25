@@ -1,10 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
-import { useAppKit, useAppKitProvider, useAppKitState } from '@reown/appkit/library/react';
-import { useAppKitAccount } from '@reown/appkit-core/react';
-import { useAppKitConnection } from '@reown/appkit-adapter-solana/react';
-import { useDisconnect } from '@reown/appkit-solana/react';
-import type { Provider } from '@reown/appkit-adapter-solana';
+import { useWallet } from '@solana/wallet-adapter-react';
+import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 
 interface AuthOverlayProps {
   apiUrl: string;
@@ -15,60 +12,31 @@ interface AuthOverlayProps {
 export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: AuthOverlayProps) {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  const [connecting, setConnecting] = useState(false);
   const walletAuthAttempted = useRef(false);
 
-  // AppKit hooks
-  const { address, isConnected } = useAppKitAccount();
-  const { walletProvider } = useAppKitProvider<Provider>('solana');
-  const { disconnect } = useDisconnect();
-  const { open, close } = useAppKit();
-
-  // Debug: log every render's hook state
-  console.log('[Auth] Render — hooks:', {
-    address: address ? address.slice(0, 8) + '…' : null,
-    isConnected,
-    hasProvider: !!walletProvider,
-    providerName: walletProvider?.name,
-  });
+  const { publicKey, signMessage, connected, disconnect } = useWallet();
+  const { setVisible } = useWalletModal();
 
   // ── Auto-trigger wallet auth when connected ─────────────────
   useEffect(() => {
-    console.log('[Auth] useEffect[connect] fired:', { isConnected, address: address?.slice(0, 8), hasProvider: !!walletProvider });
-    if (!isConnected || !address || !walletProvider) return;
-    if (walletAuthAttempted.current) {
-      console.log('[Auth] Already attempted, skipping');
-      return;
-    }
+    if (!connected || !publicKey || !signMessage) return;
+    if (walletAuthAttempted.current) return;
     walletAuthAttempted.current = true;
-    setConnecting(false);
-    console.log('[Auth] Triggering doWalletAuth for', address);
-    doWalletAuth(address, walletProvider);
-  }, [isConnected, address, walletProvider]);
+    doWalletAuth(publicKey.toBase58(), signMessage);
+  }, [connected, publicKey, signMessage]);
 
   // Reset the guard when disconnected
   useEffect(() => {
-    if (!isConnected) {
-      console.log('[Auth] Disconnected — resetting guard');
+    if (!connected) {
       walletAuthAttempted.current = false;
-      setConnecting(false);
     }
-  }, [isConnected]);
+  }, [connected]);
 
   // ── Connect wallet button handler ───────────────────────────
-  const handleConnectWallet = async () => {
+  const handleConnectWallet = () => {
     console.log('[Auth] Connect Wallet clicked');
     setError('');
-    setConnecting(true);
-    try {
-      console.log('[Auth] Calling open()…');
-      await open({ view: 'Connect' });
-      console.log('[Auth] open() resolved');
-    } catch (err: any) {
-      console.error('[Auth] open() error:', err);
-      setError(err.message || 'Failed to open wallet modal');
-      setConnecting(false);
-    }
+    setVisible(true);
   };
 
   // ── Google (ID token flow) ──────────────────────────────────
@@ -99,43 +67,36 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
   };
 
   // ── Wallet auth (nonce → sign → verify) ─────────────────────
-  const doWalletAuth = async (walletAddr: string, provider: Provider) => {
+  const doWalletAuth = async (walletAddr: string, sign: (msg: Uint8Array) => Promise<Uint8Array>) => {
     setStatus('Requesting nonce…');
     setError('');
     try {
-      console.log('[Auth] doWalletAuth start:', walletAddr);
-      console.log('[Auth] Fetching nonce from', `${apiUrl}/auth/wallet/nonce`);
+      console.log('[Auth] Wallet connected:', walletAddr);
       const nonceRes = await fetch(`${apiUrl}/auth/wallet/nonce`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ walletAddress: walletAddr }),
       });
-      console.log('[Auth] Nonce response status:', nonceRes.status);
       const nonceData = await nonceRes.json();
-      console.log('[Auth] Nonce data:', nonceData);
       if (!nonceData.ok || !nonceData.message) throw new Error(nonceData.error || 'Server did not return a nonce.');
+      console.log('[Auth] Nonce received');
 
       const messageBytes = new TextEncoder().encode(nonceData.message);
-      console.log('[Auth] Signing message, length:', messageBytes.length);
-      console.log('[Auth] Provider:', provider.name, 'publicKey:', provider.publicKey?.toBase58());
-      const signature = await provider.signMessage(messageBytes);
+      console.log('[Auth] Signing message…');
+      const signature = await sign(messageBytes);
       console.log('[Auth] ✅ Signature received, length:', signature.length);
 
       setStatus('Verifying signature…');
-      const sigB64 = btoa(String.fromCharCode(...signature));
-      console.log('[Auth] Posting to', `${apiUrl}/auth/wallet`);
       const authRes = await fetch(`${apiUrl}/auth/wallet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           walletAddress: walletAddr,
           message: nonceData.message,
-          signature: sigB64,
+          signature: btoa(String.fromCharCode(...signature)),
         }),
       });
-      console.log('[Auth] Verify response status:', authRes.status);
       const data = await authRes.json();
-      console.log('[Auth] Verify data:', data);
       if (!authRes.ok || !data.ok) throw new Error(data.error || 'Wallet auth failed');
       console.log('[Auth] ✅ Wallet auth complete');
       if (data.existing && data.rscUsername && data.rscPassword) {
@@ -145,8 +106,6 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
       }
     } catch (err: any) {
       console.error('[Auth] ❌ Wallet auth error:', err);
-      console.error('[Auth]   message:', err?.message);
-      console.error('[Auth]   stack:', err?.stack);
       setError(err.message);
       setStatus('');
       walletAuthAttempted.current = false;
@@ -154,12 +113,10 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
   };
 
   const handleDisconnect = () => {
-    console.log('[Auth] Disconnect clicked');
     disconnect();
     setError('');
     setStatus('');
     walletAuthAttempted.current = false;
-    setConnecting(false);
   };
 
   return (
@@ -190,10 +147,10 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
         </div>
 
         {/* Wallet */}
-        {isConnected && address ? (
+        {connected && publicKey ? (
           <div style={{ width: '100%' }}>
             <p style={styles.walletAddr}>
-              {address.slice(0, 4)}…{address.slice(-4)}
+              {publicKey.toBase58().slice(0, 4)}…{publicKey.toBase58().slice(-4)}
             </p>
             <p style={styles.status}>{status || 'Connected — authenticating…'}</p>
             <button style={styles.btnSecondary} onClick={handleDisconnect}>
@@ -201,12 +158,8 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
             </button>
           </div>
         ) : (
-          <button
-            style={styles.btnConnect}
-            onClick={handleConnectWallet}
-            disabled={connecting}
-          >
-            {connecting ? 'Connecting…' : 'Connect Wallet'}
+          <button style={styles.btnConnect} onClick={handleConnectWallet}>
+            Connect Wallet
           </button>
         )}
       </div>
@@ -242,7 +195,7 @@ const styles: Record<string, React.CSSProperties> = {
   dividerText: { color: '#555', fontSize: 12, textTransform: 'uppercase' as const },
   btnConnect: {
     width: '100%', padding: '12px 0', borderRadius: 8, border: 'none',
-    background: '#3b82f6', color: '#fff', fontSize: 15, fontWeight: 600,
+    background: '#ab9ff2', color: '#fff', fontSize: 15, fontWeight: 600,
     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
   },
   btnSecondary: {

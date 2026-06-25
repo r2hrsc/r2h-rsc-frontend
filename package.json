@@ -10,9 +10,15 @@
   },
   "dependencies": {
     "@react-oauth/google": "^0.12.1",
-    "@reown/appkit-solana": "^1.0.7",
+    "@solana/wallet-adapter-base": "^0.9.27",
+    "@solana/wallet-adapter-phantom": "^0.9.29",
+    "@solana/wallet-adapter-react": "^0.15.39",
+    "@solana/wallet-adapter-react-ui": "^0.9.39",
+    "@solana/wallet-adapter-solflare": "^0.6.33",
     "@solana/web3.js": "^1.98.4",
+    "@walletconnect/universal-provider": "^2.23.10",
     "buffer": "^6.0.3",
+    "qrcode.react": "^4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vite-plugin-node-polyfills": "^0.28.0"
