@@ -1,11 +1,10 @@
-import { useState, lazy, Suspense, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { useWalletModal } from '@solana/wallet-adapter-react-ui';
-import type { PublicKey } from '@solana/web3.js';
-
-const DevDiagnostics = lazy(() => import('./DevDiagnostics'));
-const WalletConnectQR = lazy(() => import('./WalletConnectQR'));
+import { useAppKit, useAppKitProvider, useAppKitState } from '@reown/appkit/library/react';
+import { useAppKitAccount } from '@reown/appkit-core/react';
+import { useAppKitConnection } from '@reown/appkit-adapter-solana/react';
+import { useDisconnect } from '@reown/appkit-solana/react';
+import type { Provider } from '@reown/appkit-adapter-solana';
 
 interface AuthOverlayProps {
   apiUrl: string;
@@ -15,19 +14,31 @@ interface AuthOverlayProps {
 
 export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: AuthOverlayProps) {
   const [status, setStatus] = useState('');
-  const [error, setError]   = useState('');
-  const [showDiag, setShowDiag] = useState(false);
-  const [showQR, setShowQR] = useState(false);
+  const [error, setError] = useState('');
+  const walletAuthAttempted = useRef(false);
 
-  // WalletConnect state (managed outside the adapter)
-  const wcAddress = useRef<string | null>(null);
-  const wcSignMessage = useRef<((msg: Uint8Array) => Promise<Uint8Array>) | null>(null);
-  const wcChainType = useRef<'solana' | 'evm'>('solana');
+  // AppKit hooks
+  const { address, isConnected } = useAppKitAccount();
+  const { walletProvider } = useAppKitProvider<Provider>('solana');
+  const { disconnect } = useDisconnect();
+  const { open } = useAppKit();
 
-  const { publicKey, signMessage, connected, disconnect } = useWallet();
-  const { setVisible: setWalletModalVisible } = useWalletModal();
+  // ── Auto-trigger wallet auth when connected ─────────────────
+  useEffect(() => {
+    if (!isConnected || !address || !walletProvider) return;
+    if (walletAuthAttempted.current) return;
+    walletAuthAttempted.current = true;
+    doWalletAuth(address, walletProvider);
+  }, [isConnected, address, walletProvider]);
 
-  // ── Google (ID token flow) ──────────────────────────────────────
+  // Reset the guard when disconnected
+  useEffect(() => {
+    if (!isConnected) {
+      walletAuthAttempted.current = false;
+    }
+  }, [isConnected]);
+
+  // ── Google (ID token flow) ──────────────────────────────────
   const handleGoogleSuccess = async (resp: CredentialResponse) => {
     if (!resp.credential) {
       setError('Google did not return a credential.');
@@ -43,7 +54,6 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || 'Google auth failed');
-      // BUG 1: If user already registered, skip UsernamePicker
       if (data.existing && data.rscUsername && data.rscPassword) {
         onExistingUser(data.provider || 'google', data.externalId, data.rscUsername, data.rscPassword);
       } else {
@@ -55,11 +65,12 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     }
   };
 
-  // ── Shared nonce-signing logic ──────────────────────────────────
-  const doWalletAuth = async (walletAddr: string, sign: (msg: Uint8Array) => Promise<Uint8Array>) => {
+  // ── Wallet auth (nonce → sign → verify) ─────────────────────
+  const doWalletAuth = async (walletAddr: string, provider: Provider) => {
     setStatus('Requesting nonce…');
     setError('');
     try {
+      console.log('[Auth] Wallet connected:', walletAddr);
       const nonceRes = await fetch(`${apiUrl}/auth/wallet/nonce`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -67,9 +78,12 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
       });
       const nonceData = await nonceRes.json();
       if (!nonceData.ok || !nonceData.message) throw new Error(nonceData.error || 'Server did not return a nonce.');
+      console.log('[Auth] Nonce received:', nonceData.message.substring(0, 60) + '…');
 
       const messageBytes = new TextEncoder().encode(nonceData.message);
-      const signature = await sign(messageBytes);
+      console.log('[Auth] Signing message with wallet provider…');
+      const signature = await provider.signMessage(messageBytes);
+      console.log('[Auth] Signature received, length:', signature.length);
 
       setStatus('Verifying signature…');
       const authRes = await fetch(`${apiUrl}/auth/wallet`, {
@@ -83,98 +97,26 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
       });
       const data = await authRes.json();
       if (!authRes.ok || !data.ok) throw new Error(data.error || 'Wallet auth failed');
-      // BUG 1: If user already registered, skip UsernamePicker
+      console.log('[Auth] Wallet auth success:', data);
       if (data.existing && data.rscUsername && data.rscPassword) {
         onExistingUser(data.provider || 'wallet', data.externalId || walletAddr, data.rscUsername, data.rscPassword);
       } else {
         onAuthComplete(data.provider || 'wallet', data.externalId || walletAddr);
       }
     } catch (err: any) {
+      console.error('[Auth] Wallet auth error:', err);
       setError(err.message);
       setStatus('');
+      walletAuthAttempted.current = false;
     }
-  };
-
-  // ── Solana wallet (extension flow) ──────────────────────────────
-  const handleWalletAuth = async () => {
-    if (!connected || !publicKey || !signMessage) {
-      setWalletModalVisible(true);
-      return;
-    }
-    await doWalletAuth(publicKey.toBase58(), signMessage);
-  };
-
-  // ── EVM wallet (window.ethereum) ───────────────────────────────
-  const hasEthereum = typeof window !== 'undefined' && !!(window as any).ethereum;
-
-  const handleEvmWalletAuth = async () => {
-    const eth = (window as any).ethereum;
-    if (!eth) {
-      setError('No EVM wallet detected. Install MetaMask or another EVM wallet.');
-      return;
-    }
-    setError('');
-    try {
-      setStatus('Connecting EVM wallet…');
-      const accounts: string[] = await eth.request({ method: 'eth_requestAccounts' });
-      const address = accounts[0];
-      if (!address) throw new Error('No EVM account returned.');
-
-      await doWalletAuth(address, async (msg: Uint8Array) => {
-        const hexMsg = '0x' + Buffer.from(msg).toString('hex');
-        const sig: string = await eth.request({
-          method: 'personal_sign',
-          params: [hexMsg, address],
-        });
-        // personal_sign returns hex-encoded signature
-        const hex = sig.startsWith('0x') ? sig.slice(2) : sig;
-        const bytes = new Uint8Array(hex.length / 2);
-        for (let i = 0; i < bytes.length; i++) {
-          bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
-        }
-        return bytes;
-      });
-    } catch (err: any) {
-      setError(err.message);
-      setStatus('');
-    }
-  };
-
-  // ── WalletConnect QR flow ───────────────────────────────────────
-  const handleQRConnect = () => {
-    setError('');
-    setShowQR(true);
-  };
-
-  const handleQRConnected = async (result: { address: string; signMessage: (msg: Uint8Array) => Promise<Uint8Array>; chainType: 'solana' | 'evm' }) => {
-    setShowQR(false);
-    wcAddress.current = result.address;
-    wcSignMessage.current = result.signMessage;
-    wcChainType.current = result.chainType;
-    await doWalletAuth(result.address, result.signMessage);
-  };
-
-  const handleQRError = (msg: string) => {
-    setShowQR(false);
-    setError(msg);
-    setStatus('');
   };
 
   const handleDisconnect = () => {
     disconnect();
-    wcAddress.current = null;
-    wcSignMessage.current = null;
     setError('');
     setStatus('');
+    walletAuthAttempted.current = false;
   };
-
-  // Check if WalletConnect is configured
-  const hasWalletConnect = !!import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
-
-  // Determine if we're in a connected state (extension OR WalletConnect)
-  const isExtensionConnected = connected && publicKey;
-  const isWCConnected = !!wcAddress.current;
-  const activeAddress = isExtensionConnected ? publicKey.toBase58() : wcAddress.current;
 
   return (
     <div style={styles.overlay}>
@@ -204,81 +146,24 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
         </div>
 
         {/* Wallet */}
-        {activeAddress ? (
+        {isConnected && address ? (
           <div style={{ width: '100%' }}>
             <p style={styles.walletAddr}>
-              {activeAddress.slice(0, 4)}…{activeAddress.slice(-4)}
+              {address.slice(0, 4)}…{address.slice(-4)}
             </p>
-            <button style={styles.btn} onClick={handleWalletAuth}>
-              Sign in with Wallet
-            </button>
+            <p style={styles.status}>{status || 'Connected — authenticating…'}</p>
             <button style={styles.btnSecondary} onClick={handleDisconnect}>
               Disconnect
             </button>
           </div>
         ) : (
           <>
-            <button style={styles.btnPhantom} onClick={() => setWalletModalVisible(true)}>
-              <img
-                src="/icons/phantom.svg"
-                alt=""
-                width={20}
-                height={20}
-                style={{ marginRight: 10 }}
-              />
-              Connect Phantom / Solflare
-            </button>
-
-            {hasEthereum && (
-              <button style={styles.btnMetaMask} onClick={handleEvmWalletAuth}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ marginRight: 10 }}>
-                  <circle cx="12" cy="12" r="10" stroke="#e2761b" strokeWidth="2" fill="#e2761b" />
-                  <text x="12" y="16" textAnchor="middle" fill="#fff" fontSize="10" fontWeight="bold">M</text>
-                </svg>
-                Connect MetaMask / EVM
-              </button>
-            )}
-
-            {hasWalletConnect && (
-              <button style={styles.btnQR} onClick={handleQRConnect}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: 10 }}>
-                  <rect x="2" y="2" width="8" height="8" rx="1" />
-                  <rect x="14" y="2" width="8" height="8" rx="1" />
-                  <rect x="2" y="14" width="8" height="8" rx="1" />
-                  <rect x="14" y="14" width="4" height="4" rx="0.5" />
-                  <rect x="20" y="14" width="2" height="2" />
-                  <rect x="14" y="20" width="2" height="2" />
-                  <rect x="20" y="20" width="2" height="2" />
-                </svg>
-                Mobile / QR Code
-              </button>
-            )}
+            {/* w3m-button: handles Phantom/Solflare extensions, WalletConnect QR, and mobile */}
+            {/* @ts-expect-error web component registered by AppKit */}
+            <w3m-button size="md" label="Connect Wallet" loadingLabel="Connecting…" />
           </>
         )}
-
-        {/* Diagnostics link */}
-        <button style={styles.diagLink} onClick={() => setShowDiag(true)}>
-          ⚡ Run Diagnostics
-        </button>
       </div>
-
-      {/* QR overlay */}
-      {showQR && (
-        <Suspense fallback={null}>
-          <WalletConnectQR
-            onConnect={handleQRConnected}
-            onError={handleQRError}
-            onClose={() => setShowQR(false)}
-          />
-        </Suspense>
-      )}
-
-      {/* Diagnostics overlay */}
-      {showDiag && (
-        <Suspense fallback={null}>
-          <DevDiagnostics onClose={() => setShowDiag(false)} />
-        </Suspense>
-      )}
     </div>
   );
 }
@@ -307,40 +192,11 @@ const styles: Record<string, React.CSSProperties> = {
   divider: {
     display: 'flex', alignItems: 'center', width: '100%', gap: 10, margin: '4px 0',
   },
-  dividerLine: {
-    flex: 1, height: 1, background: '#333',
-  },
-  dividerText: {
-    color: '#555', fontSize: 12, textTransform: 'uppercase' as const,
-  },
-  btn: {
-    width: '100%', padding: '12px 0', borderRadius: 8, border: 'none',
-    background: '#fff', color: '#000', fontSize: 15, fontWeight: 600,
-    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  btnPhantom: {
-    width: '100%', padding: '12px 0', borderRadius: 8, border: 'none',
-    background: '#ab9ff2', color: '#fff', fontSize: 15, fontWeight: 600,
-    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  btnMetaMask: {
-    width: '100%', padding: '12px 0', borderRadius: 8, border: 'none',
-    background: '#e2761b', color: '#fff', fontSize: 15, fontWeight: 600,
-    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  btnQR: {
-    width: '100%', padding: '12px 0', borderRadius: 8, border: '1px solid #333',
-    background: 'transparent', color: '#fff', fontSize: 15, fontWeight: 600,
-    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
+  dividerLine: { flex: 1, height: 1, background: '#333' },
+  dividerText: { color: '#555', fontSize: 12, textTransform: 'uppercase' as const },
   btnSecondary: {
     width: '100%', padding: '10px 0', borderRadius: 8,
     border: '1px solid #333', background: 'transparent', color: '#888',
     fontSize: 13, cursor: 'pointer', marginTop: 6,
-  },
-  diagLink: {
-    background: 'none', border: 'none', color: '#555', fontSize: 11,
-    cursor: 'pointer', padding: '4px 0', marginTop: 4,
-    textDecoration: 'underline',
   },
 };
