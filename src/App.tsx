@@ -1,12 +1,12 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
-import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
 import { clusterApiUrl } from '@solana/web3.js';
+import { getWalletConnectWallets } from './config/appkit';
 import GameCanvas from './components/GameCanvas';
 import AuthOverlay from './components/AuthOverlay';
 import UsernamePicker from './components/UsernamePicker';
+import WalletConnectQRModal from './components/WalletConnectQRModal';
 import '@solana/wallet-adapter-react-ui/styles.css';
 import './index.css';
 
@@ -17,7 +17,7 @@ type AppState = 'auth' | 'username' | 'loading' | 'playing';
 
 export default function App() {
   const endpoint = useMemo(() => clusterApiUrl('mainnet-beta'), []);
-  const wallets  = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
+  const wallets  = useMemo(() => getWalletConnectWallets(), []);
 
   const [appState, setAppState] = useState<AppState>('auth');
   const [authProvider, setAuthProvider] = useState('');
@@ -67,6 +67,7 @@ export default function App() {
     <ConnectionProvider endpoint={endpoint}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
+          <WalletConnectQRModal />
           {showGame && (
             <GameCanvas
               wsUrl={WS_URL}
