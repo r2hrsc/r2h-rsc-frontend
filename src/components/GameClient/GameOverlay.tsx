@@ -31,7 +31,26 @@ export default function GameOverlay() {
       <BalanceDisplay onStakingClick={() => setShowStakingPanel(true)} />
       <BottomBar onBetResult={setBetResult} />
       <WinLossModal result={betResult} onClose={() => setBetResult(null)} />
-      {showStakingPanel && <StakingPanel onClose={() => setShowStakingPanel(false)} />}
+
+      {/* Staking panel with backdrop */}
+      {showStakingPanel && (
+        <>
+          {/* Backdrop — click to close */}
+          <div
+            onClick={() => setShowStakingPanel(false)}
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              pointerEvents: 'auto',
+              zIndex: 29,
+            }}
+          />
+          <StakingPanel onClose={() => setShowStakingPanel(false)} />
+        </>
+      )}
     </div>
   );
 }
