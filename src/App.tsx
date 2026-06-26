@@ -6,6 +6,7 @@ import { getWalletConnectWallets } from './config/appkit';
 import { useSidecarAuth } from './hooks/useSidecarAuth';
 import TopNav from './components/Layout/TopNav';
 import GameContainer from './components/GameClient/GameContainer';
+import StakingPanel from './components/GameClient/GameOverlay/StakingPanel';
 import AuthOverlay from './components/AuthOverlay';
 import UsernamePicker from './components/UsernamePicker';
 import WalletConnectQRModal from './components/WalletConnectQRModal';
@@ -75,42 +76,17 @@ function AppContent() {
 
   return (
     <>
-      {/* Global nav — fixed top, z-index 20 */}
       <TopNav isAuthenticating={isAuthenticating} authError={authError} />
-
-      {/* WalletConnect QR modal (mobile scan-to-connect) */}
       <WalletConnectQRModal />
 
-      {/* Main content — centered game frame with TopNav offset */}
-      <div
-        style={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          paddingTop: 60,
-          background: '#0a0a0a',
-        }}
-      >
-        {showGame && (
-          <GameContainer
-            wsUrl={WS_URL}
-            rscUsername={rscCredentials?.username}
-            rscPassword={rscCredentials?.password}
-            sessionToken={sessionToken}
-            hidden={appState === 'loading'}
-            onLoginComplete={handleLoginComplete}
-          />
-        )}
-
+      <div style={mainLayout}>
+        {/* Auth states */}
         {appState === 'auth' && !connected && (
           <AuthOverlay apiUrl={API_URL} onAuthComplete={handleAuthComplete} onExistingUser={handleExistingUser} />
         )}
 
         {appState === 'auth' && connected && isAuthenticating && (
-          <div style={{ color: '#14F195', fontSize: 14, fontFamily: 'sans-serif' }}>
-            Signing in with wallet...
-          </div>
+          <div style={{ color: '#14F195', fontSize: 14, fontFamily: 'sans-serif' }}>Signing in with wallet...</div>
         )}
 
         {appState === 'auth' && connected && authError && (
@@ -121,12 +97,25 @@ function AppContent() {
         )}
 
         {appState === 'username' && (
-          <UsernamePicker
-            apiUrl={API_URL}
-            provider={authProvider}
-            externalId={authExternalId}
-            onComplete={handleUsernameComplete}
-          />
+          <UsernamePicker apiUrl={API_URL} provider={authProvider} externalId={authExternalId} onComplete={handleUsernameComplete} />
+        )}
+
+        {/* Game + Staking layout */}
+        {showGame && (
+          <div style={gameSection}>
+            <GameContainer
+              wsUrl={WS_URL}
+              rscUsername={rscCredentials?.username}
+              rscPassword={rscCredentials?.password}
+              sessionToken={sessionToken}
+              hidden={appState === 'loading'}
+              onLoginComplete={handleLoginComplete}
+            />
+
+            <div style={stakingSection}>
+              <StakingPanel />
+            </div>
+          </div>
         )}
       </div>
     </>
@@ -147,3 +136,28 @@ export default function App() {
     </ConnectionProvider>
   );
 }
+
+// Styles
+const mainLayout: React.CSSProperties = {
+  minHeight: '100vh',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  paddingTop: 60,
+  background: '#0a0a0a',
+};
+
+const gameSection: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 16,
+  padding: '16px 0',
+};
+
+const stakingSection: React.CSSProperties = {
+  width: '100%',
+  maxWidth: 512,
+  padding: '0 16px',
+  boxSizing: 'border-box',
+};

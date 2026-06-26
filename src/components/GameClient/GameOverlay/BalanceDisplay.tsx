@@ -1,12 +1,10 @@
 import { useR2HBalance } from '../../../hooks/useR2HBalance';
 
 interface BalanceDisplayProps {
-  onStakingClick?: () => void;
   totalStaked?: number;
-  totalRewards?: number;
 }
 
-export default function BalanceDisplay({ onStakingClick, totalStaked = 0, totalRewards = 0 }: BalanceDisplayProps) {
+export default function BalanceDisplay({ totalStaked = 0 }: BalanceDisplayProps) {
   const { balance, isLoading, error } = useR2HBalance();
 
   return (
@@ -40,25 +38,6 @@ export default function BalanceDisplay({ onStakingClick, totalStaked = 0, totalR
           <span style={{ color: '#888' }}>Staked:</span>
           <span style={{ color: '#14F195' }}>{totalStaked.toFixed(2)}</span>
         </>
-      )}
-
-      {onStakingClick && (
-        <button
-          onClick={onStakingClick}
-          style={{
-            background: 'transparent',
-            border: '1px solid #333',
-            color: '#888',
-            padding: '1px 5px',
-            borderRadius: 2,
-            fontSize: 9,
-            cursor: 'pointer',
-            pointerEvents: 'auto',
-            lineHeight: '12px',
-          }}
-        >
-          STAKE
-        </button>
       )}
     </div>
   );
