@@ -1,15 +1,60 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
+import { useEffect } from 'react';
 import { WALLETCONNECT_QR_EVENT } from '../config/WalletConnectQRAdapter';
 
-function toUniversalLink(rawWcUri: string): string {
-  return `https://walletconnect.com/wc?uri=${encodeURIComponent(rawWcUri)}`;
+type WalletId = 'phantom' | 'solflare' | 'metamask' | 'trust' | 'other';
+
+interface WalletInfo {
+  id: WalletId;
+  name: string;
+  icon: string;
+  color: string;
+  getDeepLink: (wcUri: string) => string;
 }
+
+const WALLETS: WalletInfo[] = [
+  {
+    id: 'phantom',
+    name: 'Phantom',
+    icon: '👻',
+    color: '#AB9FF2',
+    getDeepLink: (uri) => `https://phantom.app/ul/v1/connect?uri=${encodeURIComponent(uri)}`,
+  },
+  {
+    id: 'solflare',
+    name: 'Solflare',
+    icon: '☀️',
+    color: '#FFC107',
+    getDeepLink: (uri) => `https://solflare.com/ul/v1/connect?uri=${encodeURIComponent(uri)}`,
+  },
+  {
+    id: 'metamask',
+    name: 'MetaMask',
+    icon: '🦊',
+    color: '#F6851B',
+    getDeepLink: (uri) => `https://metamask.app.link/wc?uri=${encodeURIComponent(uri)}`,
+  },
+  {
+    id: 'trust',
+    name: 'Trust Wallet',
+    icon: '🛡️',
+    color: '#3375BB',
+    getDeepLink: (uri) => `https://link.trustwallet.com/wc?uri=${encodeURIComponent(uri)}`,
+  },
+  {
+    id: 'other',
+    name: 'Other Wallet',
+    icon: '🔗',
+    color: '#888',
+    getDeepLink: (uri) => `https://walletconnect.com/wc?uri=${encodeURIComponent(uri)}`,
+  },
+];
 
 export default function WalletConnectQRModal() {
   const [rawUri, setRawUri] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [selectedWallet, setSelectedWallet] = useState<WalletId | null>(null);
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -17,7 +62,7 @@ export default function WalletConnectQRModal() {
       if (detail.uri) {
         setRawUri(detail.uri);
         setError(null);
-        setCopied(false);
+        setSelectedWallet(null);
       } else {
         setRawUri(null);
         if (detail.error) setError(detail.error);
@@ -30,31 +75,12 @@ export default function WalletConnectQRModal() {
   const close = () => {
     setRawUri(null);
     setError(null);
-    setCopied(false);
-  };
-
-  const copyLink = async () => {
-    if (!rawUri) return;
-    try {
-      await navigator.clipboard.writeText(rawUri);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // fallback: select text
-      const ta = document.createElement('textarea');
-      ta.value = rawUri;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    setSelectedWallet(null);
   };
 
   if (!rawUri && !error) return null;
 
-  const qrValue = rawUri ? toUniversalLink(rawUri) : '';
+  const wallet = selectedWallet ? WALLETS.find((w) => w.id === selectedWallet) : null;
 
   return (
     <div style={S.overlay} onClick={close}>
@@ -64,50 +90,48 @@ export default function WalletConnectQRModal() {
         </button>
 
         <h2 style={S.title}>
-          {error ? 'Connection Error' : 'Connect Your Wallet'}
+          {error ? 'Connection Error' : selectedWallet ? `Connect with ${wallet?.name}` : 'Choose Your Wallet'}
         </h2>
 
         {error ? (
           <p style={S.error}>{error}</p>
+        ) : !selectedWallet ? (
+          // Step 1: Wallet picker
+          <div style={S.picker}>
+            {WALLETS.map((w) => (
+              <button key={w.id} style={{ ...S.walletBtn, borderColor: w.color }} onClick={() => setSelectedWallet(w.id)}>
+                <span style={S.walletIcon}>{w.icon}</span>
+                <span style={S.walletName}>{w.name}</span>
+              </button>
+            ))}
+          </div>
         ) : (
-          <>
+          // Step 2: QR + deep link for selected wallet
+          <div style={S.qrSection}>
+            {/* Raw wc: QR for wallet's built-in scanner */}
             <div style={S.qrWrap}>
-              <QRCodeSVG
-                value={qrValue}
-                size={260}
-                bgColor="#000"
-                fgColor="#fff"
-                level="M"
-              />
+              <QRCodeSVG value={rawUri!} size={240} bgColor="#000" fgColor="#fff" level="M" />
             </div>
 
-            <div style={S.steps}>
-              <p style={S.step}>
-                <span style={S.stepNum}>1</span>
-                Open your phone's <b>default camera app</b>
-              </p>
-              <p style={S.step}>
-                <span style={S.stepNum}>2</span>
-                Point at this QR code
-              </p>
-              <p style={S.step}>
-                <span style={S.stepNum}>3</span>
-                Tap the link → choose your wallet (Phantom, Solflare, MetaMask…)
-              </p>
-              <p style={S.step}>
-                <span style={S.stepNum}>4</span>
-                Approve the connection
-              </p>
-            </div>
-
-            <button style={S.copyBtn} onClick={copyLink}>
-              {copied ? '✓ Copied!' : '📋 Copy Connection Link'}
-            </button>
-
-            <p style={S.hint}>
-              Works with <b>any</b> WalletConnect-compatible wallet
+            <p style={S.scanHint}>
+              Scan with <b>{wallet?.name}</b>'s built-in scanner, or{' '}
+              <b>tap the button below on your phone</b>
             </p>
-          </>
+
+            {/* Deep link button — works when tapped on mobile */}
+            <a
+              href={wallet!.getDeepLink(rawUri!)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ ...S.deepLinkBtn, background: wallet!.color, color: '#000' }}
+            >
+              {wallet!.icon} Open in {wallet!.name}
+            </a>
+
+            <button style={S.backBtn} onClick={() => setSelectedWallet(null)}>
+              ← Choose different wallet
+            </button>
+          </div>
         )}
       </div>
     </div>
@@ -136,7 +160,7 @@ const S: Record<string, React.CSSProperties> = {
     border: '1px solid #333',
     position: 'relative',
     maxWidth: '90vw',
-    width: 340,
+    width: 380,
   },
   close: {
     position: 'absolute',
@@ -156,6 +180,41 @@ const S: Record<string, React.CSSProperties> = {
     margin: '0 0 4px',
     textAlign: 'center',
   },
+  picker: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    width: '100%',
+  },
+  walletBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    padding: '12px 16px',
+    borderRadius: 10,
+    border: '2px solid',
+    background: 'rgba(255,255,255,0.04)',
+    cursor: 'pointer',
+    transition: 'background 0.15s',
+    width: '100%',
+  },
+  walletIcon: {
+    fontSize: 24,
+    width: 32,
+    textAlign: 'center',
+  },
+  walletName: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: 600,
+  },
+  qrSection: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 14,
+    width: '100%',
+  },
   qrWrap: {
     background: '#fff',
     padding: 12,
@@ -164,51 +223,34 @@ const S: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
   },
-  steps: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
-    width: '100%',
-    padding: '0 4px',
-  },
-  step: {
-    color: '#ccc',
-    fontSize: 13,
-    margin: 0,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    lineHeight: 1.4,
-  },
-  stepNum: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 20,
-    height: 20,
-    borderRadius: '50%',
-    background: '#ab9ff2',
-    color: '#000',
-    fontSize: 11,
-    fontWeight: 700,
-    flexShrink: 0,
-  },
-  copyBtn: {
-    width: '100%',
-    padding: '10px 0',
-    borderRadius: 8,
-    border: '1px solid #444',
-    background: 'transparent',
+  scanHint: {
     color: '#aaa',
     fontSize: 13,
-    cursor: 'pointer',
-    marginTop: 4,
-  },
-  hint: {
-    color: '#666',
-    fontSize: 12,
     textAlign: 'center',
     margin: 0,
+    lineHeight: 1.4,
+    maxWidth: 280,
+  },
+  deepLinkBtn: {
+    display: 'inline-block',
+    padding: '12px 24px',
+    borderRadius: 10,
+    fontSize: 15,
+    fontWeight: 700,
+    textDecoration: 'none',
+    textAlign: 'center',
+    width: '100%',
+    boxSizing: 'border-box',
+    cursor: 'pointer',
+  },
+  backBtn: {
+    background: 'none',
+    border: 'none',
+    color: '#666',
+    fontSize: 13,
+    cursor: 'pointer',
+    padding: '4px 8px',
+    marginTop: 4,
   },
   error: {
     color: '#f44',

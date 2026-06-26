@@ -1,0 +1,16 @@
+/* Mobile-specific overrides */
+
+@media (max-width: 768px) {
+  .game-overlay-button {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .top-nav {
+    padding: 0 12px;
+  }
+
+  .top-nav-brand {
+    font-size: 14px;
+  }
+}
