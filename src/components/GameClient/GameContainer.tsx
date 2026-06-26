@@ -32,6 +32,7 @@ export default function GameContainer({ wsUrl, rscUsername, rscPassword, session
         transform: `scale(${scale})`,
         transformOrigin: 'center center',
         visibility: hidden ? 'hidden' : 'visible',
+        flexShrink: 0,
       }}
     >
       {/* Connection status debug indicator */}

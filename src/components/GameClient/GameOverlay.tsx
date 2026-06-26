@@ -25,6 +25,7 @@ export default function GameOverlay() {
         height: '100%',
         pointerEvents: 'none',
         zIndex: 10,
+        boxSizing: 'border-box',
       }}
     >
       <BalanceDisplay onStakingClick={() => setShowStakingPanel(true)} />

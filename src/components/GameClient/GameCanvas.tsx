@@ -115,6 +115,15 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
     } else if (sessionToken) {
       ctx.fillStyle = '#e5e5e5';
       ctx.fillText('Connecting to game server...', 256, 167);
+    } else if (rscUsername) {
+      // Gmail auth: show game with credentials (no WebSocket yet)
+      ctx.fillStyle = '#14F195';
+      ctx.fillText(`Logged in as ${rscUsername}`, 256, 167);
+      ctx.fillStyle = '#888';
+      ctx.font = '11px sans-serif';
+      ctx.fillText('Game client loading...', 256, 185);
+      // Signal login complete since we have credentials
+      onLoginComplete?.();
     } else {
       ctx.fillStyle = '#e5e5e5';
       ctx.fillText('Waiting for authentication...', 256, 167);
@@ -123,7 +132,8 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
     // Debug logging
     if (sessionToken) console.log('[GameCanvas] Session:', sessionToken.substring(0, 10) + '...');
     if (wsUrl) console.log('[GameCanvas] wsUrl:', wsUrl);
-  }, [sessionToken, isConnected, connectionError, wsUrl]);
+    if (rscUsername) console.log('[GameCanvas] Gmail auth, username:', rscUsername);
+  }, [sessionToken, isConnected, connectionError, wsUrl, rscUsername, onLoginComplete]);
 
   return (
     <>
@@ -132,7 +142,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
         width={512}
         height={334}
         onClick={handleCanvasClick}
-        style={{ cursor: isConnected ? 'crosshair' : 'default' }}
+        style={{ cursor: isConnected ? 'crosshair' : 'default', display: 'block' }}
       />
       {/* Loading spinner overlay when connecting */}
       {sessionToken && !isConnected && !connectionError && (
