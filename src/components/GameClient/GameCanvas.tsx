@@ -5,6 +5,13 @@ import { RSCRenderer } from './RSCRenderer';
 import LoadingSpinner from '../UI/LoadingSpinner';
 
 const GRID_SIZE = 32;
+const CACHE_CDN = import.meta.env.VITE_CACHE_CDN_URL || 'https://game.r2hrsc.xyz/rsc-client/';
+const IFRAME_ORIGIN = 'https://game.r2hrsc.xyz';
+
+// Server RSA keys
+const RSA_EXPONENT = '65537';
+const RSA_MODULUS = '9115015542438186018327044408313987277889783174239809826491015549573028356381739563861028029945657804756198333660503635469704152602063914154601665525357981';
+const GAME_URL = `${CACHE_CDN}#members,127.0.0.1,43594,${RSA_EXPONENT},${RSA_MODULUS},1`;
 
 interface GameCanvasProps {
   wsUrl?: string;
@@ -17,11 +24,65 @@ interface GameCanvasProps {
 
 export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionToken, onLoginComplete, onConnectionChange }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const rendererRef = useRef<RSCRenderer | null>(null);
   const { isConnected, connectionError, sendMessage, lastMessage } = useGameWebSocket(sessionToken);
+  const credsSentRef = useRef(false);
+
+  // Determine auth mode
+  const hasGameCredentials = !!(rscUsername && rscPassword);
+  const hasSessionToken = !!sessionToken;
+
+  // ── Iframe mode (Gmail auth: loads real RSC client from CDN) ──
+
+  // Listen for rsc-login-complete from the iframe
+  useEffect(() => {
+    if (!hasGameCredentials || !onLoginComplete) return;
+
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== IFRAME_ORIGIN && event.origin !== window.location.origin) return;
+      if (event.data?.type === 'rsc-login-complete') {
+        console.log('[GameCanvas] Received rsc-login-complete from iframe');
+        onLoginComplete();
+      }
+    };
+
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [hasGameCredentials, onLoginComplete]);
+
+  // Send credentials to iframe
+  useEffect(() => {
+    if (!hasGameCredentials || !rscUsername || !rscPassword || !iframeRef.current?.contentWindow) return;
+    if (credsSentRef.current) return;
+
+    const sendCreds = () => {
+      iframeRef.current?.contentWindow?.postMessage(
+        { type: 'RSC_LOGIN', username: rscUsername, password: rscPassword },
+        IFRAME_ORIGIN
+      );
+      console.log('[GameCanvas] Sent credentials to iframe');
+    };
+
+    sendCreds();
+    const interval = setInterval(sendCreds, 1000);
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      credsSentRef.current = true;
+    }, 15000);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [hasGameCredentials, rscUsername, rscPassword]);
+
+  // ── Canvas mode (Wallet auth: mock renderer with WebSocket) ──
 
   // Initialize renderer when canvas is ready
   useEffect(() => {
+    if (hasGameCredentials) return; // Skip if using iframe mode
+
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -32,7 +93,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
     rendererRef.current.render();
 
     console.log('[GameCanvas] RSCRenderer initialized');
-  }, []);
+  }, [hasGameCredentials]);
 
   // Notify parent of connection state changes
   useEffect(() => {
@@ -66,24 +127,21 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
     const pixelX = (e.clientX - rect.left) * scaleX;
     const pixelY = (e.clientY - rect.top) * scaleY;
 
-    // Convert to grid coordinates
     const gridX = Math.floor(pixelX / GRID_SIZE);
     const gridY = Math.floor(pixelY / GRID_SIZE);
-
-    // Clamp to valid range
     const clampedX = Math.max(0, Math.min(15, gridX));
     const clampedY = Math.max(0, Math.min(9, gridY));
 
     console.log(`[GameCanvas] Click at pixel (${pixelX.toFixed(0)}, ${pixelY.toFixed(0)}) -> grid (${clampedX}, ${clampedY})`);
 
-    // Send move packet
     const packet = createMovePacket(clampedX, clampedY);
     sendMessage(packet);
   }, [isConnected, sendMessage]);
 
-  // Draw connection status overlay when not connected
+  // Draw connection status on canvas (wallet auth mode only)
   useEffect(() => {
-    if (isConnected) return; // Renderer handles the canvas when connected
+    if (hasGameCredentials) return; // Skip if using iframe mode
+    if (isConnected) return; // Renderer handles when connected
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -99,12 +157,10 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
       ctx.fillRect(0, 0, 512, 334);
     }
 
-    // Border
     ctx.strokeStyle = '#333333';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, 512, 334);
 
-    // Status text
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = '14px sans-serif';
@@ -115,26 +171,36 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
     } else if (sessionToken) {
       ctx.fillStyle = '#e5e5e5';
       ctx.fillText('Connecting to game server...', 256, 167);
-    } else if (rscUsername) {
-      // Gmail auth: show game with credentials (no WebSocket yet)
-      ctx.fillStyle = '#14F195';
-      ctx.fillText(`Logged in as ${rscUsername}`, 256, 167);
-      ctx.fillStyle = '#888';
-      ctx.font = '11px sans-serif';
-      ctx.fillText('Game client loading...', 256, 185);
-      // Signal login complete since we have credentials
-      onLoginComplete?.();
     } else {
       ctx.fillStyle = '#e5e5e5';
       ctx.fillText('Waiting for authentication...', 256, 167);
     }
 
-    // Debug logging
     if (sessionToken) console.log('[GameCanvas] Session:', sessionToken.substring(0, 10) + '...');
     if (wsUrl) console.log('[GameCanvas] wsUrl:', wsUrl);
-    if (rscUsername) console.log('[GameCanvas] Gmail auth, username:', rscUsername);
-  }, [sessionToken, isConnected, connectionError, wsUrl, rscUsername, onLoginComplete]);
+  }, [sessionToken, isConnected, connectionError, wsUrl, hasGameCredentials]);
 
+  // ── Render ──
+
+  // Iframe mode: Gmail auth with game credentials
+  if (hasGameCredentials) {
+    return (
+      <iframe
+        ref={iframeRef}
+        src={GAME_URL}
+        style={{
+          width: 512,
+          height: 334,
+          border: 'none',
+          display: 'block',
+        }}
+        title="R2H RSC Game"
+        allow="autoplay; gamepad"
+      />
+    );
+  }
+
+  // Canvas mode: Wallet auth with WebSocket
   return (
     <>
       <canvas
@@ -144,7 +210,6 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
         onClick={handleCanvasClick}
         style={{ cursor: isConnected ? 'crosshair' : 'default', display: 'block' }}
       />
-      {/* Loading spinner overlay when connecting */}
       {sessionToken && !isConnected && !connectionError && (
         <div
           style={{
