@@ -35,7 +35,16 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
         <p style={styles.subtitle}>Sign in to play</p>
 
         <button style={styles.btnConnect} onClick={() => {
-          console.log('[Auth] Login button clicked, mobile:', isMobile);
+          console.log('🔍 MOBILE WALLET FLOW:');
+          console.log('1. User agent detected as mobile:', navigator.userAgent);
+          console.log('2. Privy modal will open with WalletConnect deep links');
+          console.log('3. User should see: "Open in Phantom", "Open in MetaMask", etc.');
+          console.log('4. Clicking should open wallet app via deep link');
+          console.log('5. After approval, wallet app should redirect back to browser');
+          console.log('6. Privy will complete authentication automatically');
+          console.log('WalletConnect Project ID:', import.meta.env.VITE_WALLETCONNECT_PROJECT_ID);
+          console.log('Privy App ID:', import.meta.env.VITE_PRIVY_APP_ID);
+          console.log('Mobile detected:', isMobile);
           login();
         }}>
           {isMobile ? 'Connect Mobile Wallet' : 'Connect Wallet'}

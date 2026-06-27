@@ -18,7 +18,10 @@ export default function MultiChainButton() {
     return (
       <button 
         onClick={() => {
-          console.log('[MultiChainButton] Login clicked, mobile:', isMobile);
+          console.log('📱 MOBILE CONNECTION INITIATED');
+          console.log('Expected flow: Button click → Privy modal → Deep link options → Wallet app → Return to browser → Auth complete');
+          console.log('Mobile detected:', isMobile);
+          console.log('User agent:', navigator.userAgent);
           login();
         }} 
         style={styles.btn}
