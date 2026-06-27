@@ -1,3 +1,4 @@
+import { useGameScale } from '../../hooks/useGameScale';
 import GameCanvas from './GameCanvas';
 
 const GAME_WIDTH = 512;
@@ -13,6 +14,8 @@ interface GameContainerProps {
 }
 
 export default function GameContainer({ wsUrl, rscUsername, rscPassword, sessionToken, hidden, onLoginComplete }: GameContainerProps) {
+  const scale = useGameScale();
+
   return (
     <div
       style={{
@@ -20,6 +23,9 @@ export default function GameContainer({ wsUrl, rscUsername, rscPassword, session
         width: GAME_WIDTH,
         height: GAME_HEIGHT,
         overflow: 'hidden',
+        transform: `scale(${scale})`,
+        transformOrigin: 'center center',
+        imageRendering: 'pixelated' as any,
         visibility: hidden ? 'hidden' : 'visible',
       }}
     >
