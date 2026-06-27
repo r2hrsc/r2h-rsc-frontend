@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { PrivyProvider } from './lib/privy/PrivyProvider';
 import GameContainer from './components/GameClient/GameContainer';
@@ -12,7 +12,7 @@ const WS_URL  = import.meta.env.VITE_WS_URL  || 'wss://game.r2hrsc.xyz';
 type AppState = 'auth' | 'username' | 'loading' | 'playing';
 
 function AppContent() {
-  const { ready, authenticated, user } = usePrivy();
+  const { ready, authenticated, user, logout } = usePrivy();
 
   const [appState, setAppState] = useState<AppState>('auth');
   const [authProvider, setAuthProvider] = useState('');
@@ -28,23 +28,12 @@ function AppContent() {
         setRscCredentials(null);
         setAuthProvider('');
         setAuthExternalId('');
+        logout();
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, []);
-
-  // Auto-advance to game when authenticated via Privy
-  useEffect(() => {
-    if (ready && authenticated && appState === 'auth' && user) {
-      console.log('[App] Privy authenticated, advancing to game');
-      const externalId = user.wallet?.address || user.email?.address || user.id;
-      setAuthProvider('privy');
-      setAuthExternalId(externalId);
-      setRscCredentials({ username: externalId, password: user.id });
-      setAppState('loading');
-    }
-  }, [ready, authenticated, user, appState]);
+  }, [logout]);
 
   const handleAuthComplete = useCallback((provider: string, externalId: string) => {
     setAuthProvider(provider);
