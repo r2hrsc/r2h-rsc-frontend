@@ -75,17 +75,42 @@ function AppContent() {
 
   return (
     <>
+      {/* Global nav — fixed top, z-index 20 */}
       <TopNav isAuthenticating={isAuthenticating} authError={authError} />
+
+      {/* WalletConnect QR modal (mobile scan-to-connect) */}
       <WalletConnectQRModal />
 
-      <div style={mainLayout}>
-        {/* Auth states */}
+      {/* Main content — centered game frame with TopNav offset */}
+      <div
+        style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          paddingTop: 60,
+          background: '#0a0a0a',
+        }}
+      >
+        {showGame && (
+          <GameContainer
+            wsUrl={WS_URL}
+            rscUsername={rscCredentials?.username}
+            rscPassword={rscCredentials?.password}
+            sessionToken={sessionToken}
+            hidden={appState === 'loading'}
+            onLoginComplete={handleLoginComplete}
+          />
+        )}
+
         {appState === 'auth' && !connected && (
           <AuthOverlay apiUrl={API_URL} onAuthComplete={handleAuthComplete} onExistingUser={handleExistingUser} />
         )}
 
         {appState === 'auth' && connected && isAuthenticating && (
-          <div style={{ color: '#14F195', fontSize: 14, fontFamily: 'sans-serif' }}>Signing in with wallet...</div>
+          <div style={{ color: '#14F195', fontSize: 14, fontFamily: 'sans-serif' }}>
+            Signing in with wallet...
+          </div>
         )}
 
         {appState === 'auth' && connected && authError && (
@@ -96,18 +121,11 @@ function AppContent() {
         )}
 
         {appState === 'username' && (
-          <UsernamePicker apiUrl={API_URL} provider={authProvider} externalId={authExternalId} onComplete={handleUsernameComplete} />
-        )}
-
-        {/* Game */}
-        {showGame && (
-          <GameContainer
-            wsUrl={WS_URL}
-            rscUsername={rscCredentials?.username}
-            rscPassword={rscCredentials?.password}
-            sessionToken={sessionToken}
-            hidden={appState === 'loading'}
-            onLoginComplete={handleLoginComplete}
+          <UsernamePicker
+            apiUrl={API_URL}
+            provider={authProvider}
+            externalId={authExternalId}
+            onComplete={handleUsernameComplete}
           />
         )}
       </div>
@@ -129,13 +147,3 @@ export default function App() {
     </ConnectionProvider>
   );
 }
-
-// Styles
-const mainLayout: React.CSSProperties = {
-  minHeight: '100vh',
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  paddingTop: 60,
-  background: '#0a0a0a',
-};
