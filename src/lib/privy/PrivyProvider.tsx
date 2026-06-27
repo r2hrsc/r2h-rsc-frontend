@@ -1,9 +1,15 @@
 import { PrivyProvider as PrivyProviderBase } from '@privy-io/react-auth';
 
 const PRIVY_APP_ID = import.meta.env.VITE_PRIVY_APP_ID;
+const WALLETCONNECT_PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID;
+
+// Detect mobile devices for logging
+const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
 
 export function PrivyProvider({ children }: { children: React.ReactNode }) {
   console.log('[PrivyProvider] Initializing with appId:', PRIVY_APP_ID ? PRIVY_APP_ID.substring(0, 8) + '...' : 'MISSING');
+  console.log('[PrivyProvider] WalletConnect projectId:', WALLETCONNECT_PROJECT_ID ? 'set' : 'MISSING');
+  console.log('[PrivyProvider] Mobile device detected:', isMobile);
 
   if (!PRIVY_APP_ID || PRIVY_APP_ID === 'your-privy-app-id') {
     console.error('[PrivyProvider] VITE_PRIVY_APP_ID is not set! Add it to .env');
@@ -46,6 +52,14 @@ export function PrivyProvider({ children }: { children: React.ReactNode }) {
           theme: 'dark',
           accentColor: '#14F195',
         },
+        // Enable WalletConnect for mobile wallet deep linking
+        externalWallets: {
+          walletConnect: {
+            enabled: true,
+          },
+        },
+        // WalletConnect Cloud project ID for mobile deep links
+        walletConnectCloudProjectId: WALLETCONNECT_PROJECT_ID,
       }}
     >
       {children}

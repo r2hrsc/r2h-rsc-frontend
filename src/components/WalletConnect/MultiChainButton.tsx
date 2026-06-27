@@ -1,5 +1,8 @@
 import { usePrivy } from '@privy-io/react-auth';
 
+// Detect mobile devices
+const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
+
 export default function MultiChainButton() {
   const { ready, authenticated, user, login, logout } = usePrivy();
 
@@ -13,8 +16,14 @@ export default function MultiChainButton() {
 
   if (!authenticated) {
     return (
-      <button onClick={() => login()} style={styles.btn}>
-        Connect Wallet
+      <button 
+        onClick={() => {
+          console.log('[MultiChainButton] Login clicked, mobile:', isMobile);
+          login();
+        }} 
+        style={styles.btn}
+      >
+        {isMobile ? 'Connect Mobile Wallet' : 'Connect Wallet'}
       </button>
     );
   }

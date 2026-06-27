@@ -1,5 +1,8 @@
 import { useLogin } from '@privy-io/react-auth';
 
+// Detect mobile devices
+const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
+
 interface AuthOverlayProps {
   apiUrl: string;
   onAuthComplete: (provider: string, externalId: string) => void;
@@ -23,7 +26,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     },
   });
 
-  console.log('[AuthOverlay] Rendering login UI');
+  console.log('[AuthOverlay] Rendering login UI, mobile:', isMobile);
 
   return (
     <div style={styles.overlay}>
@@ -32,11 +35,17 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
         <p style={styles.subtitle}>Sign in to play</p>
 
         <button style={styles.btnConnect} onClick={() => {
-          console.log('[Auth] Login button clicked');
+          console.log('[Auth] Login button clicked, mobile:', isMobile);
           login();
         }}>
-          Connect Wallet
+          {isMobile ? 'Connect Mobile Wallet' : 'Connect Wallet'}
         </button>
+        
+        {isMobile && (
+          <p style={styles.mobileHint}>
+            Opens your wallet app directly
+          </p>
+        )}
       </div>
     </div>
   );
@@ -61,5 +70,10 @@ const styles: Record<string, React.CSSProperties> = {
     width: '100%', padding: '12px 0', borderRadius: 8, border: 'none',
     background: '#14F195', color: '#0a0a0a', fontSize: 15, fontWeight: 600,
     cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    minHeight: 44,
+    touchAction: 'manipulation',
+  },
+  mobileHint: {
+    color: '#666', fontSize: 11, margin: 0, textAlign: 'center',
   },
 };
