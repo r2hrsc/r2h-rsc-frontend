@@ -61,7 +61,7 @@ export default function GameContainer({ wsUrl, rscUsername, rscPassword, session
         onConnectionChange={setIsConnected}
       />
 
-      {/* Game overlay — betting/staking UI, absolute positioned within container */}
+      {/* Game overlay — betting UI, absolute positioned within container */}
       <GameOverlay />
     </div>
   );

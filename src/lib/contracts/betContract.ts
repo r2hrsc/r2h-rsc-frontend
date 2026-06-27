@@ -16,7 +16,7 @@ const PROGRAM_ID = new PublicKey(import.meta.env.VITE_BET_PROGRAM_ID || '1111111
 const R2H_MINT = new PublicKey(import.meta.env.VITE_R2H_TOKEN_MINT || '11111111111111111111111111111111');
 const HOUSE_WALLET = new PublicKey(import.meta.env.VITE_HOUSE_WALLET || '11111111111111111111111111111111');
 
-export type BetType = 'pking' | 'staking' | 'casino';
+export type BetType = 'pking' | 'casino';
 
 export interface BetResult {
   won: boolean;

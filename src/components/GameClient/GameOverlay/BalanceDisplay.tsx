@@ -1,10 +1,6 @@
 import { useR2HBalance } from '../../../hooks/useR2HBalance';
 
-interface BalanceDisplayProps {
-  totalStaked?: number;
-}
-
-export default function BalanceDisplay({ totalStaked = 0 }: BalanceDisplayProps) {
+export default function BalanceDisplay() {
   const { balance, isLoading, error } = useR2HBalance();
 
   return (
@@ -30,14 +26,6 @@ export default function BalanceDisplay({ totalStaked = 0 }: BalanceDisplayProps)
         <span style={{ color: '#14F195' }}>...</span>
       ) : (
         <span style={{ color: '#14F195', fontWeight: 600 }}>{balance.toFixed(2)}</span>
-      )}
-
-      {totalStaked > 0 && (
-        <>
-          <span style={{ color: '#333' }}>|</span>
-          <span style={{ color: '#888' }}>Staked:</span>
-          <span style={{ color: '#14F195' }}>{totalStaked.toFixed(2)}</span>
-        </>
       )}
     </div>
   );

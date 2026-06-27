@@ -6,7 +6,6 @@ import { getWalletConnectWallets } from './config/appkit';
 import { useSidecarAuth } from './hooks/useSidecarAuth';
 import TopNav from './components/Layout/TopNav';
 import GameContainer from './components/GameClient/GameContainer';
-import StakingPanel from './components/GameClient/GameOverlay/StakingPanel';
 import AuthOverlay from './components/AuthOverlay';
 import UsernamePicker from './components/UsernamePicker';
 import WalletConnectQRModal from './components/WalletConnectQRModal';
@@ -100,22 +99,16 @@ function AppContent() {
           <UsernamePicker apiUrl={API_URL} provider={authProvider} externalId={authExternalId} onComplete={handleUsernameComplete} />
         )}
 
-        {/* Game + Staking layout */}
+        {/* Game */}
         {showGame && (
-          <div style={gameSection}>
-            <GameContainer
-              wsUrl={WS_URL}
-              rscUsername={rscCredentials?.username}
-              rscPassword={rscCredentials?.password}
-              sessionToken={sessionToken}
-              hidden={appState === 'loading'}
-              onLoginComplete={handleLoginComplete}
-            />
-
-            <div style={stakingSection}>
-              <StakingPanel />
-            </div>
-          </div>
+          <GameContainer
+            wsUrl={WS_URL}
+            rscUsername={rscCredentials?.username}
+            rscPassword={rscCredentials?.password}
+            sessionToken={sessionToken}
+            hidden={appState === 'loading'}
+            onLoginComplete={handleLoginComplete}
+          />
         )}
       </div>
     </>
@@ -145,19 +138,4 @@ const mainLayout: React.CSSProperties = {
   alignItems: 'center',
   paddingTop: 60,
   background: '#0a0a0a',
-};
-
-const gameSection: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: 16,
-  padding: '16px 0',
-};
-
-const stakingSection: React.CSSProperties = {
-  width: '100%',
-  maxWidth: 512,
-  padding: '0 16px',
-  boxSizing: 'border-box',
 };
