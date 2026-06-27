@@ -193,6 +193,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
           height: 334,
           border: 'none',
           display: 'block',
+          imageRendering: 'pixelated' as any,
         }}
         title="R2H RSC Game"
         allow="autoplay; gamepad"
@@ -208,7 +209,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
         width={512}
         height={334}
         onClick={handleCanvasClick}
-        style={{ cursor: isConnected ? 'crosshair' : 'default', display: 'block' }}
+        style={{ cursor: isConnected ? 'crosshair' : 'default', display: 'block', imageRendering: 'pixelated' as any }}
       />
       {sessionToken && !isConnected && !connectionError && (
         <div

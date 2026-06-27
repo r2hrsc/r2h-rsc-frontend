@@ -4,6 +4,7 @@ const GAME_WIDTH = 512;
 const GAME_HEIGHT = 334;
 const PADDING_BUFFER = 0.95;
 const MIN_SCALE = 0.6;
+const MAX_SCALE = 2;
 
 export function useGameScale(): number {
   const [scale, setScale] = useState(() => calculateScale());
@@ -25,9 +26,5 @@ function calculateScale(): number {
   const scaleY = window.innerHeight / GAME_HEIGHT;
   const scale = Math.max(MIN_SCALE, Math.min(scaleX, scaleY) * PADDING_BUFFER);
 
-  if (window.innerWidth < 768) {
-    console.log('[useGameScale] Mobile scale:', scale);
-  }
-
-  return scale;
+  return Math.min(scale, MAX_SCALE);
 }
