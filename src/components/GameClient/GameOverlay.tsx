@@ -1,18 +1,6 @@
-import { useState } from 'react';
 import BalanceDisplay from './GameOverlay/BalanceDisplay';
-import BottomBar from './GameOverlay/BottomBar';
-import WinLossModal from './GameOverlay/WinLossModal';
-
-interface BetResult {
-  won: boolean;
-  amount: number;
-  betType: string;
-  txSignature: string;
-}
 
 export default function GameOverlay() {
-  const [betResult, setBetResult] = useState<BetResult | null>(null);
-
   return (
     <div
       style={{
@@ -27,8 +15,6 @@ export default function GameOverlay() {
       }}
     >
       <BalanceDisplay />
-      <BottomBar onBetResult={setBetResult} />
-      <WinLossModal result={betResult} onClose={() => setBetResult(null)} />
     </div>
   );
 }
