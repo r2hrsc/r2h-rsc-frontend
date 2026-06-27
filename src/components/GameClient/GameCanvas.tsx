@@ -203,27 +203,12 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
 
   // Canvas mode: Wallet auth with WebSocket
   return (
-    <>
-      <canvas
-        ref={canvasRef}
-        width={512}
-        height={334}
-        onClick={handleCanvasClick}
-        style={{ cursor: isConnected ? 'crosshair' : 'default', display: 'block', imageRendering: 'pixelated' as any }}
-      />
-      {sessionToken && !isConnected && !connectionError && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, 30px)',
-            pointerEvents: 'none',
-          }}
-        >
-          <LoadingSpinner size="md" />
-        </div>
-      )}
-    </>
+    <canvas
+      ref={canvasRef}
+      width={512}
+      height={334}
+      onClick={handleCanvasClick}
+      style={{ cursor: isConnected ? 'crosshair' : 'default', display: 'block', imageRendering: 'pixelated' as any }}
+    />
   );
 }
