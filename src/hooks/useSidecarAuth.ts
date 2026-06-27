@@ -31,7 +31,8 @@ export function useSidecarAuth(): SidecarAuthState {
     setAuthError(null);
 
     try {
-      const walletAddress = wallets.find((w) => w.chainType === 'solana')?.address || user.wallet?.address || user.id;
+      const solWallet = (wallets as any[]).find((w) => (w.chainType ?? w.type) === 'solana');
+      const walletAddress = solWallet?.address || user.wallet?.address || user.id;
 
       const response = await fetch(`${SIDECAR_URL}/api/auth/login`, {
         method: 'POST',

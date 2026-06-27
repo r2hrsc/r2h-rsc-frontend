@@ -8,9 +8,10 @@ interface AuthOverlayProps {
 
 export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: AuthOverlayProps) {
   const { login } = useLogin({
-    onComplete: (user, isNewUser) => {
+    onComplete: ({ user, isNewUser }) => {
       const externalId = user.wallet?.address || user.email?.address || user.id;
       console.log('[Auth] Privy login complete:', externalId, isNewUser ? '(new)' : '(existing)');
+      console.log('[Auth] Full user object:', user);
       if (isNewUser) {
         onAuthComplete('privy', externalId);
       } else {
@@ -22,13 +23,18 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     },
   });
 
+  console.log('[AuthOverlay] Rendering login UI');
+
   return (
     <div style={styles.overlay}>
       <div style={styles.card}>
         <h1 style={styles.title}>R2H RSC</h1>
         <p style={styles.subtitle}>Sign in to play</p>
 
-        <button style={styles.btnConnect} onClick={() => login()}>
+        <button style={styles.btnConnect} onClick={() => {
+          console.log('[Auth] Login button clicked');
+          login();
+        }}>
           Connect Wallet
         </button>
       </div>
