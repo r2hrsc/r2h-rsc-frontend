@@ -3,14 +3,12 @@ import {
   PublicKey,
   Transaction,
   TransactionInstruction,
-  SystemProgram,
 } from '@solana/web3.js';
 import {
   getAssociatedTokenAddress,
   createTransferInstruction,
   TOKEN_PROGRAM_ID,
 } from '@solana/spl-token';
-import type { WalletContextState } from '@solana/wallet-adapter-react';
 
 const PROGRAM_ID = new PublicKey(import.meta.env.VITE_BET_PROGRAM_ID || '11111111111111111111111111111111');
 const R2H_MINT = new PublicKey(import.meta.env.VITE_R2H_TOKEN_MINT || '11111111111111111111111111111111');
@@ -28,19 +26,19 @@ export interface BetResult {
 
 /**
  * Place a bet by transferring $R2H tokens to the contract escrow.
- * Returns the transaction signature.
+ * Accepts a Privy wallet object with address and signTransaction.
  */
 export async function placeBet(
-  wallet: WalletContextState,
+  wallet: { address: string; signTransaction?: (tx: Transaction) => Promise<Transaction> },
   connection: Connection,
   amount: number,
   betType: BetType,
 ): Promise<string> {
-  if (!wallet.publicKey || !wallet.signTransaction) {
+  if (!wallet.address) {
     throw new Error('Wallet not connected');
   }
 
-  const userPublicKey = wallet.publicKey;
+  const userPublicKey = new PublicKey(wallet.address);
   const lamports = Math.floor(amount * 1e9); // 9 decimals
 
   // Get associated token accounts
@@ -74,7 +72,11 @@ export async function placeBet(
   transaction.recentBlockhash = blockhash;
   transaction.feePayer = userPublicKey;
 
-  // Sign and send
+  // Sign and send — Privy wallets expose signTransaction
+  if (!wallet.signTransaction) {
+    throw new Error('Wallet does not support signing');
+  }
+
   const signedTx = await wallet.signTransaction(transaction);
   const signature = await connection.sendRawTransaction(signedTx.serialize());
 
@@ -89,7 +91,6 @@ export async function placeBet(
 
 /**
  * Get the status of a bet from the contract.
- * Returns: 'pending' | 'resolved' | 'unknown'
  */
 export async function getBetStatus(
   connection: Connection,
@@ -105,13 +106,10 @@ export async function getBetStatus(
       return { status: 'failed' };
     }
 
-    // Check for contract resolution events in the transaction logs
     const logs = tx.meta?.logMessages || [];
     const resolvedLog = logs.find((log) => log.includes('BetResolved'));
 
     if (resolvedLog) {
-      // Parse the resolution from logs
-      // Format: "Program log: BetResolved: {won: true, payout: 1000000000}"
       try {
         const jsonStr = resolvedLog.split('BetResolved: ')[1];
         const result = JSON.parse(jsonStr);
@@ -146,9 +144,9 @@ export async function waitForResolution(
 
     if (status.status === 'resolved') {
       return {
-        won: status.won ?? Math.random() > 0.5, // Fallback to random if not parsed
-        amount: 0, // Will be set by caller
-        betType: 'pking', // Will be set by caller
+        won: status.won ?? Math.random() > 0.5,
+        amount: 0,
+        betType: 'pking',
         txSignature,
         payout: status.payout,
       };
@@ -158,7 +156,6 @@ export async function waitForResolution(
       throw new Error('Bet transaction failed');
     }
 
-    // Wait before next poll
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 

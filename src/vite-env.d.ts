@@ -5,19 +5,14 @@ interface ImportMetaEnv {
   readonly VITE_WS_URL: string;
   readonly VITE_CACHE_CDN_URL: string;
   readonly VITE_GOOGLE_CLIENT_ID: string;
-  readonly VITE_WALLETCONNECT_PROJECT_ID: string;
+  readonly VITE_PRIVY_APP_ID: string;
+  readonly VITE_SOLANA_RPC_URL: string;
+  readonly VITE_R2H_TOKEN_MINT: string;
+  readonly VITE_BET_PROGRAM_ID: string;
+  readonly VITE_HOUSE_WALLET: string;
+  readonly VITE_SIDECAR_URL: string;
 }
 
 interface ImportMeta {
   readonly env: ImportMetaEnv;
-}
-
-// Fix React 18.3+ type incompatibility with @solana/wallet-adapter
-// The wallet adapter was built against React 18.0 types.
-// React 18.3 added Promise<ReactNode> to ReactNode which breaks JSX component types.
-import type { ReactNode } from 'react';
-declare module 'react' {
-  interface ReactNodeMap {
-    __brand: never;
-  }
 }

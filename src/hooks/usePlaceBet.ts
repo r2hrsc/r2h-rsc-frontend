@@ -1,7 +1,10 @@
 import { useState, useCallback } from 'react';
-import { useConnection, useWallet } from '@solana/wallet-adapter-react';
+import { useWallets } from '@privy-io/react-auth';
+import { Connection } from '@solana/web3.js';
 import { placeBet as contractPlaceBet, waitForResolution, type BetType, type BetResult } from '../lib/contracts/betContract';
 import { getErrorMessage } from '../lib/contractErrors';
+
+const SOLANA_RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 
 interface PlaceBetState {
   placeBet: (amount: number, betType: BetType) => Promise<void>;
@@ -12,8 +15,7 @@ interface PlaceBetState {
 }
 
 export function usePlaceBet(): PlaceBetState {
-  const { connection } = useConnection();
-  const wallet = useWallet();
+  const { wallets } = useWallets();
   const [isPlacing, setIsPlacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<BetResult | null>(null);
@@ -24,8 +26,9 @@ export function usePlaceBet(): PlaceBetState {
   }, []);
 
   const placeBet = useCallback(async (amount: number, betType: BetType) => {
-    if (!wallet.publicKey) {
-      setError('Wallet not connected');
+    const solanaWallet = wallets.find((w) => w.chainType === 'solana');
+    if (!solanaWallet) {
+      setError('No Solana wallet connected');
       return;
     }
 
@@ -39,16 +42,14 @@ export function usePlaceBet(): PlaceBetState {
     setResult(null);
 
     try {
-      // Step 1: Send bet transaction to smart contract
+      const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
       console.log('[usePlaceBet] Placing bet:', amount, betType);
-      const txSignature = await contractPlaceBet(wallet, connection, amount, betType);
+      const txSignature = await contractPlaceBet(solanaWallet, connection, amount, betType);
       console.log('[usePlaceBet] Transaction sent:', txSignature);
 
-      // Step 2: Wait for contract to resolve the bet
       console.log('[usePlaceBet] Waiting for resolution...');
       const betResult = await waitForResolution(connection, txSignature);
 
-      // Step 3: Update result with actual data
       betResult.amount = amount;
       betResult.betType = betType;
       setResult(betResult);
@@ -60,7 +61,7 @@ export function usePlaceBet(): PlaceBetState {
     } finally {
       setIsPlacing(false);
     }
-  }, [wallet, connection]);
+  }, [wallets]);
 
   return { placeBet, isPlacing, error, result, clearResult };
 }

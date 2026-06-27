@@ -1,8 +1,8 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { useConnection } from '@solana/wallet-adapter-react';
-import { PublicKey } from '@solana/web3.js';
+import { Connection, PublicKey } from '@solana/web3.js';
 
 const PROGRAM_ID = new PublicKey(import.meta.env.VITE_BET_PROGRAM_ID || '11111111111111111111111111111111');
+const SOLANA_RPC_URL = import.meta.env.VITE_SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const POLL_INTERVAL = 5000; // 5 seconds
 
 export interface ContractEvent {
@@ -20,7 +20,7 @@ interface UseContractEventsState {
 }
 
 export function useContractEvents(): UseContractEventsState {
-  const { connection } = useConnection();
+  const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
   const [events, setEvents] = useState<ContractEvent[]>([]);
   const [lastEvent, setLastEvent] = useState<ContractEvent | null>(null);
   const [isListening, setIsListening] = useState(false);
@@ -71,7 +71,6 @@ export function useContractEvents(): UseContractEventsState {
 
     const poll = async () => {
       try {
-        // Get recent signatures for the program
         const signatures = await connection.getSignaturesForAddress(
           PROGRAM_ID,
           { limit: 10 },
@@ -101,10 +100,7 @@ export function useContractEvents(): UseContractEventsState {
       }
     };
 
-    // Initial poll
     poll();
-
-    // Set up interval
     interval = setInterval(poll, POLL_INTERVAL);
 
     return () => {

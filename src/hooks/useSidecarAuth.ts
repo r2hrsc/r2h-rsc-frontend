@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
-import bs58 from 'bs58';
+import { usePrivy, useWallets } from '@privy-io/react-auth';
 
 const SIDECAR_URL = import.meta.env.VITE_SIDECAR_URL || 'http://localhost:3000';
 const TOKEN_KEY = 'r2h_session_token';
@@ -14,7 +13,8 @@ interface SidecarAuthState {
 }
 
 export function useSidecarAuth(): SidecarAuthState {
-  const { publicKey, signMessage, connected } = useWallet();
+  const { authenticated, user, logout: privyLogout } = usePrivy();
+  const { wallets } = useWallets();
   const [sessionToken, setSessionToken] = useState<string | null>(() => {
     return localStorage.getItem(TOKEN_KEY);
   });
@@ -22,8 +22,8 @@ export function useSidecarAuth(): SidecarAuthState {
   const [authError, setAuthError] = useState<string | null>(null);
 
   const login = useCallback(async () => {
-    if (!publicKey || !signMessage) {
-      setAuthError('Wallet not connected or signMessage not available');
+    if (!authenticated || !user) {
+      setAuthError('Not authenticated with Privy');
       return;
     }
 
@@ -31,22 +31,16 @@ export function useSidecarAuth(): SidecarAuthState {
     setAuthError(null);
 
     try {
-      // Generate challenge
-      const challenge = `R2H Login: ${Date.now()}`;
-      const encodedMessage = new TextEncoder().encode(challenge);
+      const walletAddress = wallets.find((w) => w.chainType === 'solana')?.address || user.wallet?.address || user.id;
 
-      // Sign the challenge
-      const signature = await signMessage(encodedMessage);
-      const base58Signature = bs58.encode(signature);
-
-      // Send to sidecar for verification
       const response = await fetch(`${SIDECAR_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          publicKey: publicKey.toBase58(),
-          signature: base58Signature,
-          message: challenge,
+          provider: 'privy',
+          userId: user.id,
+          walletAddress,
+          email: user.email?.address,
         }),
       });
 
@@ -71,7 +65,7 @@ export function useSidecarAuth(): SidecarAuthState {
     } finally {
       setIsAuthenticating(false);
     }
-  }, [publicKey, signMessage]);
+  }, [authenticated, user, wallets]);
 
   const logout = useCallback(() => {
     setSessionToken(null);
@@ -79,20 +73,20 @@ export function useSidecarAuth(): SidecarAuthState {
     localStorage.removeItem(TOKEN_KEY);
     console.log('[useSidecarAuth] Logged out');
 
-    // Fire and forget sidecar logout
     fetch(`${SIDECAR_URL}/api/auth/logout`, { method: 'POST' }).catch(() => {});
-  }, []);
+    privyLogout();
+  }, [privyLogout]);
 
-  // Auto-login when wallet connects, auto-logout when disconnects
+  // Auto-login when Privy authenticates, auto-logout when disconnects
   useEffect(() => {
-    if (connected && publicKey && !sessionToken && !isAuthenticating) {
-      console.log('[useSidecarAuth] Wallet connected, triggering auto-login');
+    if (authenticated && user && !sessionToken && !isAuthenticating) {
+      console.log('[useSidecarAuth] Privy authenticated, triggering auto-login');
       login();
-    } else if (!connected && sessionToken) {
-      console.log('[useSidecarAuth] Wallet disconnected, triggering logout');
+    } else if (!authenticated && sessionToken) {
+      console.log('[useSidecarAuth] Privy disconnected, triggering logout');
       logout();
     }
-  }, [connected, publicKey, sessionToken, isAuthenticating, login, logout]);
+  }, [authenticated, user, sessionToken, isAuthenticating, login, logout]);
 
   return { login, logout, sessionToken, isAuthenticating, authError };
 }

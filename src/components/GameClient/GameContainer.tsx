@@ -8,12 +8,11 @@ interface GameContainerProps {
   wsUrl?: string;
   rscUsername?: string;
   rscPassword?: string;
-  sessionToken?: string | null;
   hidden?: boolean;
   onLoginComplete?: () => void;
 }
 
-export default function GameContainer({ wsUrl, rscUsername, rscPassword, sessionToken, hidden, onLoginComplete }: GameContainerProps) {
+export default function GameContainer({ wsUrl, rscUsername, rscPassword, hidden, onLoginComplete }: GameContainerProps) {
   const scale = useGameScale();
 
   return (
@@ -33,7 +32,6 @@ export default function GameContainer({ wsUrl, rscUsername, rscPassword, session
         wsUrl={wsUrl}
         rscUsername={rscUsername}
         rscPassword={rscPassword}
-        sessionToken={sessionToken}
         onLoginComplete={onLoginComplete}
       />
     </div>

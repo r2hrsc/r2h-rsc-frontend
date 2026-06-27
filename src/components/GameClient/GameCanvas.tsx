@@ -1,8 +1,8 @@
 import { useRef, useEffect, useCallback } from 'react';
+import { useSidecarAuth } from '../../hooks/useSidecarAuth';
 import { useGameWebSocket } from '../../hooks/useGameWebSocket';
 import { parsePacket, createMovePacket } from '../../lib/rscPacketParser';
 import { RSCRenderer } from './RSCRenderer';
-import LoadingSpinner from '../UI/LoadingSpinner';
 
 const GRID_SIZE = 32;
 const CACHE_CDN = import.meta.env.VITE_CACHE_CDN_URL || 'https://game.r2hrsc.xyz/rsc-client/';
@@ -17,21 +17,19 @@ interface GameCanvasProps {
   wsUrl?: string;
   rscUsername?: string;
   rscPassword?: string;
-  sessionToken?: string | null;
   onLoginComplete?: () => void;
-  onConnectionChange?: (connected: boolean) => void;
 }
 
-export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionToken, onLoginComplete, onConnectionChange }: GameCanvasProps) {
+export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginComplete }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const rendererRef = useRef<RSCRenderer | null>(null);
+  const { sessionToken } = useSidecarAuth();
   const { isConnected, connectionError, sendMessage, lastMessage } = useGameWebSocket(sessionToken);
   const credsSentRef = useRef(false);
 
   // Determine auth mode
   const hasGameCredentials = !!(rscUsername && rscPassword);
-  const hasSessionToken = !!sessionToken;
 
   // ── Iframe mode (Gmail auth: loads real RSC client from CDN) ──
 
@@ -94,11 +92,6 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, sessionTok
 
     console.log('[GameCanvas] RSCRenderer initialized');
   }, [hasGameCredentials]);
-
-  // Notify parent of connection state changes
-  useEffect(() => {
-    onConnectionChange?.(isConnected);
-  }, [isConnected, onConnectionChange]);
 
   // Handle incoming WebSocket packets
   useEffect(() => {

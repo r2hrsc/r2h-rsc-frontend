@@ -1,13 +1,9 @@
 import { useMemo, useState, useCallback, useEffect } from 'react';
-import { ConnectionProvider, WalletProvider, useWallet } from '@solana/wallet-adapter-react';
-import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
-import { clusterApiUrl } from '@solana/web3.js';
-import { getWalletConnectWallets } from './config/appkit';
-import { useSidecarAuth } from './hooks/useSidecarAuth';
+import { usePrivy } from '@privy-io/react-auth';
+import { PrivyProvider } from './lib/privy/PrivyProvider';
 import GameContainer from './components/GameClient/GameContainer';
 import AuthOverlay from './components/AuthOverlay';
 import UsernamePicker from './components/UsernamePicker';
-import '@solana/wallet-adapter-react-ui/styles.css';
 import './index.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
@@ -16,8 +12,7 @@ const WS_URL  = import.meta.env.VITE_WS_URL  || 'wss://game.r2hrsc.xyz';
 type AppState = 'auth' | 'username' | 'loading' | 'playing';
 
 function AppContent() {
-  const { connected } = useWallet();
-  const { sessionToken, isAuthenticating, authError } = useSidecarAuth();
+  const { ready, authenticated, user } = usePrivy();
 
   const [appState, setAppState] = useState<AppState>('auth');
   const [authProvider, setAuthProvider] = useState('');
@@ -39,13 +34,17 @@ function AppContent() {
     return () => window.removeEventListener('message', handler);
   }, []);
 
-  // Auto-advance to game when sidecar session is ready
+  // Auto-advance to game when authenticated via Privy
   useEffect(() => {
-    if (sessionToken && appState === 'auth') {
-      console.log('[App] Sidecar session ready, advancing to game');
+    if (ready && authenticated && appState === 'auth' && user) {
+      console.log('[App] Privy authenticated, advancing to game');
+      const externalId = user.wallet?.address || user.email?.address || user.id;
+      setAuthProvider('privy');
+      setAuthExternalId(externalId);
+      setRscCredentials({ username: externalId, password: user.id });
       setAppState('loading');
     }
-  }, [sessionToken, appState]);
+  }, [ready, authenticated, user, appState]);
 
   const handleAuthComplete = useCallback((provider: string, externalId: string) => {
     setAuthProvider(provider);
@@ -86,27 +85,13 @@ function AppContent() {
           wsUrl={WS_URL}
           rscUsername={rscCredentials?.username}
           rscPassword={rscCredentials?.password}
-          sessionToken={sessionToken}
           hidden={appState === 'loading'}
           onLoginComplete={handleLoginComplete}
         />
       )}
 
-      {appState === 'auth' && !connected && (
+      {appState === 'auth' && (
         <AuthOverlay apiUrl={API_URL} onAuthComplete={handleAuthComplete} onExistingUser={handleExistingUser} />
-      )}
-
-      {appState === 'auth' && connected && isAuthenticating && (
-        <div style={{ color: '#14F195', fontSize: 14, fontFamily: 'sans-serif' }}>
-          Signing in with wallet...
-        </div>
-      )}
-
-      {appState === 'auth' && connected && authError && (
-        <div style={{ color: '#ff4444', fontSize: 14, fontFamily: 'sans-serif', textAlign: 'center' }}>
-          <p>Authentication failed</p>
-          <p style={{ fontSize: 12, color: '#888' }}>{authError}</p>
-        </div>
       )}
 
       {appState === 'username' && (
@@ -122,16 +107,9 @@ function AppContent() {
 }
 
 export default function App() {
-  const endpoint = useMemo(() => clusterApiUrl('mainnet-beta'), []);
-  const wallets  = useMemo(() => getWalletConnectWallets(), []);
-
   return (
-    <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>
-          <AppContent />
-        </WalletModalProvider>
-      </WalletProvider>
-    </ConnectionProvider>
+    <PrivyProvider>
+      <AppContent />
+    </PrivyProvider>
   );
 }
