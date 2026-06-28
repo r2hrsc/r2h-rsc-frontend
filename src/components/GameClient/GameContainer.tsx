@@ -8,11 +8,10 @@ interface GameContainerProps {
   wsUrl?: string;
   rscUsername?: string;
   rscPassword?: string;
-  hidden?: boolean;
   onLoginComplete?: () => void;
 }
 
-export default function GameContainer({ wsUrl, rscUsername, rscPassword, hidden, onLoginComplete }: GameContainerProps) {
+export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLoginComplete }: GameContainerProps) {
   const scale = useGameScale();
 
   return (
@@ -25,7 +24,6 @@ export default function GameContainer({ wsUrl, rscUsername, rscPassword, hidden,
         transform: `scale(${scale})`,
         transformOrigin: 'center center',
         imageRendering: 'pixelated' as any,
-        visibility: hidden ? 'hidden' : 'visible',
       }}
     >
       <GameCanvas

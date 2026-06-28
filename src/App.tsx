@@ -11,6 +11,24 @@ const WS_URL  = import.meta.env.VITE_WS_URL  || 'wss://game.r2hrsc.xyz';
 
 type AppState = 'auth' | 'username' | 'loading' | 'playing';
 
+// ── Loading Overlay ──
+function LoadingOverlay({ text }: { text: string }) {
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 1038,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)',
+      gap: 16,
+    }}>
+      <div style={{
+        width: 32, height: 32, border: '3px solid #333', borderTop: '3px solid #14F195',
+        borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+      }} />
+      <p style={{ color: '#888', fontSize: 14, fontFamily: 'monospace', margin: 0 }}>{text}</p>
+    </div>
+  );
+}
+
 // ── Error Boundary ──
 interface ErrorBoundaryState { hasError: boolean; error: Error | null; }
 
@@ -66,15 +84,7 @@ function AppContent() {
   const [authProvider, setAuthProvider] = useState('');
   const [authExternalId, setAuthExternalId] = useState('');
   const [rscCredentials, setRscCredentials] = useState<{ username: string; password: string } | null>(null);
-
-  // ── Auth state logging ──
-  useEffect(() => {
-    console.log('[App] Privy state → ready:', ready, '| authenticated:', authenticated, '| user:', user?.id ?? 'null');
-  }, [ready, authenticated, user]);
-
-  useEffect(() => {
-    console.log('[App] AppState →', appState, '| credentials:', rscCredentials ? 'set' : 'none');
-  }, [appState, rscCredentials]);
+  const [loadingText, setLoadingText] = useState('Loading game...');
 
   // Listen for RSC_DISCONNECT from the game iframe
   useEffect(() => {
@@ -104,12 +114,14 @@ function AppContent() {
     setAuthProvider(provider);
     setAuthExternalId(externalId);
     setRscCredentials({ username: rscUsername, password: rscPassword });
+    setLoadingText('Connecting to game...');
     setAppState('loading');
   }, []);
 
   const handleUsernameComplete = useCallback((rscUsername: string, rscPassword: string) => {
     console.log('[App] Username selected:', rscUsername);
     setRscCredentials({ username: rscUsername, password: rscPassword });
+    setLoadingText('Entering world...');
     setAppState('loading');
   }, []);
 
@@ -118,22 +130,20 @@ function AppContent() {
     setAppState('playing');
   }, []);
 
-  // Show loading while Privy initializes
+  // Show minimal loading while Privy initializes
   if (!ready) {
-    console.log('[App] Privy not ready yet, showing loading...');
     return (
       <div style={{
-        minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: '#0a0a0a', color: '#888', fontFamily: 'monospace',
+        height: '100vh', width: '100vw', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: '#0a0a0a', position: 'fixed', inset: 0, overflow: 'hidden',
       }}>
-        <p>Initializing...</p>
+        <LoadingOverlay text="Initializing..." />
       </div>
     );
   }
 
   const showGame = appState === 'loading' || appState === 'playing';
-
-  console.log('[App] Rendering → showGame:', showGame, '| appState:', appState, '| authenticated:', authenticated);
+  const showLoadingOverlay = appState === 'loading';
 
   return (
     <div
@@ -149,15 +159,18 @@ function AppContent() {
         inset: 0,
       }}
     >
+      {/* Game always renders when we have credentials — starts loading immediately */}
       {showGame && (
         <GameContainer
           wsUrl={WS_URL}
           rscUsername={rscCredentials?.username}
           rscPassword={rscCredentials?.password}
-          hidden={appState === 'loading'}
           onLoginComplete={handleLoginComplete}
         />
       )}
+
+      {/* Loading overlay on top of game while it connects */}
+      {showLoadingOverlay && <LoadingOverlay text={loadingText} />}
 
       {appState === 'auth' && (
         <AuthOverlay apiUrl={API_URL} onAuthComplete={handleAuthComplete} onExistingUser={handleExistingUser} />

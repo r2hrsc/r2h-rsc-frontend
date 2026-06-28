@@ -10,13 +10,14 @@ interface AuthOverlayProps {
 
 export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: AuthOverlayProps) {
   const [error, setError] = useState('');
-  const [status, setStatus] = useState('');
+  const [signingIn, setSigningIn] = useState(false);
 
   // Privy for wallet connections
   const { login } = useLogin({
     onComplete: ({ user, isNewUser }) => {
       const externalId = user.wallet?.address || user.email?.address || user.id;
       console.log('[Auth] Privy login complete:', externalId);
+      setSigningIn(true);
       if (isNewUser) {
         onAuthComplete('privy', externalId);
       } else {
@@ -26,7 +27,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     onError: (err) => {
       console.error('[Auth] Privy login error:', err);
       setError('Wallet connection failed.');
-      setStatus('');
+      setSigningIn(false);
     },
   });
 
@@ -36,7 +37,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
       setError('Google did not return a credential.');
       return;
     }
-    setStatus('Signing in with Google…');
+    setSigningIn(true);
     setError('');
     try {
       const res = await fetch(`${apiUrl}/auth/google`, {
@@ -54,9 +55,26 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     } catch (err: any) {
       console.error('[Auth] Google auth error:', err);
       setError(err.message);
-      setStatus('');
+      setSigningIn(false);
     }
   };
+
+  // Full-screen signing in state
+  if (signingIn) {
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 1039,
+        display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.9)', gap: 16,
+      }}>
+        <div style={{
+          width: 32, height: 32, border: '3px solid #333', borderTop: '3px solid #14F195',
+          borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+        }} />
+        <p style={{ color: '#888', fontSize: 14, fontFamily: 'monospace', margin: 0 }}>Signing in...</p>
+      </div>
+    );
+  }
 
   return (
     <div style={styles.overlay}>
@@ -65,7 +83,6 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
         <p style={styles.subtitle}>Sign in to play</p>
 
         {error && <p style={styles.error}>{error}</p>}
-        {status && <p style={styles.status}>{status}</p>}
 
         {/* Google */}
         <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
@@ -114,7 +131,6 @@ const styles: Record<string, React.CSSProperties> = {
   title:    { color: '#fff', fontSize: 28, fontWeight: 700, margin: 0 },
   subtitle: { color: '#888', fontSize: 14, margin: '0 0 8px' },
   error:    { color: '#f44', fontSize: 13, textAlign: 'center' as const },
-  status:   { color: '#4af', fontSize: 13, textAlign: 'center' as const },
   divider: {
     display: 'flex', alignItems: 'center', width: '100%', gap: 10, margin: '4px 0',
   },
