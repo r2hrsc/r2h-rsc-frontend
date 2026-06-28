@@ -4,12 +4,21 @@ import { useState } from 'react';
 const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
 const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
+export type WalletType = 'google' | 'metamask' | 'phantom' | 'coinbase' | 'embedded';
+
 interface MobileWalletSelectorProps {
-  onSelect: (walletType: 'metamask' | 'phantom' | 'coinbase' | 'embedded') => void;
+  onSelect: (walletType: WalletType) => void;
   onCancel: () => void;
 }
 
 const wallets = [
+  {
+    id: 'google' as const,
+    name: 'Google',
+    icon: '🔴',
+    color: '#4285F4',
+    description: 'Sign in with Google (creates wallet automatically)',
+  },
   {
     id: 'metamask' as const,
     name: 'MetaMask',
@@ -33,10 +42,10 @@ const wallets = [
   },
   {
     id: 'embedded' as const,
-    name: 'Continue without wallet',
-    icon: '🔑',
+    name: 'Continue with email',
+    icon: '📧',
     color: '#14F195',
-    description: 'Create a wallet automatically (no app needed)',
+    description: 'Create a wallet with your email (no app needed)',
   },
 ];
 
@@ -48,9 +57,9 @@ export default function MobileWalletSelector({ onSelect, onCancel }: MobileWalle
   return (
     <div style={styles.overlay}>
       <div style={styles.card}>
-        <h2 style={styles.title}>Choose your wallet</h2>
+        <h2 style={styles.title}>Sign in to play</h2>
         <p style={styles.subtitle}>
-          {isIOS ? 'Tap a wallet to open it directly' : 'Select a wallet to connect'}
+          {isIOS ? 'Choose how you want to connect' : 'Select a connection method'}
         </p>
 
         <div style={styles.walletList}>

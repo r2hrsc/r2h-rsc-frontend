@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { useLogin } from '@privy-io/react-auth';
-import MobileWalletSelector from './MobileWalletSelector';
+import MobileWalletSelector, { type WalletType } from './MobileWalletSelector';
 
 // Detect mobile devices
 const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
-const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 interface AuthOverlayProps {
   apiUrl: string;
@@ -34,12 +33,13 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
 
   console.log('[AuthOverlay] Rendering login UI, mobile:', isMobile);
 
-  const handleMobileWalletSelect = (walletType: 'metamask' | 'phantom' | 'coinbase' | 'embedded') => {
+  const handleMobileWalletSelect = (walletType: WalletType) => {
     console.log(`[AuthOverlay] Mobile wallet selected: ${walletType}`);
-    
-    // For embedded wallet, use Privy's login which will create one automatically
-    // For external wallets, Privy's modal will handle the deep linking
     setShowWalletSelector(false);
+    
+    // Privy's login() opens the modal with all configured login methods
+    // The walletList config in PrivyProvider controls which wallets appear
+    // Google login is handled by Privy's modal when user selects it
     login();
   };
 
@@ -60,16 +60,9 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
         <p style={styles.subtitle}>Sign in to play</p>
 
         <button style={styles.btnConnect} onClick={() => {
-          console.log('🔍 MOBILE WALLET FLOW:');
-          console.log('1. User agent detected as mobile:', navigator.userAgent);
-          console.log('2. Privy modal will open with WalletConnect deep links');
-          console.log('3. User should see: "Open in Phantom", "Open in MetaMask", etc.');
-          console.log('4. Clicking should open wallet app via deep link');
-          console.log('5. After approval, wallet app should redirect back to browser');
-          console.log('6. Privy will complete authentication automatically');
-          console.log('WalletConnect Project ID:', import.meta.env.VITE_WALLETCONNECT_PROJECT_ID);
-          console.log('Privy App ID:', import.meta.env.VITE_PRIVY_APP_ID);
-          console.log('Mobile detected:', isMobile);
+          console.log('[Auth] Login button clicked');
+          console.log('[Auth] Mobile detected:', isMobile);
+          console.log('[Auth] User agent:', navigator.userAgent);
           
           if (isMobile) {
             setShowWalletSelector(true);
@@ -77,12 +70,12 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
             login();
           }
         }}>
-          {isMobile ? 'Connect Mobile Wallet' : 'Connect Wallet'}
+          {isMobile ? 'Sign In' : 'Connect Wallet'}
         </button>
         
         {isMobile && (
           <p style={styles.mobileHint}>
-            Opens your wallet app directly
+            Google, wallet, or email
           </p>
         )}
       </div>
