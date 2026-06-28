@@ -138,11 +138,15 @@ function AppContent() {
   return (
     <div
       style={{
-        minHeight: '100vh',
+        height: '100vh',
+        width: '100vw',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         background: '#0a0a0a',
+        overflow: 'hidden',
+        position: 'fixed',
+        inset: 0,
       }}
     >
       {showGame && (

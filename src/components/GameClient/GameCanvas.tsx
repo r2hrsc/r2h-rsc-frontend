@@ -181,11 +181,13 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
       <iframe
         ref={iframeRef}
         src={GAME_URL}
+        scrolling="no"
         style={{
           width: 512,
           height: 334,
           border: 'none',
           display: 'block',
+          overflow: 'hidden',
           imageRendering: 'pixelated' as any,
         }}
         title="R2H RSC Game"
