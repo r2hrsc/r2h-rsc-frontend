@@ -147,12 +147,12 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
       renderer.clear();
     } else {
       ctx.fillStyle = '#0a0a0a';
-      ctx.fillRect(0, 0, 512, 334);
+      ctx.fillRect(0, 0, 512, 345);
     }
 
     ctx.strokeStyle = '#333333';
     ctx.lineWidth = 1;
-    ctx.strokeRect(0, 0, 512, 334);
+    ctx.strokeRect(0, 0, 512, 345);
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -184,7 +184,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
         scrolling="no"
         style={{
           width: 512,
-          height: 334,
+          height: 345,
           border: 'none',
           display: 'block',
           overflow: 'hidden',
@@ -201,7 +201,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
     <canvas
       ref={canvasRef}
       width={512}
-      height={334}
+      height={345}
       onClick={handleCanvasClick}
       style={{ cursor: isConnected ? 'crosshair' : 'default', display: 'block', imageRendering: 'pixelated' as any }}
     />

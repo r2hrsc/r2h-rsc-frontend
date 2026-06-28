@@ -2,7 +2,7 @@ import { useGameScale } from '../../hooks/useGameScale';
 import GameCanvas from './GameCanvas';
 
 const GAME_WIDTH = 512;
-const GAME_HEIGHT = 334;
+const GAME_HEIGHT = 345;
 
 interface GameContainerProps {
   wsUrl?: string;

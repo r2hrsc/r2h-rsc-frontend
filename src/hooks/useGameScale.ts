@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 
 const GAME_WIDTH = 512;
-const GAME_HEIGHT = 334;
+const GAME_HEIGHT = 345;
 const PADDING_BUFFER = 0.95;
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 2;

@@ -16,7 +16,7 @@ export class RSCRenderer {
 
   clear(): void {
     this.ctx.fillStyle = '#0a0a0a';
-    this.ctx.fillRect(0, 0, 512, 334);
+    this.ctx.fillRect(0, 0, 512, 345);
   }
 
   drawGrid(): void {
