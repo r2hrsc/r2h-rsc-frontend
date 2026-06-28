@@ -18,9 +18,10 @@ interface GameCanvasProps {
   rscUsername?: string;
   rscPassword?: string;
   onLoginComplete?: () => void;
+  showRscBackground?: boolean;
 }
 
-export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginComplete }: GameCanvasProps) {
+export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const rendererRef = useRef<RSCRenderer | null>(null);
@@ -30,6 +31,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
 
   // Determine auth mode
   const hasGameCredentials = !!(rscUsername && rscPassword);
+  const useRealClient = hasGameCredentials || showRscBackground; // keep the real RSC client login screen in the background on purpose
 
   // ── Iframe mode (Gmail auth: loads real RSC client from CDN) ──
 
@@ -175,8 +177,8 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
 
   // ── Render ──
 
-  // Iframe mode: Gmail auth with game credentials
-  if (hasGameCredentials) {
+  // Iframe mode: Gmail auth with game credentials or background RSC client for homepage
+  if (useRealClient) {
     return (
       <iframe
         ref={iframeRef}

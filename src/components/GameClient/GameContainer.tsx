@@ -9,9 +9,10 @@ interface GameContainerProps {
   rscUsername?: string;
   rscPassword?: string;
   onLoginComplete?: () => void;
+  showRscBackground?: boolean;
 }
 
-export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLoginComplete }: GameContainerProps) {
+export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground }: GameContainerProps) {
   const scale = useGameScale();
 
   return (
@@ -31,6 +32,7 @@ export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLogin
         rscUsername={rscUsername}
         rscPassword={rscPassword}
         onLoginComplete={onLoginComplete}
+        showRscBackground={showRscBackground}
       />
     </div>
   );

@@ -144,6 +144,7 @@ function AppContent() {
 
   const showGame = appState === 'loading' || appState === 'playing';
   const showLoadingOverlay = appState === 'loading';
+  const isAuthScreen = appState === 'auth' || appState === 'username';
 
   return (
     <div
@@ -159,15 +160,26 @@ function AppContent() {
         inset: 0,
       }}
     >
-      {/* Game always renders when we have credentials — starts loading immediately */}
-      {showGame && (
+      {/* Always render the game frame so the RSC client login screen is in the background on purpose */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
+        {/* Left ad placeholder - will be real ads later */}
+        <div style={{ width: 160, height: 500, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 11, writingMode: 'vertical-rl' }}>
+          AD SPACE LEFT
+        </div>
+
         <GameContainer
           wsUrl={WS_URL}
           rscUsername={rscCredentials?.username}
           rscPassword={rscCredentials?.password}
           onLoginComplete={handleLoginComplete}
+          showRscBackground={isAuthScreen}
         />
-      )}
+
+        {/* Right ad placeholder */}
+        <div style={{ width: 160, height: 500, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 11, writingMode: 'vertical-rl' }}>
+          AD SPACE RIGHT
+        </div>
+      </div>
 
       {/* Loading overlay on top of game while it connects */}
       {showLoadingOverlay && <LoadingOverlay text={loadingText} />}
