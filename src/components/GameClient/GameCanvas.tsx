@@ -25,13 +25,40 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const rendererRef = useRef<RSCRenderer | null>(null);
-  const { sessionToken } = useSidecarAuth();
-  const { isConnected, connectionError, sendMessage, lastMessage } = useGameWebSocket(sessionToken);
   const credsSentRef = useRef(false);
 
   // Determine auth mode
   const hasGameCredentials = !!(rscUsername && rscPassword);
   const useRealClient = hasGameCredentials || showRscBackground; // keep the real RSC client login screen in the background on purpose
+
+  // Pure background mode for auth screen (show RSC login UI without side effects)
+  // Skip useSidecarAuth + useGameWebSocket entirely here to prevent re-render loops
+  // and unnecessary WS/sidecar activity while showing the classic client as homepage background.
+  if (useRealClient && !hasGameCredentials) {
+    return (
+      <iframe
+        ref={iframeRef}
+        src={GAME_URL}
+        scrolling="no"
+        style={{
+          width: 512,
+          height: 345,
+          border: 'none',
+          display: 'block',
+          overflow: 'hidden',
+          imageRendering: 'pixelated' as any,
+        }}
+        title="R2H RSC Game"
+        allow="autoplay; gamepad"
+      />
+    );
+  }
+
+  // Only reach here for:
+  // - Wallet auth (canvas + WS + sidecar)
+  // - Or when we have real RSC credentials (iframe + send creds listener)
+  const { sessionToken } = useSidecarAuth();
+  const { isConnected, connectionError, sendMessage, lastMessage } = useGameWebSocket(sessionToken);
 
   // ── Iframe mode (Gmail auth: loads real RSC client from CDN) ──
 
