@@ -15,25 +15,39 @@ interface GameContainerProps {
 export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground }: GameContainerProps) {
   const scale = useGameScale();
 
+  const visualWidth = GAME_WIDTH * scale;
+  const visualHeight = GAME_HEIGHT * scale;
+
   return (
     <div
       style={{
         position: 'relative',
-        width: GAME_WIDTH,
-        height: GAME_HEIGHT,
+        width: visualWidth,
+        height: visualHeight,
         overflow: 'hidden',
-        transform: `scale(${scale})`,
-        transformOrigin: 'center center',
-        imageRendering: 'pixelated' as any,
+        zIndex: 5,
       }}
     >
-      <GameCanvas
-        wsUrl={wsUrl}
-        rscUsername={rscUsername}
-        rscPassword={rscPassword}
-        onLoginComplete={onLoginComplete}
-        showRscBackground={showRscBackground}
-      />
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: GAME_WIDTH,
+          height: GAME_HEIGHT,
+          transform: `scale(${scale})`,
+          transformOrigin: 'top left',
+          imageRendering: 'pixelated' as any,
+        }}
+      >
+        <GameCanvas
+          wsUrl={wsUrl}
+          rscUsername={rscUsername}
+          rscPassword={rscPassword}
+          onLoginComplete={onLoginComplete}
+          showRscBackground={showRscBackground}
+        />
+      </div>
     </div>
   );
 }

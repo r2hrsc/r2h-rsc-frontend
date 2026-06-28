@@ -22,7 +22,13 @@ export function useGameScale(): number {
 }
 
 function calculateScale(): number {
-  const scaleX = window.innerWidth / GAME_WIDTH;
+  // Reserve space for side ad columns on desktop so the game doesn't overflow them after scaling.
+  // Ads are hidden via CSS on mobile (<768px) so use full width there.
+  const isMobile = window.innerWidth < 768;
+  const sideReserve = isMobile ? 0 : 360; // 160 left + 160 right + 20px gap on each side of game
+  const availableWidth = Math.max(300, window.innerWidth - sideReserve);
+
+  const scaleX = availableWidth / GAME_WIDTH;
   const scaleY = window.innerHeight / GAME_HEIGHT;
   const scale = Math.max(MIN_SCALE, Math.min(scaleX, scaleY) * PADDING_BUFFER);
 

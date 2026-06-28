@@ -4,6 +4,7 @@ import { PrivyProvider } from './lib/privy/PrivyProvider';
 import GameContainer from './components/GameClient/GameContainer';
 import AuthOverlay from './components/AuthOverlay';
 import UsernamePicker from './components/UsernamePicker';
+import { useGameScale } from './hooks/useGameScale';
 import './index.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
@@ -146,6 +147,10 @@ function AppContent() {
   const showLoadingOverlay = appState === 'loading';
   const isAuthScreen = appState === 'auth' || appState === 'username';
 
+  const gameScale = useGameScale();
+  const visualWidth = Math.round(512 * gameScale);
+  const visualGameHeight = Math.round(345 * gameScale);
+
   return (
     <div
       style={{
@@ -160,23 +165,64 @@ function AppContent() {
         inset: 0,
       }}
     >
-      {/* Always render the game frame so the RSC client login screen is in the background on purpose */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
-        {/* Left ad placeholder - will be real ads later */}
-        <div className="ad-column" style={{ width: 160, height: 500, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 11, writingMode: 'vertical-rl' }}>
+      {/* Game + side ads layout using explicit absolute positioning to guarantee ads are beside the game frame
+          (not behind or covered by it). The outer relative container is sized to include ads on both sides.
+          Game frame is strictly contained in its own absolutely positioned box. */}
+      <div style={{ position: 'relative', width: visualWidth + 360, height: visualGameHeight }}>
+        {/* Left ad column - outside the game area */}
+        <div className="ad-column" style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: 160,
+          height: visualGameHeight,
+          background: '#111',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#555',
+          fontSize: 11,
+          writingMode: 'vertical-rl',
+          border: '1px solid #222',
+          zIndex: 10
+        }}>
           AD SPACE LEFT
         </div>
 
-        <GameContainer
-          wsUrl={WS_URL}
-          rscUsername={rscCredentials?.username}
-          rscPassword={rscCredentials?.password}
-          onLoginComplete={handleLoginComplete}
-          showRscBackground={isAuthScreen}
-        />
+        {/* Game frame - explicitly placed between the ads with small gap */}
+        <div style={{
+          position: 'absolute',
+          left: 180,
+          top: 0,
+          width: visualWidth,
+          height: visualGameHeight
+        }}>
+          <GameContainer
+            wsUrl={WS_URL}
+            rscUsername={rscCredentials?.username}
+            rscPassword={rscCredentials?.password}
+            onLoginComplete={handleLoginComplete}
+            showRscBackground={isAuthScreen}
+          />
+        </div>
 
-        {/* Right ad placeholder */}
-        <div className="ad-column" style={{ width: 160, height: 500, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 11, writingMode: 'vertical-rl' }}>
+        {/* Right ad column - outside the game area */}
+        <div className="ad-column" style={{
+          position: 'absolute',
+          right: 0,
+          top: 0,
+          width: 160,
+          height: visualGameHeight,
+          background: '#111',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: '#555',
+          fontSize: 11,
+          writingMode: 'vertical-rl',
+          border: '1px solid #222',
+          zIndex: 10
+        }}>
           AD SPACE RIGHT
         </div>
       </div>
