@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, Component, type ReactNode, type ErrorInfo } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo, Component, type ReactNode, type ErrorInfo } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { PrivyProvider } from './lib/privy/PrivyProvider';
 import GameContainer from './components/GameClient/GameContainer';
@@ -81,6 +81,11 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
 function AppContent() {
   const { ready, authenticated, user, logout } = usePrivy();
 
+  const logoutRef = useRef(logout);
+  useEffect(() => {
+    logoutRef.current = logout;
+  }, [logout]);
+
   const [appState, setAppState] = useState<AppState>('auth');
   const [authProvider, setAuthProvider] = useState('');
   const [authExternalId, setAuthExternalId] = useState('');
@@ -88,6 +93,8 @@ function AppContent() {
   const [loadingText, setLoadingText] = useState('Loading game...');
 
   // Listen for RSC_DISCONNECT from the game iframe
+  // Use ref for logout + empty deps to prevent the effect from re-running on every render
+  // (usePrivy returns unstable function references which previously caused excessive re-renders)
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === 'RSC_DISCONNECT') {
@@ -96,12 +103,12 @@ function AppContent() {
         setRscCredentials(null);
         setAuthProvider('');
         setAuthExternalId('');
-        logout();
+        logoutRef.current?.();
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [logout]);
+  }, []);
 
   const handleAuthComplete = useCallback((provider: string, externalId: string) => {
     console.log('[App] Auth complete (new user):', provider, externalId);
@@ -148,8 +155,10 @@ function AppContent() {
   const isAuthScreen = appState === 'auth' || appState === 'username';
 
   const gameScale = useGameScale();
-  const visualWidth = Math.round(512 * gameScale);
-  const visualGameHeight = Math.round(345 * gameScale);
+
+  // Memoize derived values to avoid unnecessary re-renders / object creations
+  const visualWidth = useMemo(() => Math.round(512 * gameScale), [gameScale]);
+  const visualGameHeight = useMemo(() => Math.round(345 * gameScale), [gameScale]);
 
   return (
     <div

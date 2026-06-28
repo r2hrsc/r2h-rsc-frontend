@@ -85,10 +85,15 @@ export function useSidecarAuth(): SidecarAuthState {
   useEffect(() => { loginRef.current = login; }, [login]);
   useEffect(() => { logoutRef.current = logout; }, [logout]);
 
-  // Auto-login when Privy authenticates, auto-logout when disconnects
-  // Note: do not include login/logout in deps to avoid re-running on every render
+  // Track previous auth state to only trigger login on transition (prevents infinite re-renders on fetch failure)
+  const prevAuthenticatedRef = useRef(authenticated);
+
+  // Auto-login when Privy authenticates (only on transition to avoid loop after failures), auto-logout when disconnects
   useEffect(() => {
-    if (authenticated && user && !sessionToken && !isAuthenticating) {
+    const justAuthenticated = authenticated && !prevAuthenticatedRef.current;
+    prevAuthenticatedRef.current = authenticated;
+
+    if (justAuthenticated && user && !sessionToken && !isAuthenticating) {
       console.log('[useSidecarAuth] Privy authenticated, triggering auto-login');
       loginRef.current?.();
     } else if (!authenticated && sessionToken) {
