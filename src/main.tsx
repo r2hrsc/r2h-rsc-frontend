@@ -10,12 +10,34 @@ if (typeof window !== 'undefined') {
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import App from './App';
 import './index.css';
 import './styles/mobile.css';
 
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '293122558789-cs1p629kksvtulqsv6rpmh7mtctfuup1.apps.googleusercontent.com';
+
+function Root() {
+  if (!GOOGLE_CLIENT_ID) {
+    return (
+      <div style={{ color: '#f44', background: '#000', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'monospace' }}>
+        <div style={{ textAlign: 'center' }}>
+          <h2>Configuration Error</h2>
+          <p style={{ color: '#888' }}>VITE_GOOGLE_CLIENT_ID is not set.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <App />
+    </GoogleOAuthProvider>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <Root />
   </React.StrictMode>
 );
