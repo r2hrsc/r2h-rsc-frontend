@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 
 const SIDECAR_URL = import.meta.env.VITE_SIDECAR_URL || 'http://localhost:3000';
-const TOKEN_KEY = 'r2h_session_token';
+const TOKEN_KEY='r2h_session_token';
 
 interface SidecarAuthState {
   login: () => Promise<void>;
@@ -78,16 +78,24 @@ export function useSidecarAuth(): SidecarAuthState {
     privyLogout();
   }, [privyLogout]);
 
+  // Keep latest versions of login/logout in refs so the effect below doesn't re-run on every render
+  // when the callbacks change identity (due to unstable user/wallets from Privy)
+  const loginRef = useRef(login);
+  const logoutRef = useRef(logout);
+  useEffect(() => { loginRef.current = login; }, [login]);
+  useEffect(() => { logoutRef.current = logout; }, [logout]);
+
   // Auto-login when Privy authenticates, auto-logout when disconnects
+  // Note: do not include login/logout in deps to avoid re-running on every render
   useEffect(() => {
     if (authenticated && user && !sessionToken && !isAuthenticating) {
       console.log('[useSidecarAuth] Privy authenticated, triggering auto-login');
-      login();
+      loginRef.current?.();
     } else if (!authenticated && sessionToken) {
       console.log('[useSidecarAuth] Privy disconnected, triggering logout');
-      logout();
+      logoutRef.current?.();
     }
-  }, [authenticated, user, sessionToken, isAuthenticating, login, logout]);
+  }, [authenticated, user, sessionToken, isAuthenticating]);
 
   return { login, logout, sessionToken, isAuthenticating, authError };
 }

@@ -25,7 +25,7 @@ export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLogin
         width: visualWidth,
         height: visualHeight,
         overflow: 'hidden',
-        zIndex: 5,
+        zIndex: 1,
       }}
     >
       <div

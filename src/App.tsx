@@ -16,7 +16,7 @@ type AppState = 'auth' | 'username' | 'loading' | 'playing';
 function LoadingOverlay({ text }: { text: string }) {
   return (
     <div style={{
-      position: 'fixed', inset: 0, zIndex: 1038,
+      position: 'fixed', inset: 0, zIndex: 2038,
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)',
       gap: 16,
@@ -184,7 +184,7 @@ function AppContent() {
           fontSize: 11,
           writingMode: 'vertical-rl',
           border: '1px solid #222',
-          zIndex: 10
+          zIndex: 20
         }}>
           AD SPACE LEFT
         </div>
@@ -195,7 +195,8 @@ function AppContent() {
           left: 180,
           top: 0,
           width: visualWidth,
-          height: visualGameHeight
+          height: visualGameHeight,
+          zIndex: 1
         }}>
           <GameContainer
             wsUrl={WS_URL}
@@ -221,7 +222,7 @@ function AppContent() {
           fontSize: 11,
           writingMode: 'vertical-rl',
           border: '1px solid #222',
-          zIndex: 10
+          zIndex: 20
         }}>
           AD SPACE RIGHT
         </div>
