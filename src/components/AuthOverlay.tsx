@@ -1,6 +1,4 @@
-import { useState } from 'react';
 import { useLogin } from '@privy-io/react-auth';
-import MobileWalletSelector, { type WalletType } from './MobileWalletSelector';
 
 // Detect mobile devices
 const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
@@ -12,13 +10,10 @@ interface AuthOverlayProps {
 }
 
 export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: AuthOverlayProps) {
-  const [showWalletSelector, setShowWalletSelector] = useState(false);
-  
   const { login } = useLogin({
     onComplete: ({ user, isNewUser }) => {
       const externalId = user.wallet?.address || user.email?.address || user.id;
       console.log('[Auth] Privy login complete:', externalId, isNewUser ? '(new)' : '(existing)');
-      console.log('[Auth] Full user object:', user);
       if (isNewUser) {
         onAuthComplete('privy', externalId);
       } else {
@@ -27,31 +22,10 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     },
     onError: (error) => {
       console.error('[Auth] Privy login error:', error);
-      setShowWalletSelector(false);
     },
   });
 
-  console.log('[AuthOverlay] Rendering login UI, mobile:', isMobile);
-
-  const handleMobileWalletSelect = (walletType: WalletType) => {
-    console.log(`[AuthOverlay] Mobile wallet selected: ${walletType}`);
-    setShowWalletSelector(false);
-    
-    // Privy's login() opens the modal with all configured login methods
-    // The walletList config in PrivyProvider controls which wallets appear
-    // Google login is handled by Privy's modal when user selects it
-    login();
-  };
-
-  // On mobile, show wallet selector first
-  if (showWalletSelector) {
-    return (
-      <MobileWalletSelector
-        onSelect={handleMobileWalletSelect}
-        onCancel={() => setShowWalletSelector(false)}
-      />
-    );
-  }
+  console.log('[AuthOverlay] Rendering, mobile:', isMobile);
 
   return (
     <div style={styles.overlay}>
@@ -60,24 +34,15 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
         <p style={styles.subtitle}>Sign in to play</p>
 
         <button style={styles.btnConnect} onClick={() => {
-          console.log('[Auth] Login button clicked');
-          console.log('[Auth] Mobile detected:', isMobile);
-          console.log('[Auth] User agent:', navigator.userAgent);
-          
-          if (isMobile) {
-            setShowWalletSelector(true);
-          } else {
-            login();
-          }
+          console.log('[Auth] Login clicked, mobile:', isMobile);
+          login();
         }}>
-          {isMobile ? 'Sign In' : 'Connect Wallet'}
+          Sign In
         </button>
         
-        {isMobile && (
-          <p style={styles.mobileHint}>
-            Google, wallet, or email
-          </p>
-        )}
+        <p style={styles.hint}>
+          Google, wallet, or email
+        </p>
       </div>
     </div>
   );
@@ -105,7 +70,7 @@ const styles: Record<string, React.CSSProperties> = {
     minHeight: 44,
     touchAction: 'manipulation',
   },
-  mobileHint: {
+  hint: {
     color: '#666', fontSize: 11, margin: 0, textAlign: 'center',
   },
 };
