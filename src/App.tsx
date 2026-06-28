@@ -163,7 +163,7 @@ function AppContent() {
       {/* Always render the game frame so the RSC client login screen is in the background on purpose */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 20 }}>
         {/* Left ad placeholder - will be real ads later */}
-        <div style={{ width: 160, height: 500, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 11, writingMode: 'vertical-rl' }}>
+        <div className="ad-column" style={{ width: 160, height: 500, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 11, writingMode: 'vertical-rl' }}>
           AD SPACE LEFT
         </div>
 
@@ -176,7 +176,7 @@ function AppContent() {
         />
 
         {/* Right ad placeholder */}
-        <div style={{ width: 160, height: 500, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 11, writingMode: 'vertical-rl' }}>
+        <div className="ad-column" style={{ width: 160, height: 500, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 11, writingMode: 'vertical-rl' }}>
           AD SPACE RIGHT
         </div>
       </div>

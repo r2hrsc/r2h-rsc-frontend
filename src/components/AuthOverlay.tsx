@@ -120,8 +120,8 @@ const styles: Record<string, React.CSSProperties> = {
   overlay: {
     position: 'fixed', inset: 0, zIndex: 1039,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'rgba(0,0,0,0.85)',
-    backdropFilter: 'blur(6px)',
+    background: 'transparent',
+    // transparent so the RSC client login screen (in the game frame) and side ad placeholders show through
   },
   card: {
     background: '#111', borderRadius: 16, padding: '40px 32px',
