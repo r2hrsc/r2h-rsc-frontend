@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import { useLogin } from '@privy-io/react-auth';
+import MobileWalletSelector from './MobileWalletSelector';
 
 // Detect mobile devices
 const isMobile = typeof navigator !== 'undefined' && /iPhone|iPad|Android/i.test(navigator.userAgent);
+const isIOS = typeof navigator !== 'undefined' && /iPhone|iPad|iPod/i.test(navigator.userAgent);
 
 interface AuthOverlayProps {
   apiUrl: string;
@@ -10,6 +13,8 @@ interface AuthOverlayProps {
 }
 
 export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: AuthOverlayProps) {
+  const [showWalletSelector, setShowWalletSelector] = useState(false);
+  
   const { login } = useLogin({
     onComplete: ({ user, isNewUser }) => {
       const externalId = user.wallet?.address || user.email?.address || user.id;
@@ -23,10 +28,30 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     },
     onError: (error) => {
       console.error('[Auth] Privy login error:', error);
+      setShowWalletSelector(false);
     },
   });
 
   console.log('[AuthOverlay] Rendering login UI, mobile:', isMobile);
+
+  const handleMobileWalletSelect = (walletType: 'metamask' | 'phantom' | 'coinbase' | 'embedded') => {
+    console.log(`[AuthOverlay] Mobile wallet selected: ${walletType}`);
+    
+    // For embedded wallet, use Privy's login which will create one automatically
+    // For external wallets, Privy's modal will handle the deep linking
+    setShowWalletSelector(false);
+    login();
+  };
+
+  // On mobile, show wallet selector first
+  if (showWalletSelector) {
+    return (
+      <MobileWalletSelector
+        onSelect={handleMobileWalletSelect}
+        onCancel={() => setShowWalletSelector(false)}
+      />
+    );
+  }
 
   return (
     <div style={styles.overlay}>
@@ -45,7 +70,12 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
           console.log('WalletConnect Project ID:', import.meta.env.VITE_WALLETCONNECT_PROJECT_ID);
           console.log('Privy App ID:', import.meta.env.VITE_PRIVY_APP_ID);
           console.log('Mobile detected:', isMobile);
-          login();
+          
+          if (isMobile) {
+            setShowWalletSelector(true);
+          } else {
+            login();
+          }
         }}>
           {isMobile ? 'Connect Mobile Wallet' : 'Connect Wallet'}
         </button>
