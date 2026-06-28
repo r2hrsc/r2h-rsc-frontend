@@ -18,10 +18,11 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
       const externalId = user.wallet?.address || user.email?.address || user.id;
       console.log('[Auth] Privy login complete:', externalId);
       setSigningIn(true);
+      // Backend expects 'google' or 'wallet' — Privy wallet logins are 'wallet'
       if (isNewUser) {
-        onAuthComplete('privy', externalId);
+        onAuthComplete('wallet', externalId);
       } else {
-        onExistingUser('privy', externalId, externalId, user.id);
+        onExistingUser('wallet', externalId, externalId, user.id);
       }
     },
     onError: (err) => {
