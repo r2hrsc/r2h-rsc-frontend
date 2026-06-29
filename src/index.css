@@ -22,6 +22,8 @@ html, body, #root {
   font-weight: 500;
 }
 
+/* On mobile: hide only the side ad columns (too narrow for phones).
+   Top/bottom bars stay visible — they're horizontal and work full-width. */
 @media (max-width: 768px) {
-  .ad-zone { display: none !important; }
+  .ad-zone-side { display: none !important; }
 }

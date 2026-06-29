@@ -157,6 +157,20 @@ function AppContent() {
   const visualWidth = useMemo(() => Math.round(512 * gameScale), [gameScale]);
   const visualGameHeight = useMemo(() => Math.round(345 * gameScale), [gameScale]);
 
+  // Mobile detection — side ad columns hidden on narrow screens (see index.css .ad-zone-side)
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
+
+  // Conditional ad reserves — on mobile, no side columns, only top/bottom bars
+  const reserveH = isMobile ? 0 : AD_RESERVE_H;
+  const reserveV = isMobile ? 0 : AD_RESERVE_V;
+  const gameLeft = isMobile ? 0 : AD_SIDE_WIDTH + AD_SIDE_GAP;
+  const gameTop = isMobile ? 0 : AD_TOP_HEIGHT;
+
   // Show minimal loading while Privy initializes
   if (!ready) {
     return (
@@ -192,8 +206,8 @@ function AppContent() {
           Outer corners are rounded so the whole assembly reads as one piece. v2 */}
       <div style={{
         position: 'relative',
-        minWidth: visualWidth + AD_RESERVE_H, width: visualWidth + AD_RESERVE_H,
-        minHeight: visualGameHeight + AD_RESERVE_V, height: visualGameHeight + AD_RESERVE_V,
+        minWidth: visualWidth + reserveH, width: visualWidth + reserveH,
+        minHeight: visualGameHeight + reserveV, height: visualGameHeight + reserveV,
         zIndex: 10,
       }}>
         {/* ── Top ad bar — spans full width, rounded top corners ── */}
@@ -215,8 +229,8 @@ function AppContent() {
           <AdSlot slot="VOTE_GATEWAY" />
         </div>
 
-        {/* ── Left ad column — sits between top and bottom bars ── */}
-        <div className="ad-zone" style={{
+        {/* ── Left ad column — sits between top and bottom bars (hidden on mobile) ── */}
+        <div className="ad-zone ad-zone-side" style={{
           position: 'absolute',
           left: 0,
           top: AD_TOP_HEIGHT,
@@ -235,8 +249,8 @@ function AppContent() {
         {/* ── Game frame — centered between all four ad zones ── */}
         <div style={{
           position: 'absolute',
-          left: AD_SIDE_WIDTH + AD_SIDE_GAP,
-          top: AD_TOP_HEIGHT,
+          left: gameLeft,
+          top: gameTop,
           width: visualWidth,
           height: visualGameHeight,
           boxShadow: '0 0 0 1px rgba(20, 241, 149, 0.18), 0 0 24px rgba(20, 241, 149, 0.06)',
@@ -252,8 +266,8 @@ function AppContent() {
           />
         </div>
 
-        {/* ── Right ad column — mirrors the left ── */}
-        <div className="ad-zone" style={{
+        {/* ── Right ad column — mirrors the left (hidden on mobile) ── */}
+        <div className="ad-zone ad-zone-side" style={{
           position: 'absolute',
           right: 0,
           top: AD_TOP_HEIGHT,
