@@ -138,6 +138,13 @@ function AppContent() {
     setAppState('playing');
   }, []);
 
+  // Hooks MUST be called unconditionally before any early return (rules of hooks).
+  // useGameScale + useMemo were previously after the if(!ready) return, causing a
+  // hook-count mismatch when Privy transitioned ready=false→true → re-render loop (#310).
+  const gameScale = useGameScale();
+  const visualWidth = useMemo(() => Math.round(512 * gameScale), [gameScale]);
+  const visualGameHeight = useMemo(() => Math.round(345 * gameScale), [gameScale]);
+
   // Show minimal loading while Privy initializes
   if (!ready) {
     return (
@@ -153,12 +160,6 @@ function AppContent() {
   const showGame = appState === 'loading' || appState === 'playing';
   const showLoadingOverlay = appState === 'loading';
   const isAuthScreen = appState === 'auth' || appState === 'username';
-
-  const gameScale = useGameScale();
-
-  // Memoize derived values to avoid unnecessary re-renders / object creations
-  const visualWidth = useMemo(() => Math.round(512 * gameScale), [gameScale]);
-  const visualGameHeight = useMemo(() => Math.round(345 * gameScale), [gameScale]);
 
   return (
     <div
