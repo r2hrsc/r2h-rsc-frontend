@@ -10,6 +10,14 @@ import './index.css';
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
 const WS_URL  = import.meta.env.VITE_WS_URL  || 'wss://game.r2hrsc.xyz';
 
+// Ad frame dimensions — forms a connected "arcade cabinet" border around the game
+const AD_SIDE_WIDTH = 160;
+const AD_SIDE_GAP = 20;
+const AD_TOP_HEIGHT = 90;
+const AD_BOTTOM_HEIGHT = 90;
+const AD_RESERVE_H = AD_SIDE_WIDTH * 2 + AD_SIDE_GAP * 2; // 360px total horizontal ad space
+const AD_RESERVE_V = AD_TOP_HEIGHT + AD_BOTTOM_HEIGHT;     // 180px total vertical ad space
+
 type AppState = 'auth' | 'username' | 'loading' | 'playing';
 
 // ── Loading Overlay ──
@@ -175,38 +183,59 @@ function AppContent() {
         inset: 0,
       }}
     >
-      {/* Game + side ads layout using explicit absolute positioning to guarantee ads are beside the game frame
-          (not behind or covered by it). The outer relative container is sized to include ads on both sides.
-          Game frame is strictly contained in its own absolutely positioned box. */}
-      <div style={{ position: 'relative', width: visualWidth + 360, height: visualGameHeight }}>
-        {/* Left ad column - outside the game area */}
-        <div className="ad-column" style={{
+      {/* Connected ad frame — top/left/game/right/bottom form a unified "arcade cabinet" bezel.
+          All zones share the same dark gradient + subtle green inner glow facing the game.
+          Outer corners are rounded so the whole assembly reads as one piece. */}
+      <div style={{
+        position: 'relative',
+        width: visualWidth + AD_RESERVE_H,
+        height: visualGameHeight + AD_RESERVE_V,
+      }}>
+        {/* ── Top ad bar — spans full width, rounded top corners ── */}
+        <div className="ad-zone" style={{
           position: 'absolute',
-          left: 0,
-          top: 0,
-          width: 160,
-          height: visualGameHeight,
-          background: '#111',
+          top: 0, left: 0,
+          width: '100%',
+          height: AD_TOP_HEIGHT,
+          background: 'linear-gradient(180deg, #0d0d0d 0%, #131313 100%)',
+          borderTop: '1px solid #1a1a1a',
+          borderLeft: '1px solid #1a1a1a',
+          borderRight: '1px solid #1a1a1a',
+          borderRadius: '10px 10px 0 0',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: '#555',
-          fontSize: 11,
-          writingMode: 'vertical-rl',
-          border: '1px solid #222',
-          zIndex: 20
+          zIndex: 20,
         }}>
-          AD SPACE LEFT
+          <span className="ad-label">Advertisement</span>
         </div>
 
-        {/* Game frame - explicitly placed between the ads with small gap */}
+        {/* ── Left ad column — sits between top and bottom bars ── */}
+        <div className="ad-zone" style={{
+          position: 'absolute',
+          left: 0,
+          top: AD_TOP_HEIGHT,
+          width: AD_SIDE_WIDTH,
+          height: visualGameHeight,
+          background: 'linear-gradient(90deg, #0d0d0d 0%, #131313 100%)',
+          borderLeft: '1px solid #1a1a1a',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 20,
+        }}>
+          <span className="ad-label" style={{ writingMode: 'vertical-rl' }}>Advertisement</span>
+        </div>
+
+        {/* ── Game frame — centered between all four ad zones ── */}
         <div style={{
           position: 'absolute',
-          left: 180,
-          top: 0,
+          left: AD_SIDE_WIDTH + AD_SIDE_GAP,
+          top: AD_TOP_HEIGHT,
           width: visualWidth,
           height: visualGameHeight,
-          zIndex: 1
+          boxShadow: '0 0 0 1px rgba(20, 241, 149, 0.18), 0 0 24px rgba(20, 241, 149, 0.06)',
+          zIndex: 1,
         }}>
           <GameContainer
             wsUrl={WS_URL}
@@ -218,24 +247,40 @@ function AppContent() {
           />
         </div>
 
-        {/* Right ad column - outside the game area */}
-        <div className="ad-column" style={{
+        {/* ── Right ad column — mirrors the left ── */}
+        <div className="ad-zone" style={{
           position: 'absolute',
           right: 0,
-          top: 0,
-          width: 160,
+          top: AD_TOP_HEIGHT,
+          width: AD_SIDE_WIDTH,
           height: visualGameHeight,
-          background: '#111',
+          background: 'linear-gradient(270deg, #0d0d0d 0%, #131313 100%)',
+          borderRight: '1px solid #1a1a1a',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color: '#555',
-          fontSize: 11,
-          writingMode: 'vertical-rl',
-          border: '1px solid #222',
-          zIndex: 20
+          zIndex: 20,
         }}>
-          AD SPACE RIGHT
+          <span className="ad-label" style={{ writingMode: 'vertical-rl' }}>Advertisement</span>
+        </div>
+
+        {/* ── Bottom ad bar — spans full width, rounded bottom corners ── */}
+        <div className="ad-zone" style={{
+          position: 'absolute',
+          bottom: 0, left: 0,
+          width: '100%',
+          height: AD_BOTTOM_HEIGHT,
+          background: 'linear-gradient(0deg, #0d0d0d 0%, #131313 100%)',
+          borderBottom: '1px solid #1a1a1a',
+          borderLeft: '1px solid #1a1a1a',
+          borderRight: '1px solid #1a1a1a',
+          borderRadius: '0 0 10px 10px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 20,
+        }}>
+          <span className="ad-label">Advertisement</span>
         </div>
       </div>
 
