@@ -1,4 +1,3 @@
-import { useGameScale } from '../../hooks/useGameScale';
 import GameCanvas from './GameCanvas';
 
 const GAME_WIDTH = 512;
@@ -10,10 +9,12 @@ interface GameContainerProps {
   rscPassword?: string;
   onLoginComplete?: () => void;
   showRscBackground?: boolean;
+  scale?: number;
 }
 
-export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground }: GameContainerProps) {
-  const scale = useGameScale();
+export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground, scale: passedScale = 1 }: GameContainerProps) {
+  // Scale is passed from parent (single useGameScale call in App to avoid duplicate state + listeners)
+  const scale = passedScale;
 
   const visualWidth = GAME_WIDTH * scale;
   const visualHeight = GAME_HEIGHT * scale;

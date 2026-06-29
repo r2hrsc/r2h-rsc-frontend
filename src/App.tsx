@@ -213,6 +213,7 @@ function AppContent() {
             rscPassword={rscCredentials?.password}
             onLoginComplete={handleLoginComplete}
             showRscBackground={isAuthScreen}
+            scale={gameScale}
           />
         </div>
 
