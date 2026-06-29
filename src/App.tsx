@@ -189,7 +189,7 @@ function AppContent() {
     >
       {/* Connected ad frame — top/left/game/right/bottom form a unified "arcade cabinet" bezel.
           All zones share the same dark gradient + subtle green inner glow facing the game.
-          Outer corners are rounded so the whole assembly reads as one piece. */}
+          Outer corners are rounded so the whole assembly reads as one piece. v2 */}
       <div style={{
         position: 'relative',
         width: visualWidth + AD_RESERVE_H,
