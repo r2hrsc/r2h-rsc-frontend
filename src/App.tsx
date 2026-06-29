@@ -182,7 +182,7 @@ function AppContent() {
         alignItems: 'center',
         justifyContent: 'center',
         background: '#0a0a0a',
-        overflow: 'hidden',
+        overflow: 'visible',
         position: 'fixed',
         inset: 0,
       }}
