@@ -193,6 +193,7 @@ function AppContent() {
       <div style={{
         position: 'relative',
         width: visualWidth + AD_RESERVE_H,
+        zIndex: 10,
         height: visualGameHeight + AD_RESERVE_V,
       }}>
         {/* ── Top ad bar — spans full width, rounded top corners ── */}
