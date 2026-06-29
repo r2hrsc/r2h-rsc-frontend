@@ -31,39 +31,13 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
   const hasGameCredentials = !!(rscUsername && rscPassword);
   const useRealClient = hasGameCredentials || showRscBackground; // keep the real RSC client login screen in the background on purpose
 
-  // Hooks MUST always be called at the top level (React rules of hooks).
-  // This prevents the "too many re-renders" / hook order mismatch that was happening
-  // when we early-returned before the hooks in background mode.
-  // In pure background (!hasGameCredentials) the hooks are inert (no sessionToken → no WS connect, no auto-login).
+  // ALL hooks must be called unconditionally before ANY early return.
+  // The useEffects below have internal guards (if (!hasGameCredentials) return)
+  // so they are inert in background mode. Do NOT early-return before them.
   const sidecar = useSidecarAuth();
   const ws = useGameWebSocket(sidecar.sessionToken);
   const { sessionToken } = sidecar;
   const { isConnected, connectionError, sendMessage, lastMessage } = ws;
-
-  // Pure background mode for auth screen (show RSC login UI without side effects)
-  if (useRealClient && !hasGameCredentials) {
-    return (
-      <iframe
-        ref={iframeRef}
-        src={GAME_URL}
-        scrolling="no"
-        style={{
-          width: 512,
-          height: 345,
-          border: 'none',
-          display: 'block',
-          overflow: 'hidden',
-          imageRendering: 'pixelated' as any,
-        }}
-        title="R2H RSC Game"
-        allow="autoplay; gamepad"
-      />
-    );
-  }
-
-  // Only reach here for:
-  // - Wallet auth (canvas + WS + sidecar)
-  // - Or when we have real RSC credentials (iframe + send creds listener)
 
   // ── Iframe mode (Gmail auth: loads real RSC client from CDN) ──
 
