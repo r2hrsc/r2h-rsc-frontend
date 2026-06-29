@@ -192,9 +192,9 @@ function AppContent() {
           Outer corners are rounded so the whole assembly reads as one piece. v2 */}
       <div style={{
         position: 'relative',
-        width: visualWidth + AD_RESERVE_H,
+        minWidth: visualWidth + AD_RESERVE_H, width: visualWidth + AD_RESERVE_H,
+        minHeight: visualGameHeight + AD_RESERVE_V, height: visualGameHeight + AD_RESERVE_V,
         zIndex: 10,
-        height: visualGameHeight + AD_RESERVE_V,
       }}>
         {/* ── Top ad bar — spans full width, rounded top corners ── */}
         <div className="ad-zone" style={{
