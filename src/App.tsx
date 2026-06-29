@@ -1,9 +1,13 @@
 import { useState, useCallback, useEffect, useRef, useMemo, Component, type ReactNode, type ErrorInfo } from 'react';
+import { Routes, Route, BrowserRouter } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
 import { PrivyProvider } from './lib/privy/PrivyProvider';
 import GameContainer from './components/GameClient/GameContainer';
 import AuthOverlay from './components/AuthOverlay';
 import UsernamePicker from './components/UsernamePicker';
+import { AdSlot } from './components/Ads/AdSlot';
+import { MediaKit } from './pages/MediaKit';
+import { AdManagerPage } from './components/Admin/AdManager';
 import { useGameScale } from './hooks/useGameScale';
 import './index.css';
 
@@ -207,7 +211,7 @@ function AppContent() {
           justifyContent: 'center',
           zIndex: 20,
         }}>
-          <span className="ad-label">Advertisement</span>
+          <AdSlot slot="VOTE_GATEWAY" />
         </div>
 
         {/* ── Left ad column — sits between top and bottom bars ── */}
@@ -224,7 +228,7 @@ function AppContent() {
           justifyContent: 'center',
           zIndex: 20,
         }}>
-          <span className="ad-label" style={{ writingMode: 'vertical-rl' }}>Advertisement</span>
+          <AdSlot slot="LEFT_SIDEBAR" />
         </div>
 
         {/* ── Game frame — centered between all four ad zones ── */}
@@ -261,7 +265,7 @@ function AppContent() {
           justifyContent: 'center',
           zIndex: 20,
         }}>
-          <span className="ad-label" style={{ writingMode: 'vertical-rl' }}>Advertisement</span>
+          <AdSlot slot="RIGHT_SIDEBAR" />
         </div>
 
         {/* ── Bottom ad bar — spans full width, rounded bottom corners ── */}
@@ -280,9 +284,20 @@ function AppContent() {
           justifyContent: 'center',
           zIndex: 20,
         }}>
-          <span className="ad-label">Advertisement</span>
+          <AdSlot slot="VOTE_GATEWAY" />
         </div>
       </div>
+
+      {/* Small "Advertise" link for direct ad sales discovery */}
+      <a href="/media-kit" style={{
+        position: 'fixed',
+        bottom: 6,
+        right: 8,
+        color: '#333',
+        fontSize: 10,
+        textDecoration: 'none',
+        zIndex: 100,
+      }}>Advertise</a>
 
       {/* Loading overlay on top of game while it connects */}
       {showLoadingOverlay && <LoadingOverlay text={loadingText} />}
@@ -306,9 +321,15 @@ function AppContent() {
 export default function App() {
   return (
     <ErrorBoundary>
-      <PrivyProvider>
-        <AppContent />
-      </PrivyProvider>
+      <BrowserRouter>
+        <PrivyProvider>
+          <Routes>
+            <Route path="/" element={<AppContent />} />
+            <Route path="/media-kit" element={<MediaKit />} />
+            <Route path="/admin/ads" element={<AdManagerPage />} />
+          </Routes>
+        </PrivyProvider>
+      </BrowserRouter>
     </ErrorBoundary>
   );
 }
