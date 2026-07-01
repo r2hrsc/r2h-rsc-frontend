@@ -6,6 +6,7 @@ import GameContainer from './components/GameClient/GameContainer';
 import AuthOverlay from './components/AuthOverlay';
 import UsernamePicker from './components/UsernamePicker';
 import { AdSlot } from './components/Ads/AdSlot';
+import { ChatWidget } from './components/Chat/ChatWidget';
 import { MediaKit } from './pages/MediaKit';
 import { AdManagerPage } from './components/Admin/AdManager';
 import { PrivacyPolicy, TermsOfService, About } from './pages/LegalPages';
@@ -17,12 +18,12 @@ const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
 const WS_URL  = import.meta.env.VITE_WS_URL  || 'wss://game.r2hrsc.xyz';
 
 // Ad frame dimensions — forms a connected "arcade cabinet" border around the game
-const AD_SIDE_WIDTH = 160;
-const AD_SIDE_GAP = 20;
-const AD_TOP_HEIGHT = 90;
-const AD_BOTTOM_HEIGHT = 90;
-const AD_RESERVE_H = AD_SIDE_WIDTH * 2 + AD_SIDE_GAP * 2; // 360px total horizontal ad space
-const AD_RESERVE_V = AD_TOP_HEIGHT + AD_BOTTOM_HEIGHT;     // 180px total vertical ad space
+const AD_SIDE_WIDTH = 250;
+const AD_SIDE_GAP = 0;
+const AD_TOP_HEIGHT = 200;
+const AD_BOTTOM_HEIGHT = 200;
+const AD_RESERVE_H = AD_SIDE_WIDTH * 2 + AD_SIDE_GAP * 2; // 500px total horizontal ad space
+const AD_RESERVE_V = AD_TOP_HEIGHT + AD_BOTTOM_HEIGHT;     // 400px total vertical ad space
 
 type AppState = 'auth' | 'username' | 'loading' | 'playing';
 
@@ -88,7 +89,7 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
         </div>
       );
     }
-    return this.props.children;
+    return this.props.children!;
   }
 }
 
@@ -228,7 +229,7 @@ function AppContent() {
           top: 0, left: 0,
           width: '100%',
           height: AD_TOP_HEIGHT,
-          background: 'linear-gradient(180deg, #0d0d0d 0%, #131313 100%)',
+          background: '#0f0f0f',
           borderTop: '1px solid #1a1a1a',
           borderLeft: '1px solid #1a1a1a',
           borderRight: '1px solid #1a1a1a',
@@ -248,7 +249,7 @@ function AppContent() {
           top: AD_TOP_HEIGHT,
           width: AD_SIDE_WIDTH,
           height: visualGameHeight,
-          background: 'linear-gradient(90deg, #0d0d0d 0%, #131313 100%)',
+          background: '#0f0f0f',
           borderLeft: '1px solid #1a1a1a',
           display: 'flex',
           alignItems: 'center',
@@ -265,7 +266,7 @@ function AppContent() {
           top: gameTop,
           width: visualWidth,
           height: visualGameHeight,
-          boxShadow: '0 0 0 1px rgba(20, 241, 149, 0.18), 0 0 24px rgba(20, 241, 149, 0.06)',
+          boxShadow: '0 0 0 1px #1a1a1a',
           zIndex: 1,
         }}>
           <GameContainer
@@ -285,7 +286,7 @@ function AppContent() {
           top: AD_TOP_HEIGHT,
           width: AD_SIDE_WIDTH,
           height: visualGameHeight,
-          background: 'linear-gradient(270deg, #0d0d0d 0%, #131313 100%)',
+          background: '#0f0f0f',
           borderRight: '1px solid #1a1a1a',
           display: 'flex',
           alignItems: 'center',
@@ -301,7 +302,7 @@ function AppContent() {
           bottom: 0, left: 0,
           width: '100%',
           height: AD_BOTTOM_HEIGHT,
-          background: 'linear-gradient(0deg, #0d0d0d 0%, #131313 100%)',
+          background: '#0f0f0f',
           borderBottom: '1px solid #1a1a1a',
           borderLeft: '1px solid #1a1a1a',
           borderRight: '1px solid #1a1a1a',
@@ -341,6 +342,9 @@ function AppContent() {
           onComplete={handleUsernameComplete}
         />
       )}
+
+      {/* Community Chat — floating widget, only when authenticated */}
+      <ChatWidget username={rscCredentials?.username ?? null} />
     </div>
   );
 }

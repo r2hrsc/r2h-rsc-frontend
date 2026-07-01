@@ -23,10 +23,10 @@ export function useGameScale(): number {
 
 function calculateScale(): number {
   // Reserve space for ad frame around the game so the whole assembly fits the viewport.
-  // Side ads (360px horizontal) + top/bottom bars (180px vertical) are hidden on mobile (<768px).
+  // Side ads (360px horizontal) + top/bottom bars (320px vertical) are hidden on mobile (<768px).
   const isMobile = window.innerWidth < 768;
-  const sideReserve = isMobile ? 0 : 360;
-  const verticalReserve = isMobile ? 0 : 180;
+  const sideReserve = isMobile ? 0 : 500;
+  const verticalReserve = isMobile ? 0 : 400;
   const availableWidth = Math.max(300, window.innerWidth - sideReserve);
   const availableHeight = Math.max(200, window.innerHeight - verticalReserve);
 
