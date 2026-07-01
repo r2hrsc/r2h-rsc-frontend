@@ -230,7 +230,7 @@ function AppContent() {
           justifyContent: 'center',
           zIndex: 20,
         }}>
-          <AdSlot slot="VOTE_GATEWAY" />
+          <AdSlot slot="VOTE_GATEWAY" zone="top" />
         </div>
 
         {/* ── Left ad column — sits between top and bottom bars (hidden on mobile) ── */}
@@ -247,7 +247,7 @@ function AppContent() {
           justifyContent: 'center',
           zIndex: 20,
         }}>
-          <AdSlot slot="LEFT_SIDEBAR" />
+          <AdSlot slot="LEFT_SIDEBAR" zone="left" />
         </div>
 
         {/* ── Game frame — centered between all four ad zones ── */}
@@ -284,7 +284,7 @@ function AppContent() {
           justifyContent: 'center',
           zIndex: 20,
         }}>
-          <AdSlot slot="RIGHT_SIDEBAR" />
+          <AdSlot slot="RIGHT_SIDEBAR" zone="right" />
         </div>
 
         {/* ── Bottom ad bar — spans full width, rounded bottom corners ── */}
@@ -303,7 +303,7 @@ function AppContent() {
           justifyContent: 'center',
           zIndex: 20,
         }}>
-          <AdSlot slot="VOTE_GATEWAY" />
+          <AdSlot slot="VOTE_GATEWAY" zone="bottom" />
         </div>
       </div>
 

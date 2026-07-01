@@ -6,7 +6,6 @@ import {
   type AdSlotType,
   type Ad,
 } from '../../lib/adManager';
-import { AdSenseAd, isAdSenseEnabled } from './AdSenseAd';
 import { CommunityHub } from './CommunityHub';
 
 interface AdSlotProps {
@@ -28,13 +27,10 @@ export function AdSlot({ slot, zone }: AdSlotProps) {
     };
   }, []);
 
-  // Priority: paid ad (localStorage) > AdSense > community hub content
+  // Priority: paid ad (localStorage) > Community Hub
+  // AdSense is disabled on localhost — Community Hub shows instead
   if (ad) {
     return <PaidAd ad={ad} slot={slot} />;
-  }
-  if (isAdSenseEnabled()) {
-    const layout = slot === 'LEFT_SIDEBAR' || slot === 'RIGHT_SIDEBAR' ? 'vertical' : 'horizontal';
-    return <AdSenseAd layout={layout} />;
   }
   return <CommunityHub zone={zone} />;
 }
