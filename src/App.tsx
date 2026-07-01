@@ -8,6 +8,7 @@ import UsernamePicker from './components/UsernamePicker';
 import { AdSlot } from './components/Ads/AdSlot';
 import { MediaKit } from './pages/MediaKit';
 import { AdManagerPage } from './components/Admin/AdManager';
+import { PrivacyPolicy, TermsOfService, About } from './pages/LegalPages';
 import { useGameScale } from './hooks/useGameScale';
 import './index.css';
 
@@ -343,6 +344,9 @@ export default function App() {
         <PrivyProvider>
           <Routes>
             <Route path="/" element={<AppContent />} />
+            <Route path="/about" element={<About />} />
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/terms-of-service" element={<TermsOfService />} />
             <Route path="/media-kit" element={<MediaKit />} />
             <Route path="/admin/ads" element={<AdManagerPage />} />
           </Routes>

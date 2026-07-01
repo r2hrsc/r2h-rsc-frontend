@@ -1,2 +1,4 @@
 User-agent: *
 Allow: /
+
+Sitemap: https://r2hrsc.xyz/sitemap.xml
