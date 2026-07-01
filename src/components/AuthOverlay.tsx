@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
-import { modal as walletModal, useAppKitAccount, useAppKitProvider } from '@reown/appkit/react';
+import { modal as walletModal, useAppKitAccount } from '@reown/appkit/react';
 import { initWalletKit } from '../lib/walletKit';
 
 interface AuthOverlayProps {
@@ -113,16 +113,20 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
 
         {error && <p style={styles.error}>{error}</p>}
 
-        {/* Google */}
-        <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-          <GoogleLogin
-            onSuccess={handleGoogleSuccess}
-            onError={() => setError('Google login failed.')}
-            theme="filled_black"
-            size="large"
-            width="280"
-            text="signin_with"
-          />
+        {/* Google — Primary method */}
+        <div style={styles.primarySection}>
+          <div style={styles.recommendedLabel}>Recommended</div>
+          <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() => setError('Google login failed.')}
+              theme="filled_black"
+              size="large"
+              width="280"
+              text="signin_with"
+            />
+          </div>
+          <p style={styles.primaryHint}>Fastest way to sign in</p>
         </div>
 
         <div style={styles.divider}>
@@ -131,10 +135,13 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
           <span style={styles.dividerLine} />
         </div>
 
-        {/* Wallet via Reown AppKit — opens proper modal with QR + wallet list + deep links */}
-        <button style={styles.btnConnect} onClick={handleConnectWallet}>
-          Connect Wallet
+        {/* Wallet — Secondary / Advanced */}
+        <button style={styles.btnSecondary} onClick={handleConnectWallet}>
+          Connect Wallet (Advanced)
         </button>
+        <p style={styles.secondaryHint}>
+          Best experienced from a wallet browser or desktop
+        </p>
       </div>
     </div>
   );
@@ -155,16 +162,58 @@ const styles: Record<string, React.CSSProperties> = {
   title:    { color: '#fff', fontSize: 28, fontWeight: 700, margin: 0 },
   subtitle: { color: '#888', fontSize: 14, margin: '0 0 8px' },
   error:    { color: '#f44', fontSize: 13, textAlign: 'center' as const },
+
+  // Google primary section
+  primarySection: {
+    width: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 6,
+  },
+  recommendedLabel: {
+    fontSize: 11,
+    color: '#14F195',
+    textTransform: 'uppercase' as const,
+    letterSpacing: 1,
+    fontWeight: 600,
+  },
+  primaryHint: {
+    fontSize: 11,
+    color: '#555',
+    margin: 0,
+  },
+
+  // Divider
   divider: {
     display: 'flex', alignItems: 'center', width: '100%', gap: 10, margin: '4px 0',
   },
   dividerLine: { flex: 1, height: 1, background: '#333' },
   dividerText: { color: '#555', fontSize: 12, textTransform: 'uppercase' as const },
-  btnConnect: {
-    width: '100%', padding: '12px 0', borderRadius: 8, border: 'none',
-    background: '#ab9ff2', color: '#fff', fontSize: 15, fontWeight: 600,
-    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-    minHeight: 44,
+
+  // Wallet secondary button
+  btnSecondary: {
+    width: '100%',
+    padding: '10px 0',
+    borderRadius: 8,
+    border: '1px solid #333',
+    background: 'transparent',
+    color: '#888',
+    fontSize: 14,
+    fontWeight: 500,
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
     touchAction: 'manipulation',
+  },
+  secondaryHint: {
+    fontSize: 10,
+    color: '#444',
+    textAlign: 'center' as const,
+    margin: '2px 0 0',
+    maxWidth: 260,
+    lineHeight: 1.4,
   },
 };

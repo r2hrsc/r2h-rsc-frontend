@@ -40,7 +40,11 @@ export default function UsernamePicker({ apiUrl, provider, externalId, onComplet
       }
       onComplete(data.rscUsername, data.rscPassword);
     } catch (err: any) {
-      setError(err.message);
+      console.error('[UsernamePicker] Failed to register username:', err);
+      const message = err.message === 'Failed to fetch'
+        ? 'Could not reach the server. Please try again later.'
+        : (err.message || 'Registration failed');
+      setError(message);
       setLoading(false);
     }
   };
