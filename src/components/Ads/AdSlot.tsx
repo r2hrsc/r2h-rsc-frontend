@@ -8,6 +8,7 @@ import {
   type Ad,
   type FillerAd,
 } from '../../lib/adManager';
+import { AdSenseAd, isAdSenseEnabled } from './AdSenseAd';
 
 interface AdSlotProps {
   slot: AdSlotType;
@@ -27,8 +28,13 @@ export function AdSlot({ slot }: AdSlotProps) {
     };
   }, []);
 
+  // Priority: paid ad (localStorage) > AdSense > filler text
   if (ad) {
     return <PaidAd ad={ad} slot={slot} />;
+  }
+  if (isAdSenseEnabled()) {
+    const layout = slot === 'LEFT_SIDEBAR' || slot === 'RIGHT_SIDEBAR' ? 'vertical' : 'horizontal';
+    return <AdSenseAd layout={layout} />;
   }
   return <FillerAdDisplay slot={slot} />;
 }
