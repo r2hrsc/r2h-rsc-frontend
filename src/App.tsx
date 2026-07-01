@@ -209,6 +209,9 @@ function AppContent() {
         minWidth: visualWidth + reserveH, width: visualWidth + reserveH,
         minHeight: visualGameHeight + reserveV, height: visualGameHeight + reserveV,
         zIndex: 10,
+        border: '1px solid #1a1a1a',
+        borderRadius: 10,
+        overflow: 'hidden',
       }}>
         {/* ── Top ad bar — spans full width, rounded top corners ── */}
         <div className="ad-zone" style={{
