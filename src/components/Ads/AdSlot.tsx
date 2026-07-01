@@ -1,20 +1,20 @@
 import { useEffect, useState, useRef } from 'react';
 import {
   getAdForSlot,
-  getFillerForSlot,
   recordImpression,
   recordClick,
   type AdSlotType,
   type Ad,
-  type FillerAd,
 } from '../../lib/adManager';
 import { AdSenseAd, isAdSenseEnabled } from './AdSenseAd';
+import { CommunityHub } from './CommunityHub';
 
 interface AdSlotProps {
   slot: AdSlotType;
+  zone: 'top' | 'left' | 'right' | 'bottom';
 }
 
-export function AdSlot({ slot }: AdSlotProps) {
+export function AdSlot({ slot, zone }: AdSlotProps) {
   const ad = getAdForSlot(slot);
   // Force re-render when localStorage changes (e.g. admin uploads new ad)
   const [, forceUpdate] = useState(0);
@@ -28,7 +28,7 @@ export function AdSlot({ slot }: AdSlotProps) {
     };
   }, []);
 
-  // Priority: paid ad (localStorage) > AdSense > filler text
+  // Priority: paid ad (localStorage) > AdSense > community hub content
   if (ad) {
     return <PaidAd ad={ad} slot={slot} />;
   }
@@ -36,13 +36,12 @@ export function AdSlot({ slot }: AdSlotProps) {
     const layout = slot === 'LEFT_SIDEBAR' || slot === 'RIGHT_SIDEBAR' ? 'vertical' : 'horizontal';
     return <AdSenseAd layout={layout} />;
   }
-  return <FillerAdDisplay slot={slot} />;
+  return <CommunityHub zone={zone} />;
 }
 
 function PaidAd({ ad, slot }: { ad: Ad; slot: AdSlotType }) {
   const recordedRef = useRef(false);
 
-  // Record impression once on mount
   useEffect(() => {
     if (recordedRef.current) return;
     recordedRef.current = true;
@@ -53,7 +52,6 @@ function PaidAd({ ad, slot }: { ad: Ad; slot: AdSlotType }) {
     recordClick(ad.id);
   };
 
-  // Side columns are vertical; top/bottom are horizontal
   const isSide = slot === 'LEFT_SIDEBAR' || slot === 'RIGHT_SIDEBAR';
 
   return (
@@ -83,57 +81,6 @@ function PaidAd({ ad, slot }: { ad: Ad; slot: AdSlotType }) {
           borderRadius: 4,
         }}
       />
-    </a>
-  );
-}
-
-function FillerAdDisplay({ slot }: { slot: AdSlotType }) {
-  const filler = getFillerForSlot(slot);
-  if (!filler) return null;
-
-  const isSide = slot === 'LEFT_SIDEBAR' || slot === 'RIGHT_SIDEBAR';
-
-  return (
-    <a
-      href={filler.linkUrl}
-      target={filler.linkUrl.startsWith('/') ? '_self' : '_blank'}
-      rel="noopener noreferrer"
-      style={{
-        display: 'flex',
-        flexDirection: isSide ? 'column' : 'row',
-        width: '100%',
-        height: '100%',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: isSide ? 6 : 16,
-        textDecoration: 'none',
-        background: filler.bgGradient,
-        padding: 8,
-        boxSizing: 'border-box',
-        transition: 'opacity 0.2s',
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.opacity = '0.85')}
-      onMouseLeave={(e) => (e.currentTarget.style.opacity = '1')}
-    >
-      <span style={{
-        fontSize: isSide ? 15 : 18,
-        fontWeight: 700,
-        color: filler.color,
-        writingMode: isSide ? 'vertical-rl' : undefined,
-        letterSpacing: isSide ? 2 : 0,
-      }}>
-        {filler.title}
-      </span>
-      {filler.subtitle && (
-        <span style={{
-          fontSize: isSide ? 11 : 14,
-          color: '#888',
-          writingMode: isSide ? 'vertical-rl' : undefined,
-          letterSpacing: isSide ? 1.5 : 0,
-        }}>
-          {filler.subtitle}
-        </span>
-      )}
     </a>
   );
 }
