@@ -10,6 +10,7 @@ import { MediaKit } from './pages/MediaKit';
 import { AdManagerPage } from './components/Admin/AdManager';
 import { PrivacyPolicy, TermsOfService, About } from './pages/LegalPages';
 import { useGameScale } from './hooks/useGameScale';
+import { initWalletKit } from './lib/walletKit';
 import './index.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
@@ -98,6 +99,13 @@ function AppContent() {
   useEffect(() => {
     logoutRef.current = logout;
   }, [logout]);
+
+  // Initialize Reown AppKit EARLY — during the loading screen (before ad zones render).
+  // This ensures the w3m-modal element is created and settled to opacity:0 while the
+  // dark loading screen is visible, preventing any initialization flash over the ad zones.
+  useEffect(() => {
+    initWalletKit();
+  }, []);
 
   const [appState, setAppState] = useState<AppState>('auth');
   const [authProvider, setAuthProvider] = useState('');

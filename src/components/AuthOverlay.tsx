@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { modal as walletModal, useAppKitAccount } from '@reown/appkit/react';
-import { initWalletKit } from '../lib/walletKit';
 
 interface AuthOverlayProps {
   apiUrl: string;
@@ -13,10 +12,8 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
   const [error, setError] = useState('');
   const [signingIn, setSigningIn] = useState(false);
 
-  // Initialize Reown AppKit once
-  useEffect(() => {
-    initWalletKit();
-  }, []);
+  // initWalletKit() is now called in AppContent — during the loading screen,
+  // before ad zones render, to prevent the w3m-modal initialization flash.
 
   // Track wallet connection state via Reown hooks
   const { address, isConnected } = useAppKitAccount();
@@ -152,12 +149,14 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'fixed', inset: 0, zIndex: 1039,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'transparent',
+    pointerEvents: 'none', // Let clicks pass through to ad zones behind the transparent areas
   },
   card: {
     background: '#111', borderRadius: 16, padding: '40px 32px',
     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14,
     width: 340, maxWidth: '90vw',
     border: '1px solid #222',
+    pointerEvents: 'auto', // Re-enable interaction on the card itself
   },
   title:    { color: '#fff', fontSize: 28, fontWeight: 700, margin: 0 },
   subtitle: { color: '#888', fontSize: 14, margin: '0 0 8px' },

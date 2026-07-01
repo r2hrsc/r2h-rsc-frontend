@@ -27,3 +27,11 @@ html, body, #root {
 @media (max-width: 768px) {
   .ad-zone-side { display: none !important; }
 }
+
+/* Prevent Reown AppKit w3m-modal from flashing visible during web component
+   initialization. Before the element is upgraded (:not(:defined)), force it
+   invisible. Once upgraded, the component's own shadow DOM styles control opacity. */
+w3m-modal:not(:defined) {
+  opacity: 0 !important;
+  visibility: hidden !important;
+}
