@@ -26,29 +26,38 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const rendererRef = useRef<RSCRenderer | null>(null);
   const credsSentRef = useRef(false);
+  const loginFallbackFired = useRef(false);
 
   // Determine auth mode
   const hasGameCredentials = !!(rscUsername && rscPassword);
-  const useRealClient = hasGameCredentials || showRscBackground; // keep the real RSC client login screen in the background on purpose
+  const useRealClient = hasGameCredentials || showRscBackground;
 
   // ALL hooks must be called unconditionally before ANY early return.
-  // The useEffects below have internal guards (if (!hasGameCredentials) return)
-  // so they are inert in background mode. Do NOT early-return before them.
   const sidecar = useSidecarAuth();
   const ws = useGameWebSocket(sidecar.sessionToken);
   const { sessionToken } = sidecar;
   const { isConnected, connectionError, sendMessage, lastMessage } = ws;
 
-  // ── Iframe mode (Gmail auth: loads real RSC client from CDN) ──
+  // ── Iframe mode (Google auth: loads real RSC client from CDN) ──
 
-  // Listen for rsc-login-complete from the iframe
+  // Listen for rsc-login-complete AND rsc-login-error from the iframe
   useEffect(() => {
     if (!hasGameCredentials || !onLoginComplete) return;
 
     const handler = (event: MessageEvent) => {
       if (event.origin !== IFRAME_ORIGIN && event.origin !== window.location.origin) return;
+
       if (event.data?.type === 'rsc-login-complete') {
         console.log('[GameCanvas] Received rsc-login-complete from iframe');
+        loginFallbackFired.current = true; // cancel fallback
+        onLoginComplete();
+      }
+
+      if (event.data?.type === 'rsc-login-error') {
+        console.log('[GameCanvas] Received rsc-login-error from iframe:', event.data.detail);
+        // On mobile, synthetic keyboard events may fail. Proceed anyway —
+        // the user can see the game screen and log in manually.
+        loginFallbackFired.current = true;
         onLoginComplete();
       }
     };
@@ -57,7 +66,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
     return () => window.removeEventListener('message', handler);
   }, [hasGameCredentials, onLoginComplete]);
 
-  // Send credentials to iframe
+  // Send credentials to iframe + fallback timeout for mobile
   useEffect(() => {
     if (!hasGameCredentials || !rscUsername || !rscPassword || !iframeRef.current?.contentWindow) return;
     if (credsSentRef.current) return;
@@ -77,17 +86,29 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
       credsSentRef.current = true;
     }, 15000);
 
+    // Fallback: if the iframe doesn't respond after 35 seconds, proceed anyway.
+    // The RSC client auto-login uses synthetic keyboard events that don't work on
+    // mobile Chrome. Instead of hanging forever on "Connecting to game...", hide
+    // the overlay so the user can interact with the game directly.
+    const fallback = setTimeout(() => {
+      if (!loginFallbackFired.current && onLoginComplete) {
+        console.log('[GameCanvas] Login fallback triggered after 35s — proceeding anyway');
+        loginFallbackFired.current = true;
+        onLoginComplete();
+      }
+    }, 35000);
+
     return () => {
       clearInterval(interval);
       clearTimeout(timeout);
+      clearTimeout(fallback);
     };
-  }, [hasGameCredentials, rscUsername, rscPassword]);
+  }, [hasGameCredentials, rscUsername, rscPassword, onLoginComplete]);
 
   // ── Canvas mode (Wallet auth: mock renderer with WebSocket) ──
 
-  // Initialize renderer when canvas is ready
   useEffect(() => {
-    if (hasGameCredentials) return; // Skip if using iframe mode
+    if (hasGameCredentials) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -101,7 +122,6 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
     console.log('[GameCanvas] RSCRenderer initialized');
   }, [hasGameCredentials]);
 
-  // Handle incoming WebSocket packets
   useEffect(() => {
     if (!lastMessage || !rendererRef.current) return;
 
@@ -115,7 +135,6 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
     }
   }, [lastMessage]);
 
-  // Handle canvas click — send move packet
   const handleCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isConnected || !rendererRef.current) return;
 
@@ -139,10 +158,9 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
     sendMessage(packet);
   }, [isConnected, sendMessage]);
 
-  // Draw connection status on canvas (wallet auth mode only)
   useEffect(() => {
-    if (hasGameCredentials) return; // Skip if using iframe mode
-    if (isConnected) return; // Renderer handles when connected
+    if (hasGameCredentials) return;
+    if (isConnected) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -183,7 +201,6 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
 
   // ── Render ──
 
-  // Iframe mode: Gmail auth with game credentials or background RSC client for homepage
   if (useRealClient) {
     return (
       <iframe
@@ -204,7 +221,6 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
     );
   }
 
-  // Canvas mode: Wallet auth with WebSocket
   return (
     <canvas
       ref={canvasRef}

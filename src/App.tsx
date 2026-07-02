@@ -316,17 +316,6 @@ function AppContent() {
         </div>
       </div>
 
-      {/* Small "Advertise" link for direct ad sales discovery */}
-      <a href="/media-kit" style={{
-        position: 'fixed',
-        bottom: 6,
-        right: 8,
-        color: '#333',
-        fontSize: 10,
-        textDecoration: 'none',
-        zIndex: 100,
-      }}>Advertise</a>
-
       {/* Loading overlay on top of game while it connects */}
       {showLoadingOverlay && <LoadingOverlay text={loadingText} />}
 
