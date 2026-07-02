@@ -34,4 +34,12 @@ html, body, #root {
 w3m-modal:not(:defined) {
   opacity: 0 !important;
   visibility: hidden !important;
+  display: none !important;
+}
+
+/* Force the w3m-modal host background to be fully transparent.
+   The modal's shadow DOM has a semi-dark background (rgba(0,0,0,0.5))
+   that creates a visual veil over the ad zones even at opacity:0. */
+w3m-modal {
+  background: transparent !important;
 }
