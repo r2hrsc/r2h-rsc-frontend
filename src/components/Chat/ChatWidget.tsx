@@ -1,14 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useChatSocket } from './useChatSocket';
 
-/**
- * ChatWidget — floating community chat for R2H RSC.
- * Renders a button bottom-right; expands to a panel.
- * Only connects when the user is authenticated (has an RSC username).
- *
- * Props:
- *   username — RSC username (null = not authenticated, button hidden)
- */
 interface ChatWidgetProps {
   username: string | null;
 }
@@ -20,7 +12,7 @@ export function ChatWidget({ username }: ChatWidgetProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { messages, onlineUsers, connected, error, sendMessage } = useChatSocket(
-    open ? username : null, // Only connect when panel is opened
+    open ? username : null,
   );
 
   const scrollToBottom = useCallback(() => {
@@ -37,7 +29,6 @@ export function ChatWidget({ username }: ChatWidgetProps) {
     }
   }, [open, connected]);
 
-  // Don't render if not authenticated
   if (!username) return null;
 
   const handleSend = () => {
@@ -62,7 +53,6 @@ export function ChatWidget({ username }: ChatWidgetProps) {
     }
   };
 
-  // ── Collapsed: floating button ──
   if (!open) {
     return (
       <button
@@ -121,7 +111,6 @@ export function ChatWidget({ username }: ChatWidgetProps) {
     );
   }
 
-  // ── Expanded: chat panel ──
   return (
     <div style={{
       position: 'fixed',
@@ -139,12 +128,6 @@ export function ChatWidget({ username }: ChatWidgetProps) {
       borderRadius: 0,
       boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
       fontFamily: 'monospace',
-      // Desktop sizing
-      '@media (min-width: 769px)': {
-        bottom: 16,
-        right: 16,
-        borderRadius: 12,
-      },
     } as React.CSSProperties}>
       {/* Header */}
       <div style={{
@@ -185,6 +168,19 @@ export function ChatWidget({ username }: ChatWidgetProps) {
             <line x1="6" y1="6" x2="18" y2="18" />
           </svg>
         </button>
+      </div>
+
+      {/* Unmoderated chat warning */}
+      <div style={{
+        padding: '6px 12px',
+        background: 'rgba(255, 200, 0, 0.08)',
+        borderBottom: '1px solid rgba(255, 200, 0, 0.2)',
+        fontSize: 10,
+        color: '#ffcc00',
+        textAlign: 'center',
+        fontFamily: 'monospace',
+      }}>
+        ⚠ UNMODERATED — DO NOT TRUST ANYTHING YOU SEE
       </div>
 
       {/* Messages */}

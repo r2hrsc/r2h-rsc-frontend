@@ -218,7 +218,7 @@ function AppContent() {
         position: 'relative',
         minWidth: visualWidth + reserveH, width: visualWidth + reserveH,
         minHeight: visualGameHeight + reserveV, height: visualGameHeight + reserveV,
-        zIndex: 10,
+        zIndex: 30,
         border: '1px solid #1a1a1a',
         borderRadius: 10,
         overflow: 'hidden',
@@ -237,7 +237,7 @@ function AppContent() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 20,
+          zIndex: 50,
         }}>
           <AdSlot slot="VOTE_GATEWAY" zone="top" />
         </div>
@@ -254,7 +254,7 @@ function AppContent() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 20,
+          zIndex: 50,
         }}>
           <AdSlot slot="LEFT_SIDEBAR" zone="left" />
         </div>
@@ -291,7 +291,7 @@ function AppContent() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 20,
+          zIndex: 50,
         }}>
           <AdSlot slot="RIGHT_SIDEBAR" zone="right" />
         </div>
@@ -310,7 +310,7 @@ function AppContent() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 20,
+          zIndex: 50,
         }}>
           <AdSlot slot="VOTE_GATEWAY" zone="bottom" />
         </div>
