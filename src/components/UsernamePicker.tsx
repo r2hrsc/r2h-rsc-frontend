@@ -36,6 +36,11 @@ export default function UsernamePicker({ apiUrl, provider, externalId, onComplet
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
+        if (data.error === 'username_taken') {
+          setError('That username is already taken. Please choose another.');
+          setLoading(false);
+          return;
+        }
         throw new Error(data.error || 'Registration failed');
       }
       onComplete(data.rscUsername, data.rscPassword);

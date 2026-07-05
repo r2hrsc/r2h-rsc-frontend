@@ -277,6 +277,14 @@ function AppContent() {
             showRscBackground={isAuthScreen}
             scale={gameScale}
           />
+          {/* Auth overlay constrained exactly to the RSC game frame only */}
+          {isAuthScreen && (
+            <AuthOverlay
+              apiUrl={API_URL}
+              onAuthComplete={handleAuthComplete}
+              onExistingUser={handleExistingUser}
+            />
+          )}
         </div>
 
         {/* ── Right ad column — mirrors the left (hidden on mobile) ── */}
@@ -319,9 +327,6 @@ function AppContent() {
       {/* Loading overlay on top of game while it connects */}
       {showLoadingOverlay && <LoadingOverlay text={loadingText} />}
 
-      {appState === 'auth' && (
-        <AuthOverlay apiUrl={API_URL} onAuthComplete={handleAuthComplete} onExistingUser={handleExistingUser} />
-      )}
 
       {appState === 'username' && (
         <UsernamePicker
