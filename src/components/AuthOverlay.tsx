@@ -159,7 +159,7 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 1039,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'transparent',
-    pointerEvents: 'none', // Let clicks pass through to ad zones behind the transparent areas
+    pointerEvents: 'auto', // Block all clicks on RSC client when auth is shown
   },
   card: {
     background: '#111', borderRadius: 16, padding: '40px 32px',
