@@ -89,7 +89,12 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
   if (signingIn) {
     return (
       <div style={{
-        position: 'fixed', inset: 0, zIndex: 1039,
+        position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    zIndex: 1039,
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         background: 'rgba(0,0,0,0.9)', gap: 16,
       }}>
@@ -146,7 +151,12 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
 
 const styles: Record<string, React.CSSProperties> = {
   overlay: {
-    position: 'fixed', inset: 0, zIndex: 1039,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '100%',
+    zIndex: 1039,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'transparent',
     pointerEvents: 'none', // Let clicks pass through to ad zones behind the transparent areas
