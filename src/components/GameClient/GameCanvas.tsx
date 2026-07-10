@@ -86,17 +86,17 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
       credsSentRef.current = true;
     }, 15000);
 
-    // Fallback: if the iframe doesn't respond after 35 seconds, proceed anyway.
-    // The RSC client auto-login uses synthetic keyboard events that don't work on
-    // mobile Chrome. Instead of hanging forever on "Connecting to game...", hide
-    // the overlay so the user can interact with the game directly.
+    // Fallback: if the iframe doesn't respond after 25 seconds, proceed anyway.
+    // The RSC client auto-login should complete within ~20s (2s wait + ~15s login
+    // sequence + buffer). If it doesn't, hide the overlay so the user can interact
+    // with the game directly rather than hanging forever.
     const fallback = setTimeout(() => {
       if (!loginFallbackFired.current && onLoginComplete) {
-        console.log('[GameCanvas] Login fallback triggered after 35s — proceeding anyway');
+        console.log('[GameCanvas] Login fallback triggered after 25s — proceeding anyway');
         loginFallbackFired.current = true;
         onLoginComplete();
       }
-    }, 35000);
+    }, 25000);
 
     return () => {
       clearInterval(interval);
