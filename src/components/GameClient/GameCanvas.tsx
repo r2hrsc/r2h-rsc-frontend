@@ -70,41 +70,72 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
   }, [hasGameCredentials, onLoginComplete]);
 
   // Send credentials to iframe + fallback timeout for mobile
+  // Uses refs for timers so they survive effect cleanups/re-runs.
+  // The previous version cleared the fallback on every re-render, causing
+  // permanent hangs on mobile when prop changes reset the cleanup.
+  const sendIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
-    if (!hasGameCredentials || !rscUsername || !rscPassword || !iframeRef.current?.contentWindow) return;
+    if (!hasGameCredentials || !rscUsername || !rscPassword) return;
     if (credsSentRef.current) return;
 
-    const sendCreds = () => {
-      iframeRef.current?.contentWindow?.postMessage(
+    // Guard: only proceed if iframe is available
+    const trySend = () => {
+      const iframe = iframeRef.current;
+      if (!iframe?.contentWindow) {
+        console.log('[GameCanvas] Waiting for iframe contentWindow...');
+        return false;
+      }
+      iframe.contentWindow.postMessage(
         { type: 'RSC_LOGIN', username: rscUsername, password: rscPassword },
         IFRAME_ORIGIN
       );
-      console.log('[GameCanvas] Sent credentials to iframe');
+      console.log('[GameCanvas] Sent RSC_LOGIN to iframe');
+      return true;
     };
 
-    sendCreds();
-    const interval = setInterval(sendCreds, 1000);
-    const timeout = setTimeout(() => {
-      clearInterval(interval);
+    // Try immediately, then retry every 1s until the iframe accepts
+    if (!trySend()) {
+      sendIntervalRef.current = setInterval(() => {
+        if (trySend()) {
+          // Keep sending — the iframe may not have its listener ready yet
+        }
+      }, 1000);
+    } else {
+      // Even on success, keep retrying for 10s in case iframe wasn't ready
+      sendIntervalRef.current = setInterval(trySend, 1000);
+    }
+
+    // Stop retrying after 15s
+    const stopRetry = setTimeout(() => {
+      if (sendIntervalRef.current) {
+        clearInterval(sendIntervalRef.current);
+        sendIntervalRef.current = null;
+      }
       credsSentRef.current = true;
     }, 15000);
 
     // Fallback: if the iframe doesn't respond after 25 seconds, proceed anyway.
-    // The RSC client auto-login should complete within ~20s (2s wait + ~15s login
-    // sequence + buffer). If it doesn't, hide the overlay so the user can interact
-    // with the game directly rather than hanging forever.
-    const fallback = setTimeout(() => {
-      if (!loginFallbackFired.current && onLoginComplete) {
-        console.log('[GameCanvas] Login fallback triggered after 25s — proceeding anyway');
-        loginFallbackFired.current = true;
-        onLoginComplete();
-      }
-    }, 25000);
+    // Use a ref so this timer survives effect cleanups.
+    if (!fallbackTimerRef.current && !loginFallbackFired.current) {
+      fallbackTimerRef.current = setTimeout(() => {
+        if (!loginFallbackFired.current && onLoginComplete) {
+          console.log('[GameCanvas] Login fallback triggered after 25s — proceeding anyway');
+          loginFallbackFired.current = true;
+          onLoginComplete();
+        }
+      }, 25000);
+    }
 
     return () => {
-      clearInterval(interval);
-      clearTimeout(timeout);
-      clearTimeout(fallback);
+      clearTimeout(stopRetry);
+      // Do NOT clear fallbackTimerRef here — it must survive re-renders
+      // Only clear the retry interval if it's still running
+      if (credsSentRef.current && sendIntervalRef.current) {
+        clearInterval(sendIntervalRef.current);
+        sendIntervalRef.current = null;
+      }
     };
   }, [hasGameCredentials, rscUsername, rscPassword, onLoginComplete]);
 
