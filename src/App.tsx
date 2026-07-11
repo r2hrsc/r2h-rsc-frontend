@@ -28,6 +28,9 @@ const AD_RESERVE_V = AD_TOP_HEIGHT + AD_BOTTOM_HEIGHT;     // 400px total vertic
 type AppState = 'auth' | 'username' | 'loading' | 'playing';
 
 // ── Loading Overlay ──
+// pointerEvents: 'none' so the overlay doesn't block touch/click events
+// from reaching the game iframe's hidden TeaVM inputs underneath.
+// The overlay is purely visual (spinner + text), events pass through to the game.
 function LoadingOverlay({ text }: { text: string }) {
   return (
     <div style={{
@@ -35,6 +38,7 @@ function LoadingOverlay({ text }: { text: string }) {
       display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
       background: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(4px)',
       gap: 16,
+      pointerEvents: 'none',
     }}>
       <div style={{
         width: 32, height: 32, border: '3px solid #333', borderTop: '3px solid #14F195',

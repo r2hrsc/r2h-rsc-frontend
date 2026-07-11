@@ -20,7 +20,7 @@ interface GameCanvasProps {
 export default function GameCanvas({ wsUrl, rscUsername, rscPassword, hidden, onLoginComplete }: GameCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Listen for rsc-login-complete from the iframe
+  // Listen for rsc-login-complete OR rsc-login-error from the iframe
   useEffect(() => {
     if (!onLoginComplete) return;
 
@@ -29,6 +29,12 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, hidden, on
       if (event.data?.type === 'rsc-login-complete') {
         console.log('[GameCanvas] Received rsc-login-complete');
         onLoginComplete();
+      } else if (event.data?.type === 'rsc-login-error') {
+        // Login failed in the iframe — surface error to user instead of hanging forever
+        console.error('[GameCanvas] Received rsc-login-error:', event.data?.detail || 'unknown');
+        window.alert('Login failed: ' + (event.data?.detail || 'Game server did not respond. Please try again.'));
+        // Reload to let user retry
+        window.location.reload();
       }
     };
 
@@ -36,7 +42,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, hidden, on
     return () => window.removeEventListener('message', handler);
   }, [onLoginComplete]);
 
-  // Send credentials to iframe
+  // Send credentials to iframe — with retry + 45s overall timeout
   useEffect(() => {
     if (!rscUsername || !rscPassword || !iframeRef.current?.contentWindow) return;
 
@@ -51,14 +57,22 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, hidden, on
       );
     };
 
-    // Send immediately, then retry every 1s for 15s (iframe may still be loading)
+    // Send immediately, then retry every 2s for 30s (iframe may still be loading, especially on mobile)
     sendCreds();
-    const interval = setInterval(sendCreds, 1000);
-    const timeout = setTimeout(() => clearInterval(interval), 15000);
+    const interval = setInterval(sendCreds, 2000);
+    const stopRetry = setTimeout(() => clearInterval(interval), 30000);
+
+    // Overall login timeout: if no rsc-login-complete or rsc-login-error in 45s, show error
+    const loginTimeout = setTimeout(() => {
+      console.error('[GameCanvas] Login timed out after 45s — no response from game server');
+      window.alert('Login timed out. The game server may be busy or your connection is slow. Please try again.');
+      window.location.reload();
+    }, 45000);
 
     return () => {
       clearInterval(interval);
-      clearTimeout(timeout);
+      clearTimeout(stopRetry);
+      clearTimeout(loginTimeout);
     };
   }, [rscUsername, rscPassword]);
 
