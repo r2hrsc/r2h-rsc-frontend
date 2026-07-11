@@ -95,26 +95,31 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
       return true;
     };
 
-    // Try immediately, then retry every 1s until the iframe accepts
+    // Try immediately, then retry every 1s until the iframe accepts.
+    // STOP as soon as the first message is delivered — sending repeatedly
+    // causes the game to re-enter credentials in a loop.
     if (!trySend()) {
       sendIntervalRef.current = setInterval(() => {
         if (trySend()) {
-          // Keep sending — the iframe may not have its listener ready yet
+          if (sendIntervalRef.current) {
+            clearInterval(sendIntervalRef.current);
+            sendIntervalRef.current = null;
+          }
+          credsSentRef.current = true;
         }
       }, 1000);
     } else {
-      // Even on success, keep retrying for 10s in case iframe wasn't ready
-      sendIntervalRef.current = setInterval(trySend, 1000);
+      credsSentRef.current = true;
     }
 
-    // Stop retrying after 15s
+    // Stop retrying after 5s
     const stopRetry = setTimeout(() => {
       if (sendIntervalRef.current) {
         clearInterval(sendIntervalRef.current);
         sendIntervalRef.current = null;
       }
       credsSentRef.current = true;
-    }, 15000);
+    }, 5000);
 
     // Fallback: if the iframe doesn't respond after 25 seconds, proceed anyway.
     // Use a ref so this timer survives effect cleanups.
