@@ -13,7 +13,7 @@ const RSA_EXPONENT = '65537';
 const RSA_MODULUS = '9115015542438186018327044408313987277889783174239809826491015549573028356381739563861028029945657804756198333660503635469704152602063914154601665525357981';
 // Cache-bust version: increment when the rsc-client/index.html is updated.
 // This forces mobile browsers to fetch the new iframe content instead of serving a cached copy.
-const CLIENT_VERSION = 'v17';
+const CLIENT_VERSION = 'v18';
 const GAME_URL = `${CACHE_CDN}?v=${CLIENT_VERSION}#members,127.0.0.1,43594,${RSA_EXPONENT},${RSA_MODULUS},1`;
 
 interface GameCanvasProps {
@@ -95,31 +95,38 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
       return true;
     };
 
-    // Try immediately, then retry every 1s until the iframe accepts.
-    // STOP as soon as the first message is delivered — sending repeatedly
-    // causes the game to re-enter credentials in a loop.
+    // Retry until the iframe acknowledges receipt with rsc-login-received.
+    // Once acknowledged, stop — never re-send (causes credential re-entry loop).
+    const ackHandler = (e: MessageEvent) => {
+      if (e.data?.type === 'rsc-login-received' || e.data?.type === 'rsc-login-complete' || e.data?.type === 'rsc-login-error') {
+        console.log('[GameCanvas] Iframe acknowledged RSC_LOGIN:', e.data.type);
+        if (sendIntervalRef.current) {
+          clearInterval(sendIntervalRef.current);
+          sendIntervalRef.current = null;
+        }
+        credsSentRef.current = true;
+        window.removeEventListener('message', ackHandler);
+      }
+    };
+    window.addEventListener('message', ackHandler);
+
     if (!trySend()) {
       sendIntervalRef.current = setInterval(() => {
         if (trySend()) {
-          if (sendIntervalRef.current) {
-            clearInterval(sendIntervalRef.current);
-            sendIntervalRef.current = null;
-          }
-          credsSentRef.current = true;
+          // Keep retrying until iframe acknowledges
         }
       }, 1000);
-    } else {
-      credsSentRef.current = true;
     }
 
-    // Stop retrying after 5s
+    // Stop retrying after 10s
     const stopRetry = setTimeout(() => {
       if (sendIntervalRef.current) {
         clearInterval(sendIntervalRef.current);
         sendIntervalRef.current = null;
       }
+      window.removeEventListener('message', ackHandler);
       credsSentRef.current = true;
-    }, 5000);
+    }, 10000);
 
     // Fallback: if the iframe doesn't respond after 25 seconds, proceed anyway.
     // Use a ref so this timer survives effect cleanups.
