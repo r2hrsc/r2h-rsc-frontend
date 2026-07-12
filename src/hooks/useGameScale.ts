@@ -10,12 +10,24 @@ export function useGameScale(): number {
   const [scale, setScale] = useState(() => calculateScale());
 
   useEffect(() => {
+    // Mobile browsers change innerWidth/innerHeight when the address bar
+    // shows/hides. Delay the initial scale calculation so the viewport settles.
+    const raf = requestAnimationFrame(() => {
+      setScale(calculateScale());
+    });
+    // Second pass after 200ms for slow address bar animations
+    const settle = setTimeout(() => setScale(calculateScale()), 200);
+
     const handleResize = () => {
       setScale(calculateScale());
     };
 
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(settle);
+      window.removeEventListener('resize', handleResize);
+    };
   }, []);
 
   return scale;
