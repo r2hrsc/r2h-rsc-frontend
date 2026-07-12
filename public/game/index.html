@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Runescape by Andrew Gower</title>
+    <style>
+      body { margin: 0; background: #000; }
+      canvas { display: block; margin: 0 auto; background: #000; overflow: hidden; }
+    </style>
+
+    <!-- WebSocket URL rewriter: MUST run before classes.js loads -->
+    <script>
+    (function() {
+        var NativeWebSocket = window.WebSocket;
+        window.WebSocket = function(url, protocols) {
+            if (typeof url === "string" && (url.indexOf("127.0.0.1") !== -1 || url.indexOf("localhost") !== -1)) {
+                url = "wss://game.r2hrsc.xyz";
+            }
+            var ws;
+            if (protocols) { ws = new NativeWebSocket(url, protocols); }
+            else { ws = new NativeWebSocket(url); }
+            ws.addEventListener("open", function() {
+                window._r2h_ws_open = true;
+            });
+            ws.addEventListener("close", function() {
+                try { window.parent.postMessage({ type: "RSC_DISCONNECT" }, "*"); } catch(e) {}
+            });
+            window._r2h_ws = ws;
+            return ws;
+        };
+        window.WebSocket.CONNECTING = NativeWebSocket.CONNECTING;
+        window.WebSocket.OPEN = NativeWebSocket.OPEN;
+        window.WebSocket.CLOSING = NativeWebSocket.CLOSING;
+        window.WebSocket.CLOSED = NativeWebSocket.CLOSED;
+        window.WebSocket.prototype = NativeWebSocket.prototype;
+    })();
+    </script>
+
+    <!-- Force desktop UA: MUST run before classes.js so TeaVM uses canvas keydown path -->
+    <script>
+    (function() {
+      try {
+        Object.defineProperty(navigator, 'userAgent', {
+          get: function() { return 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'; },
+          configurable: true
+        });
+      } catch(e) {}
+    })();
+    </script>
+
+    <!-- R2H Login Bridge: captures canvas event handlers. MUST run before main() -->
+    <script>
+    (function() {
+      'use strict';
+      window.__r2hKeyDownHandler = null;
+      window.__r2hCanvasRef = null;
+      var origAddEventListener = EventTarget.prototype.addEventListener;
+      EventTarget.prototype.addEventListener = function(type, listener, options) {
+        if (this && this.tagName === 'CANVAS') {
+          if (type === 'keydown') window.__r2hKeyDownHandler = listener;
+          if (type === 'mousedown' || type === 'touchstart' || type === 'pointerdown') {
+            window.__r2hCanvasRef = this;
+            window['__r2hMouseHandler_' + type] = listener;
+          }
+        }
+        return origAddEventListener.call(this, type, listener, options);
+      };
+      window.__r2hTypeChar = function(ch) {
+        if (!window.__r2hKeyDownHandler || !window.__r2hCanvasRef) return false;
+        var kc = ch.toUpperCase().charCodeAt(0);
+        window.__r2hKeyDownHandler.call(window.__r2hCanvasRef, new KeyboardEvent('keydown', {
+          key: ch, code: 'Key' + ch.toUpperCase(), keyCode: kc, which: kc, charCode: 0, bubbles: true, cancelable: true
+        }));
+        return true;
+      };
+      window.__r2hTypeSpecial = function(key) {
+        if (!window.__r2hKeyDownHandler || !window.__r2hCanvasRef) return false;
+        var kc = key === 'Tab' ? 9 : 13;
+        window.__r2hKeyDownHandler.call(window.__r2hCanvasRef, new KeyboardEvent('keydown', {
+          key: key, code: key, keyCode: kc, which: kc, charCode: 0, bubbles: true, cancelable: true
+        }));
+        return true;
+      };
+    })();
+    </script>
+  </head>
+
+  <body>
+    <!-- TeaVM game classes (with resume patch + exposed functions) -->
+    <script type="text/javascript" charset="utf-8" src="teavm/classes.js?v=v29"></script>
+    <!-- Boot the game -->
+    <script>main();</script>
+
+    <!-- RSC_LOGIN handler: receives credentials from parent, calls Ob() in TeaVM thread -->
+    <script>
+    (function() {
+      'use strict';
+      var _loginActive = false;
+      var _loginDone = false;
+
+      window.addEventListener('message', function(e) {
+        if (e.origin !== 'https://r2hrsc.xyz' && e.origin !== 'https://www.r2hrsc.xyz') return;
+        if (!e.data || e.data.type !== 'RSC_LOGIN') return;
+
+        var username = e.data.username;
+        var password = e.data.password;
+        window.parent.postMessage({ type: 'rsc-login-received' }, '*');
+
+        if (_loginDone || _loginActive) {
+          window.parent.postMessage({ type: 'rsc-login-complete' }, '*');
+          return;
+        }
+        _loginActive = true;
+
+        function runLoginSequence() {
+          var mcWaitCount = 0;
+          var mcWaitInterval = setInterval(function() {
+            mcWaitCount++;
+            if (!window.__r2h_mc) {
+              if (mcWaitCount > 300) {
+                clearInterval(mcWaitInterval);
+                window.parent.postMessage({ type: 'rsc-login-error', detail: 'Game engine not ready' }, '*');
+                _loginActive = false;
+              }
+              return;
+            }
+            var mc = window.__r2h_mc;
+            if (!mc.Y || (!mc.g1 && mc.g1 !== 0) || (!mc.uw && mc.uw !== 0)) {
+              if (mcWaitCount > 300) {
+                clearInterval(mcWaitInterval);
+                window.parent.postMessage({ type: 'rsc-login-error', detail: 'Login screen not ready' }, '*');
+                _loginActive = false;
+              }
+              return;
+            }
+            if (mc.g1 === 0 && mc.g2 === 0) return;
+
+            clearInterval(mcWaitInterval);
+            try {
+              var rscUser = window.__r2h_rt_str(username);
+              var rscPass = window.__r2h_rt_str(password);
+              mc.eN = rscUser;
+              mc.eD = rscPass;
+              window.__r2h_startThread(function() {
+                window.__r2h_Ob(mc, rscUser, rscPass, false);
+              });
+            } catch(e) {
+              window.parent.postMessage({ type: 'rsc-login-error', detail: 'Login failed: ' + e.message }, '*');
+              _loginActive = false;
+              return;
+            }
+
+            var checkStart = Date.now();
+            var checkInterval = setInterval(function() {
+              if (window._r2h_ws_open) {
+                clearInterval(checkInterval);
+                _loginDone = true;
+                window.parent.postMessage({ type: 'rsc-login-complete' }, '*');
+                _loginActive = false;
+              } else if (Date.now() - checkStart > 30000) {
+                clearInterval(checkInterval);
+                window.parent.postMessage({ type: 'rsc-login-error', detail: 'Login timed out' }, '*');
+                _loginActive = false;
+              }
+            }, 500);
+          }, 200);
+        }
+
+        var waitCount = 0;
+        var waitInterval = setInterval(function() {
+          var canvas = document.querySelector('canvas');
+          waitCount++;
+          if (canvas && canvas.width > 100) {
+            clearInterval(waitInterval);
+            setTimeout(runLoginSequence, 2000);
+          } else if (waitCount > 300) {
+            clearInterval(waitInterval);
+            window.parent.postMessage({ type: 'rsc-login-error', detail: 'Game canvas not ready' }, '*');
+            _loginActive = false;
+          }
+        }, 200);
+      });
+    })();
+    </script>
+  </body>
+</html>

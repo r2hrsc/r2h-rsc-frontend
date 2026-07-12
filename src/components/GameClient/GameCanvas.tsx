@@ -5,15 +5,15 @@ import { parsePacket, createMovePacket } from '../../lib/rscPacketParser';
 import { RSCRenderer } from './RSCRenderer';
 
 const GRID_SIZE = 32;
-const CACHE_CDN = import.meta.env.VITE_CACHE_CDN_URL || 'https://game.r2hrsc.xyz/rsc-client/';
-const IFRAME_ORIGIN = 'https://game.r2hrsc.xyz';
+const CACHE_CDN = import.meta.env.VITE_CACHE_CDN_URL || '/game/';
+const IFRAME_ORIGIN = window.location.origin;
 
 // Server RSA keys
 const RSA_EXPONENT = '65537';
 const RSA_MODULUS = '9115015542438186018327044408313987277889783174239809826491015549573028356381739563861028029945657804756198333660503635469704152602063914154601665525357981';
 // Cache-bust version: increment when the rsc-client/index.html is updated.
 // This forces mobile browsers to fetch the new iframe content instead of serving a cached copy.
-const CLIENT_VERSION = 'v25';
+const CLIENT_VERSION = 'v26';
 const GAME_URL = `${CACHE_CDN}?v=${CLIENT_VERSION}#members,127.0.0.1,43594,${RSA_EXPONENT},${RSA_MODULUS},1`;
 
 interface GameCanvasProps {
