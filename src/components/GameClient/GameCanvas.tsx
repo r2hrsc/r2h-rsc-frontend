@@ -5,7 +5,7 @@ import { parsePacket, createMovePacket } from '../../lib/rscPacketParser';
 import { RSCRenderer } from './RSCRenderer';
 
 const GRID_SIZE = 32;
-const CACHE_CDN = import.meta.env.VITE_CACHE_CDN_URL || '/game/';
+const CACHE_CDN = '/game/';
 const IFRAME_ORIGIN = window.location.origin;
 
 // Server RSA keys
