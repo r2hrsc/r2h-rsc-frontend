@@ -13,7 +13,7 @@ const RSA_EXPONENT = '65537';
 const RSA_MODULUS = '9115015542438186018327044408313987277889783174239809826491015549573028356381739563861028029945657804756198333660503635469704152602063914154601665525357981';
 // Cache-bust version: increment when the rsc-client/index.html is updated.
 // This forces mobile browsers to fetch the new iframe content instead of serving a cached copy.
-const CLIENT_VERSION = 'v26';
+const CLIENT_VERSION = 'v27';
 const GAME_URL = `${CACHE_CDN}?v=${CLIENT_VERSION}#members,127.0.0.1,43594,${RSA_EXPONENT},${RSA_MODULUS},1`;
 
 interface GameCanvasProps {
@@ -262,7 +262,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
           imageRendering: 'pixelated' as any,
         }}
         title="R2H RSC Game"
-        allow="autoplay; gamepad; fullscreen; pointer-lock; cross-origin-isolated"
+        allow="autoplay; gamepad; fullscreen; pointer-lock; cross-origin-isolated; webgl; accelerated-2d-canvas"
       />
     );
   }
