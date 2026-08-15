@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v177';
+  var VERSION = 'v205';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -292,19 +292,27 @@
     return sendRaw(251, 0, function(stream, Z, BO) { Z(stream, slot); });
   }
 
-  // ─── Walk via W/Z/Y (proven working) ───
-
+  // ─── Walk via client-side pathfinding (APOS pattern) ───
+  // Uses the client's own walkToActionSource (minified as Dg, exposed as __r2h_walk).
+  // This calls world.findPath() which does A* pathfinding using the client's collision map,
+  // then sends collision-free waypoints as a walk packet. This is how the real client walks
+  // and how APOS/IdleRSC scripts walk — no hardcoded routes needed.
   function walkTo(x, y) {
     var mc = getMC();
-    if (!mc || !mc.c) { log('walkTo FAIL: no mc or stream'); return false; }
-    var stream = mc.c;
-    if (!mc.c.bX) { log('walkTo FAIL: stream.bX missing'); return false; }
-    var W = window.__r2h_W, Z = window.__r2h_Z, Y = window.__r2h_Y;
-    if (!W || !Z || !Y) { log('walkTo FAIL: W/Z/Y not exposed'); return false; }
-    W(stream, 194, 770);
-    Z(stream, x);
-    Z(stream, y);
-    Y(stream);
+    if (!mc) { log('walkTo FAIL: no mc'); return false; }
+    var walkFn = window.__r2h_walk;
+    if (!walkFn) { log('walkTo FAIL: __r2h_walk not exposed'); return false; }
+    // Dg(mc, playerLocalX, playerLocalZ, destLocalX, destLocalZ, walkToEntity)
+    // World coords → local: local = world - regionBase
+    var baseX = mc.du || 0;
+    var baseZ = mc.dd || 0;
+    var destLocalX = x - baseX;
+    var destLocalZ = y - baseZ;
+    var playerLocalX = mc.bJ || 0;
+    var playerLocalZ = mc.bK || 0;
+    log('[WALK] world(' + x + ',' + y + ') base(' + baseX + ',' + baseZ + ') local(' + destLocalX + ',' + destLocalZ + ') playerLocal(' + playerLocalX + ',' + playerLocalZ + ')');
+    var result = walkFn(mc, playerLocalX, playerLocalZ, destLocalX, destLocalZ, false);
+    log('[WALK] Dg returned: ' + result);
     return true;
   }
 
@@ -317,12 +325,21 @@
     var stream = mc.c;
     // Try exposed functions first
     var W = window.__r2h_W, Z = window.__r2h_Z, Y = window.__r2h_Y, BO = window.__r2h_BO;
-    if (W && Z && Y) {
+    if (W && Z && Y && BO) {
       W(stream, opcode, type || 0);
       if (payloadFn) payloadFn(stream, Z, BO);
       Y(stream);
       return true;
     }
+    // If BO is missing but W/Z/Y exist, use a local putByte implementation
+    if (W && Z && Y && !BO) {
+      BO = function(s, val) { s.bX.data[s.W++] = val << 24 >> 24; };
+      W(stream, opcode, type || 0);
+      if (payloadFn) payloadFn(stream, Z, BO);
+      Y(stream);
+      return true;
+    }
+    log('[sendRaw] W/Z/Y/BO not exposed, using fallback. W=' + !!W + ' Z=' + !!Z + ' Y=' + !!Y + ' BO=' + !!BO);
     // Fallback: implement directly using stream internals
     // W(stream, opcode, type): creates packet header
     try {
@@ -808,8 +825,27 @@
         buryBones: false, eatAtHp: 10, maxWander: 20, lootIds: []
       })(runtimeConfig);
     } else if (isMiningScript(scriptId)) {
-      tickFn = makeGatheringScript(ROCK_IDS, 3000, COAL_WILDERNESS);
-      log('Mining script "' + scriptId + '" → scanning for rocks (26 coal coords as fallback)');
+      // Build rock ID list and fallback coords from UI config
+      var mineRocks = ROCK_IDS;  // default: all rocks
+      var mineFallback = COAL_WILDERNESS;  // default: wilderness coal mine
+      if (runtimeConfig.rocks) {
+        var selectedRockTypes = [];
+        var rockTypeMap = {
+          Copper: [100,101], Tin: [104,105], Iron: [102,103], Clay: [114,115],
+          Coal: [106,107,108,109,110,111], Silver: [112,113],
+          Gold: [210,211], Mithril: [176,195,196], Adamantite: [315,496], Runite: [1030]
+        };
+        for (var rockName in runtimeConfig.rocks) {
+          if (runtimeConfig.rocks[rockName] && rockTypeMap[rockName]) {
+            selectedRockTypes = selectedRockTypes.concat(rockTypeMap[rockName]);
+          }
+        }
+        if (selectedRockTypes.length > 0) mineRocks = selectedRockTypes;
+        log('Mining script "' + scriptId + '" → rock types: ' + Object.keys(runtimeConfig.rocks).filter(function(k){return runtimeConfig.rocks[k];}).join(',') + ' → IDs: [' + mineRocks.join(',') + ']');
+      } else {
+        log('Mining script "' + scriptId + '" → scanning for rocks (26 coal coords as fallback)');
+      }
+      tickFn = makeGatheringScript(mineRocks, 3000, mineFallback);
     } else {
       tickFn = scripts['_default'];
     }
@@ -1336,7 +1372,86 @@
         }
       }
 
-      if (getInventoryCount() >= 30) {
+      // ── ORIENTATION: if the player starts the bot anywhere that isn't the mine,
+      // walk to the right place first. Full inventory (or carrying ore) → go to the
+      // bank. Empty inventory → go to the mine. Runs only ONCE at script start
+      // (until the player reaches the mine); after that, normal gather/banking runs.
+      if (!scriptState._oriented) {
+        if (!MINE_AREA_CENTER) {
+          // Use the server-verified clear standing tile INSIDE the mine —
+          // never a computed average (rounding can land on a rock tile,
+          // e.g. (277,377) IS a rock → pathfinder fails silently).
+          MINE_AREA_CENTER = {x: MINE_STAND_TILE.x, y: MINE_STAND_TILE.y};
+        }
+        var oX = getX(), oY = getY();
+        var distToMine = Math.abs(oX - MINE_AREA_CENTER.x) + Math.abs(oY - MINE_AREA_CENTER.y);
+        if (distToMine > 12) {
+          // Far from the mine — need to travel first.
+          // Ore in inventory → bank it. No ore → go mine.
+          var hasOre = false;
+          var ORE_CHECK = [158, 155, 156, 157, 150, 202, 151, 153, 152, 154, 243, 160, 161, 162, 163];
+          for (var oi0 = 0; oi0 < ORE_CHECK.length && !hasOre; oi0++) {
+            if (getInventoryIndex(ORE_CHECK[oi0]) >= 0) hasOre = true;
+          }
+          if (hasOre) {
+            log('Orientation: carrying ore far from mine — entering banking mode');
+            scriptState.phase = 'banking';
+            scriptState._oriented = true;  // banking state machine takes over fully
+            scriptState.minePos = {x: MINE_AREA_CENTER.x, y: MINE_AREA_CENTER.y};
+            scriptState._bankPhase = 'delay';
+            scriptState._bankDelay = 2;
+            scriptState._bankStuckTicks = 0;
+            scriptState._bankRouteSent = false;
+            return 1000;
+          }
+          // No ore — walk to the mine (re-paths in 30-tile steps via client pathfinder)
+          // Combat handling: wait out the 3-round retreat restriction (~1.8s), then
+          // send the walk as a server-side RETREAT to escape aggressive NPCs.
+          var omc = getMC();
+          var og8 = (omc && omc.O) ? (omc.O.g8 || 0) : 0;
+          if (og8 >= 8) {
+            if (!scriptState._orCombatSince) scriptState._orCombatSince = Date.now();
+            if (Date.now() - scriptState._orCombatSince < 4000) {
+              return 2000;  // Still within the no-retreat window
+            }
+            log('Orientation: retreating from combat');
+          } else {
+            scriptState._orCombatSince = 0;
+          }
+          if (!scriptState._toMineSent || scriptState._toMineStuck >= 3) {
+            var tdx = MINE_AREA_CENTER.x - oX;
+            var tdy = MINE_AREA_CENTER.y - oY;
+            if (distToMine <= 30) {
+              log('Orientation: walking to mine (' + MINE_AREA_CENTER.x + ',' + MINE_AREA_CENTER.y + ')');
+              walkTo(MINE_AREA_CENTER.x, MINE_AREA_CENTER.y);
+            } else {
+              var osx = oX + Math.round(tdx * 30 / distToMine);
+              var osy = oY + Math.round(tdy * 30 / distToMine);
+              log('Orientation: walking toward mine via (' + osx + ',' + osy + ') dist=' + distToMine);
+              walkTo(osx, osy);
+            }
+            scriptState._toMineSent = true;
+            scriptState._toMineStuck = 0;
+            scriptState._toMineLastX = oX;
+            scriptState._toMineLastY = oY;
+            return 3000;
+          }
+          // Stuck tracking for the orientation walk
+          if (oX !== (scriptState._toMineLastX || 0) || oY !== (scriptState._toMineLastY || 0)) {
+            scriptState._toMineStuck = 0;
+            scriptState._toMineLastX = oX;
+            scriptState._toMineLastY = oY;
+          } else {
+            scriptState._toMineStuck++;
+          }
+          return 1500;
+        }
+        // Near the mine — orientation done
+        scriptState._oriented = true;
+        log('Orientation complete — at the mine, starting gather');
+      }
+
+      if (getInventoryCount() >= 30 || scriptState.phase === 'banking') {
         // ══ BANKING STATE MACHINE ══
         // Sub-phases: delay → walk → talk → option → deposit → close → return_walk → done
         var EDGEVILLE_BANK = {x: 216, y: 449};
@@ -1345,33 +1460,84 @@
 
         // ── INIT: enter banking mode ──
         if (scriptState.phase !== 'banking') {
-          scriptState.minePos = {x: CUR_X, y: CUR_Y};
+          // minePos = the verified standing tile inside the mine, NOT the player's
+          // position (restart mid-trip would save a wrong location) and NOT a
+          // computed average (rounding can land on a rock tile → unwalkable).
+          if (!MINE_AREA_CENTER) {
+            MINE_AREA_CENTER = {x: MINE_STAND_TILE.x, y: MINE_STAND_TILE.y};
+          }
+          scriptState.minePos = {x: MINE_AREA_CENTER.x, y: MINE_AREA_CENTER.y};
           scriptState.phase = 'banking';
           scriptState._bankPhase = 'delay';
           scriptState._bankDelay = 2;
           scriptState._bankStuckTicks = 0;
           scriptState._bankLastDist = curDist;
           scriptState._bankRouteSent = false;
-          log('Inventory full — banking: saved minePos (' + CUR_X + ',' + CUR_Y + ')');
+          scriptState._bankWasInCombat = false;
+          scriptState._bankAltTileTried = false;
+          log('Inventory full — banking: return target = mine center (' + scriptState.minePos.x + ',' + scriptState.minePos.y + ')');
         }
 
-        // ── Combat check: don't count stuck ticks while fighting ──
+        // ── Combat check + RETREAT: while traveling, don't fight — retreat ──
+        // Scorpion/skeleton fights take 2+ min at this combat level. The server's
+        // WalkRequest treats a walk packet after the first 3 combat rounds (~1.8s)
+        // as a RETREAT: it breaks combat and sets CombatState.RUNNING, which gives
+        // 5 ticks of NPC re-aggro immunity. So after 4s of combat we send the walk
+        // anyway — the player escapes instead of grinding through each fight.
+        // NOTE: we track time since combat FIRST SEEN in this engagement window,
+        // not continuous combat — g8 dips between staggered skeleton attacks
+        // would otherwise reset the timer forever (pcap-confirmed bug).
         var pMC = getMC();
         var playerG8 = (pMC && pMC.O) ? (pMC.O.g8 || 0) : 0;
         var inCombat = playerG8 >= 8;
-
-        // ── DISTANCE TRACKING (for stuck detection) ──
-        if (!inCombat && curDist < scriptState._bankLastDist) {
-          scriptState._bankStuckTicks = 0;
-          scriptState._bankLastDist = curDist;
-        } else if (!inCombat) {
-          scriptState._bankStuckTicks++;
+        var shouldRetreat = false;
+        if (inCombat) {
+          if (!scriptState._combatSince) scriptState._combatSince = Date.now();
+          if (!scriptState._combatUntil) scriptState._combatUntil = Date.now();
+          scriptState._combatUntil = Date.now();  // extend the engagement window
+          if (Date.now() - scriptState._combatSince > 4000) {
+            // Past the 3-round retreat restriction — walking now = server-side retreat
+            shouldRetreat = true;
+          }
+          if (Date.now() - scriptState._combatSince > 45000) {
+            log('Combat flag stuck >45s — forcing recovery walk');
+            inCombat = false;
+            shouldRetreat = true;
+            scriptState._combatSince = 0;
+          }
         } else {
-          // Reset: being in combat is expected, not "stuck"
-          scriptState._bankStuckTicks = 0;
+          // Combat paused — only fully reset if it's been quiet for >8s
+          // (staggered skeleton re-attacks happen within ~5s of each other)
+          if (scriptState._combatUntil && Date.now() - scriptState._combatUntil > 8000) {
+            scriptState._combatSince = 0;
+            scriptState._combatUntil = 0;
+          }
         }
 
+        // ── Determine the current target for phase-aware stuck tracking ──
+        // During 'walk': target = bank. During 'return_walk': target = mine.
         var bp = scriptState._bankPhase;
+        var trackTargetX = EDGEVILLE_BANK.x, trackTargetY = EDGEVILLE_BANK.y;
+        if (bp === 'return_walk') {
+          trackTargetX = scriptState.minePos.x;
+          trackTargetY = scriptState.minePos.y;
+        }
+        var trackDist = Math.abs(CUR_X - trackTargetX) + Math.abs(CUR_Y - trackTargetY);
+
+        // ── DISTANCE TRACKING (phase-aware, for stuck detection) ──
+        // Track the player's ACTUAL position to detect real movement, not just g8.
+        // g8 oscillates between combat rounds which causes false "combat ended" triggers.
+        if (CUR_X !== (scriptState._bankLastX || 0) || CUR_Y !== (scriptState._bankLastY || 0)) {
+          // Player actually moved — reset stuck counter
+          scriptState._bankStuckTicks = 0;
+          scriptState._bankLastX = CUR_X;
+          scriptState._bankLastY = CUR_Y;
+          scriptState._bankLastDist = trackDist;
+        } else if (!inCombat && (bp === 'walk' || bp === 'return_walk')) {
+          // Player hasn't moved and isn't in combat — count as stuck
+          scriptState._bankStuckTicks++;
+        }
+        // In combat: don't increment stuck ticks
 
         // ── DELAY: wait 2 ticks so server's isBusy() clears ──
         if (bp === 'delay') {
@@ -1383,27 +1549,48 @@
           return 500;
         }
 
-        // ── WALK TO BANK: send fixed route multi-leg walk ──
+        // ── WALK TO BANK: walk toward bank in short steps using client pathfinder ───
+        // The client pathfinder can only reach within its loaded region (~48 tiles).
+        // So we walk to a point ~30 tiles toward the bank each tick — close enough
+        // for the pathfinder to route around obstacles, far enough to make progress.
+        // No hardcoded waypoints — direction is always toward the bank coordinates.
         if (bp === 'walk') {
-          // Arrived?
+          // Arrived at bank?
           if (curDist <= 2) {
             log('Arrived at Edgeville bank — talking to banker');
             scriptState._bankPhase = 'talk';
             scriptState._bankRouteSent = false;
             return 1000;
           }
-          // Stuck detection: no progress for 15+ ticks while NOT in combat
-          if (scriptState._bankStuckTicks > 15 && !inCombat) {
-            log('Stuck (' + scriptState._bankStuckTicks + ' ticks) — resending route');
-            scriptState._bankStuckTicks = 0;
-            scriptState._bankRouteSent = false;
+          // During combat: wait out the 3-round retreat restriction, then the
+          // walk below fires as a server-side RETREAT (breaks combat + aggro immunity)
+          if (inCombat && !shouldRetreat) {
+            return 2000;
           }
-          // Send route once
-          if (!scriptState._bankRouteSent) {
-            var ok = sendRouteWalk(ROUTE_TO_BANK);
-            log('Sent ' + ROUTE_TO_BANK.length + '-leg walk to bank, ok=' + ok);
+          if (inCombat && shouldRetreat) {
+            log('Retreating from combat — walking to bank');
+          }
+          // Walk to a point 30 tiles toward the bank (or the bank itself if closer)
+          if (!scriptState._bankRouteSent || scriptState._bankStuckTicks >= 3 || shouldRetreat) {
+            var dx = EDGEVILLE_BANK.x - CUR_X;
+            var dy = EDGEVILLE_BANK.y - CUR_Y;
+            var dist = Math.abs(dx) + Math.abs(dy);  // Manhattan
+            if (dist <= 30) {
+              // Close enough — walk directly to bank
+              log('Walking to bank (' + EDGEVILLE_BANK.x + ',' + EDGEVILLE_BANK.y + ') from (' + CUR_X + ',' + CUR_Y + ') dist=' + dist);
+              walkTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.y);
+            } else {
+              // Walk to a point 30 tiles toward the bank
+              var stepX = CUR_X + Math.round(dx * 30 / dist);
+              var stepY = CUR_Y + Math.round(dy * 30 / dist);
+              log('Walking toward bank via (' + stepX + ',' + stepY + ') from (' + CUR_X + ',' + CUR_Y + ') dist=' + dist);
+              walkTo(stepX, stepY);
+            }
             scriptState._bankRouteSent = true;
-            scriptState._bankLastDist = curDist;
+            scriptState._bankStuckTicks = 0;
+            scriptState._bankLastX = CUR_X;
+            scriptState._bankLastY = CUR_Y;
+            return 3000;
           }
           return 1500;
         }
@@ -1416,26 +1603,34 @@
             log('Talking to banker (idx=' + banker[0].serverIndex + ')');
             talkToNpc(banker[0].serverIndex);
             scriptState._bankTimer = Date.now();
+            scriptState._bankTalkStart = Date.now();
             scriptState._bankPhase = 'option';
-            return 3000;  // Wait for dialogue to appear
+            return 2000;  // Wait for dialogue to appear
           }
           log('No banker nearby — walking closer');
           walkTo(EDGEVILLE_BANK.x, EDGEVILLE_BANK.y);
           return 1500;
         }
 
-        // ── SELECT BANK OPTION: dialogue answer 0 ──
+        // ── SELECT BANK OPTION: send dialogue answer 0 immediately ──
+        // IdleRSC pattern: talkToNpc → wait 640ms → optionAnswer(0) → wait for bank open
         if (bp === 'option') {
           if (isInBank()) {
             // Bank already open — skip to deposit
+            log('[BANK DEBUG] bank is open — proceeding to deposit');
             scriptState._bankPhase = 'deposit';
             return 500;
           }
-          if (Date.now() - scriptState._bankTimer > 4000) {
-            // Timeout: resend dialogue answer
+          // Resend dialogue answer every 2s until bank opens
+          if (Date.now() - scriptState._bankTimer > 2000) {
             log('Sending bank dialogue option 0');
             optionAnswer(0);
             scriptState._bankTimer = Date.now();
+          }
+          // After 10s with no bank open, retry the whole talk
+          if (Date.now() - (scriptState._bankTalkStart || 0) > 10000) {
+            log('Bank still not open after 10s — retrying talk');
+            scriptState._bankPhase = 'talk';
           }
           return 1500;
         }
@@ -1451,12 +1646,14 @@
             return 1500;
           }
           // Bank is open — deposit coal ore (ID 158) and other ores
-          var ORE_IDS = [158, 155, 156, 157, 150, 202, 151, 153, 152, 154, 243]; // coal, copper, tin, iron, etc.
+          var ORE_IDS = [158, 155, 156, 157, 150, 202, 151, 153, 152, 154, 243, 160, 161, 162, 163]; // coal, copper, tin, iron, etc. + uncut gems (sapphire 160, emerald 161, ruby 162, diamond 163)
           var deposited = 0;
+          log('[BANK DEBUG] deposit phase: invCount=' + getInventoryCount());
           for (var oi = 0; oi < ORE_IDS.length; oi++) {
             var oreId = ORE_IDS[oi];
             for (var slot = 0; slot < getInventoryCount(); slot++) {
               if (getInventoryId(slot) === oreId) {
+                log('[BANK DEBUG] depositing ore id=' + oreId + ' (found in slot ' + slot + ')');
                 depositItem(oreId, 9999); // Deposit all of this type
                 deposited++;
                 break; // One deposit call per ore type
@@ -1479,15 +1676,29 @@
           }
           if (!isInBank() || Date.now() - (scriptState._bankTimer || 0) > 5000) {
             log('Bank closed — walking back to mine');
-            scriptState._bankPhase = 'return_walk';
             scriptState._bankRouteSent = false;
-            scriptState._bankLastDist = Math.abs(CUR_X - scriptState.minePos.x) + Math.abs(CUR_Y - scriptState.minePos.y);
+            var mineDist0 = Math.abs(CUR_X - scriptState.minePos.x) + Math.abs(CUR_Y - scriptState.minePos.y);
+            scriptState._bankLastDist = mineDist0;
             scriptState._bankStuckTicks = 0;
+            scriptState._bankAltTileTried = false;
+            // 2-tick delay before first walk — clears server's isBusy() after bank close
+            scriptState._bankDelay = 2;
+            scriptState._bankPhase = 'return_delay';
           }
           return 1500;
         }
 
-        // ── RETURN WALK: walk back to mine using reverse route ──
+        // ── RETURN DELAY: wait 2 ticks after closing bank ──
+        if (bp === 'return_delay') {
+          if (scriptState._bankDelay > 0) {
+            scriptState._bankDelay--;
+            return 1500;
+          }
+          scriptState._bankPhase = 'return_walk';
+          return 500;
+        }
+
+        // ── RETURN WALK: walk toward mine in short steps ──
         if (bp === 'return_walk') {
           var mineDist = Math.abs(CUR_X - scriptState.minePos.x) + Math.abs(CUR_Y - scriptState.minePos.y);
           if (mineDist <= 8) {
@@ -1495,21 +1706,30 @@
             scriptState.phase = 'gather';  // Resume gathering
             return 1000;
           }
-          if (scriptState._bankStuckTicks > 15 && !inCombat) {
-            log('Stuck on return (' + scriptState._bankStuckTicks + ' ticks) — resending');
-            scriptState._bankStuckTicks = 0;
-            scriptState._bankRouteSent = false;
+          // During combat: wait out the 3-round restriction, then walk = retreat
+          if (inCombat && !shouldRetreat) {
+            return 2000;
           }
-          if (!scriptState._bankRouteSent) {
-            var ok2 = sendRouteWalk(ROUTE_FROM_BANK);
-            log('Sent return route (' + ROUTE_FROM_BANK.length + ' legs), ok=' + ok2);
+          if (inCombat && shouldRetreat) {
+            log('Retreating from combat — walking to mine');
+          }
+          if (!scriptState._bankRouteSent || scriptState._bankStuckTicks >= 3 || shouldRetreat) {
+            var mdx = scriptState.minePos.x - CUR_X;
+            var mdy = scriptState.minePos.y - CUR_Y;
+            if (mineDist <= 30) {
+              walkTo(scriptState.minePos.x, scriptState.minePos.y);
+              log('Walking to mine (' + scriptState.minePos.x + ',' + scriptState.minePos.y + ') dist=' + mineDist);
+            } else {
+              var rsx = CUR_X + Math.round(mdx * 30 / mineDist);
+              var rsy = CUR_Y + Math.round(mdy * 30 / mineDist);
+              log('Walking toward mine via (' + rsx + ',' + rsy + ') dist=' + mineDist);
+              walkTo(rsx, rsy);
+            }
             scriptState._bankRouteSent = true;
-            scriptState._bankLastDist = mineDist;
-          }
-          // Track progress toward mine
-          if (!inCombat && mineDist < scriptState._bankLastDist) {
             scriptState._bankStuckTicks = 0;
-            scriptState._bankLastDist = mineDist;
+            scriptState._bankLastX = CUR_X;
+            scriptState._bankLastY = CUR_Y;
+            return 3000;
           }
           return 1500;
         }
@@ -1517,13 +1737,52 @@
         return 1500;
       }
 
-      // Try scanning client arrays first (works for respawned rocks)
+      // ── COMBAT GUARD: server drops object-action packets while isBusy() (fighting).
+      // Pcap-confirmed: mine packets sent during combat are silently discarded.
+      // Engagement-window logic (same as the travel walks): skeletons attack in a
+      // staggered chain, so g8 dips reset any continuous timer. We track the whole
+      // engagement and after 4s total send a RETREAT walk toward the target rock's
+      // adjacent tile — the server breaks combat and grants 5-tick aggro immunity.
+      var gmc = getMC();
+      var g8 = (gmc && gmc.O) ? (gmc.O.g8 || 0) : 0;
+      if (g8 >= 8) {
+        if (!scriptState._gatherCombatSince) scriptState._gatherCombatSince = Date.now();
+        scriptState._gatherCombatUntil = Date.now();
+        if (Date.now() - scriptState._gatherCombatSince < 4000) {
+          // First 4s: wait out the 3-round no-retreat window
+          if (scriptState.pendingRockCheck) scriptState.pendingRockCheck = false;
+          return 2000;
+        }
+        // 4s+: retreat toward the nearest known rock area to break the fight chain
+        if (!scriptState._gatherRetreatAt || Date.now() - scriptState._gatherRetreatAt > 5000) {
+          scriptState._gatherRetreatAt = Date.now();
+          var gx = getX(), gy = getY();
+          // Find nearest fallback rock and walk to a tile near it (not onto it)
+          var gBest = null, gBestD = Infinity;
+          for (var gi = 0; gi < fallbackCoords.length; gi++) {
+            var gd = Math.abs(fallbackCoords[gi].x - gx) + Math.abs(fallbackCoords[gi].y - gy);
+            if (gd < gBestD) { gBestD = gd; gBest = fallbackCoords[gi]; }
+          }
+          if (gBest && gBestD > 2) {
+            log('Gather: retreating from combat toward (' + (gBest.x + 1) + ',' + gBest.y + ')');
+            walkTo(gBest.x + 1, gBest.y);  // tile beside the rock, never on it
+          }
+        }
+        return 2500;
+      } else {
+        // Combat paused — reset engagement only after 8s of genuine quiet
+        if (scriptState._gatherCombatUntil && Date.now() - scriptState._gatherCombatUntil > 8000) {
+          scriptState._gatherCombatSince = 0;
+          scriptState._gatherCombatUntil = 0;
+          scriptState._gatherRetreatAt = 0;
+        }
+      }
+
+      // Scan client arrays for rocks
       var targets = findObjects(objectIds, 20);
 
-      // If no client-side objects, use server-authoritative fallback coords
+      // If no client-side objects found, use fallback coords (server-authoritative)
       if (targets.length === 0 && fallbackCoords.length > 0) {
-        if (!scriptState.recentCoords) scriptState.recentCoords = {};
-        var now2 = Date.now();
         var px = getX(), py = getY();
         var fbList = [];
         for (var fi = 0; fi < fallbackCoords.length; fi++) {
@@ -1535,43 +1794,90 @@
         targets = fbList;
       }
 
-      // Skip recently-mined rocks in ALL target lists (fallback + findObjects)
-      if (!scriptState.recentCoords) { scriptState.recentCoords = {}; log('Init recentCoords tracker'); }
-      var now3 = Date.now();
-      var freshTargets = [];
-      var skippedCount = 0;
+      // Check if our last mining attempt yielded ore → mark that rock depleted.
+      // The client's object array is STALE (shows original scenery, not the server's
+      // depleted ROCK_GENERIC id 98), so we must track depletion ourselves.
+      // A rock is only blacklisted when ore was actually received (not on failed clicks).
+      // Cooldown = 30s (coal respawn is 25s server-side: changeloc(respawnTime * 1000)).
+      if (scriptState.pendingRockCheck && scriptState.lastMinedRock) {
+        if (getInventoryCount() > (scriptState.invBeforeMine || 0)) {
+          if (!scriptState.depletedRocks) scriptState.depletedRocks = {};
+          scriptState.depletedRocks[scriptState.lastMinedRock] = Date.now();
+          log('Rock (' + scriptState.lastMinedRock + ') depleted — blacklisted 30s');
+        }
+        scriptState.pendingRockCheck = false;
+      }
+
+      // Filter out depleted rocks
+      if (!scriptState.depletedRocks) scriptState.depletedRocks = {};
+      window.__r2h_lastTargetCount = targets.length;
+      var nowMs = Date.now();
+      var availTargets = [];
       for (var ti = 0; ti < targets.length; ti++) {
         var t = targets[ti];
         var tkey = t.worldX + ',' + t.worldY;
-        if (!scriptState.recentCoords[tkey] || (now3 - scriptState.recentCoords[tkey] >= 30000)) {
-          freshTargets.push(t);
-        } else {
-          skippedCount++;
+        var depTime = scriptState.depletedRocks[tkey];
+        if (!depTime || (nowMs - depTime) > 30000) {
+          availTargets.push(t);
         }
       }
-      if (skippedCount > 0) log('Skipped ' + skippedCount + ' recently-mined rocks');
-      targets = freshTargets;
+      targets = availTargets;
 
       if (targets.length === 0) {
-        log('No rocks found nearby. Move closer to the mining area.');
+        // All nearby rocks depleted — wait for respawn rather than re-clicking
+        if (!scriptState._noTargetWarn || Date.now() - scriptState._noTargetWarn > 10000) {
+          scriptState._noTargetWarn = Date.now();
+          var depCount = 0;
+          for (var dk in scriptState.depletedRocks) {
+            if (Date.now() - scriptState.depletedRocks[dk] < 30000) depCount++;
+          }
+          log('No available rocks: raw=' + (window.__r2h_lastTargetCount || 0) + ' filtered, ' + depCount + ' blacklisted. Waiting for respawn.');
+        }
         return 3000;
       }
 
+      // Mine the nearest available rock
       var target = targets[0];
-      if (target.dist > 15) {
-        walkTo(target.worldX, target.worldY);
-        return 1500;
-      }
-      if (target.dist > 3) {
-        walkTo(target.worldX, target.worldY);
-        return 1200;
+
+      // Server requires withinRange(rock, 1) — the player must be ADJACENT
+      // (Chebyshev distance <= 1, i.e. the 8 surrounding tiles) or mining
+      // silently fails (Mining.java: if (!player.withinRange(rock, 1)) return;).
+      // target.dist is Manhattan; dist <= 2 guarantees Chebyshev <= 2 → may still
+      // be diagonal-2, so walk whenever not strictly adjacent.
+      var cheb = Math.max(Math.abs(target.worldX - getX()), Math.abs(target.worldY - getY()));
+      if (cheb > 1) {
+        var px2 = getX(), py2 = getY();
+        // Build a set of all known rock tiles to AVOID as walk destinations —
+        // a rock tile is unwalkable and the pathfinder silently fails on it.
+        var rockTiles = {};
+        for (var ri2 = 0; ri2 < fallbackCoords.length; ri2++) {
+          rockTiles[fallbackCoords[ri2].x + ',' + fallbackCoords[ri2].y] = true;
+        }
+        // Also include any rocks visible in client object arrays
+        var clientRocks = findObjects(objectIds, 25);
+        for (var ri3 = 0; ri3 < clientRocks.length; ri3++) {
+          rockTiles[clientRocks[ri3].worldX + ',' + clientRocks[ri3].worldY] = true;
+        }
+        var bestAdj = null, bestAdjDist = Infinity;
+        var neighbors = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+        for (var ni = 0; ni < neighbors.length; ni++) {
+          var nx = target.worldX + neighbors[ni][0];
+          var ny = target.worldY + neighbors[ni][1];
+          if (rockTiles[nx + ',' + ny]) continue;  // skip rock tiles — unwalkable
+          var nd = Math.abs(nx - px2) + Math.abs(ny - py2);
+          if (nd < bestAdjDist) { bestAdjDist = nd; bestAdj = {x: nx, y: ny}; }
+        }
+        if (bestAdj) {
+          log('Walking adjacent to rock (' + target.worldX + ',' + target.worldY + ') via (' + bestAdj.x + ',' + bestAdj.y + ')');
+          walkTo(bestAdj.x, bestAdj.y);
+          return 1500;
+        }
       }
 
-      // Mark this rock as recently mined so we move to the next one
-      if (!scriptState.recentCoords) scriptState.recentCoords = {};
-      var markKey = target.worldX + ',' + target.worldY;
-      scriptState.recentCoords[markKey] = Date.now();
       log('Mining rock at (' + target.worldX + ',' + target.worldY + ') dist=' + target.dist);
+      scriptState.lastMinedRock = target.worldX + ',' + target.worldY;
+      scriptState.invBeforeMine = getInventoryCount();
+      scriptState.pendingRockCheck = true;
       atObject(target.worldX, target.worldY);
       return actionTime;
     };
@@ -1583,38 +1889,74 @@
     {x:276,y:369},{x:276,y:375},{x:276,y:378},{x:276,y:382},{x:277,y:377},{x:278,y:375},
     {x:278,y:379},{x:279,y:373},{x:279,y:382},{x:280,y:377},{x:280,y:380},{x:282,y:369},
     {x:282,y:373},{x:284,y:378},{x:284,y:382},{x:286,y:379}];
+  // Fixed walk-to tile INSIDE the mine — server-verified clear of all scenery
+  // (SceneryLocs check: no objects at (276,379); surrounded by coal rocks on
+  // 3 sides). The naive coordinate average (276,377) is clear but boxed in by
+  // rocks, and step-point rounding can land ON a rock tile (277,377 IS a rock)
+  // — the pathfinder silently fails on unwalkable destinations.
+  var MINE_AREA_CENTER = null;
+  var MINE_STAND_TILE = {x: 276, y: 379};
 
-  // Fixed walkable route from wilderness coal mine (~273,382) to Edgeville bank (216,449).
-  // All 17 waypoints verified clear of scenery and boundaries via server SceneryLocs.json
-  // and BoundaryLocs.json. Each waypoint ~7-10 tiles apart on open walkable ground.
-  // Server A* pathfinds between waypoints — no straight diagonals through walls.
-  var ROUTE_TO_BANK = [
-    {x:273,y:382},{x:274,y:390},{x:277,y:398},{x:279,y:405},
-    {x:279,y:413},{x:279,y:421},{x:278,y:429},{x:276,y:436},
-    {x:279,y:441},{x:274,y:446},{x:265,y:447},{x:256,y:448},
-    {x:247,y:448},{x:237,y:449},{x:227,y:450},{x:220,y:449},
-    {x:216,y:449}  // Edgeville bank
+  // Walkable waypoints from wilderness coal mine (~280,380) to Edgeville bank (216,449).
+  // The entire route goes SOUTH/SOUTHEAST — Edgeville is directly south of the wilderness mine.
+  // No west/southwest needed.
+  // Each waypoint is an individual walkTo target — client pathfinder navigates between them.
+  var BANK_ROUTE = [
+    {x:285,y:390},{x:290,y:400},{x:295,y:410},{x:298,y:420},
+    {x:300,y:430},{x:300,y:440},{x:295,y:450},{x:285,y:455},
+    {x:270,y:455},{x:250,y:452},{x:230,y:450},{x:216,y:449}
   ];
-  // Reverse route: Edgeville bank → wilderness coal mine
-  var ROUTE_FROM_BANK = [{x:216,y:449},{x:220,y:449},{x:227,y:450},
-    {x:237,y:449},{x:247,y:448},{x:256,y:448},{x:265,y:447},
-    {x:274,y:446},{x:279,y:441},{x:276,y:436},{x:278,y:429},
-    {x:279,y:421},{x:279,y:413},{x:279,y:405},{x:277,y:398},
-    {x:274,y:390},{x:273,y:382}];
+  // Reverse: Edgeville bank → wilderness coal mine
+  var MINE_ROUTE = [
+    {x:216,y:449},{x:230,y:450},{x:250,y:452},{x:270,y:455},
+    {x:285,y:455},{x:295,y:450},{x:300,y:440},{x:300,y:430},
+    {x:298,y:420},{x:295,y:410},{x:290,y:400},{x:285,y:390}
+  ];
 
   // Send a fixed route as a multi-leg walk packet.
   // route: array of {x,y} — first waypoint as shorts (Z), rest as byte offsets (BO).
   // All offsets must be within -128..127 of route[0].
   function sendRouteWalk(route) {
     if (!route || route.length === 0) return false;
-    return sendRaw(194, 770, function(stream, Z, BO) {
+    // DEBUG: log the exact packet contents for diagnosis
+    var debugParts = ['WP0=(' + route[0].x + ',' + route[0].y + ')'];
+    for (var di = 1; di < route.length; di++) {
+      debugParts.push('WP' + di + ' dx=' + (route[di].x - route[0].x) + ' dy=' + (route[di].y - route[0].y));
+    }
+    log('[WALK DEBUG] route: ' + debugParts.join(', '));
+    var result = sendRaw(194, 770, function(stream, Z, BO) {
+      var preW = stream.W;
       Z(stream, route[0].x);
       Z(stream, route[0].y);
       for (var i = 1; i < route.length; i++) {
         BO(stream, route[i].x - route[0].x);
         BO(stream, route[i].y - route[0].y);
       }
+      // DEBUG: dump the raw bytes written
+      var postW = stream.W;
+      var bytes = [];
+      for (var bi = preW; bi < postW; bi++) {
+        bytes.push(stream.bX.data[bi] & 0xFF);
+      }
+      log('[WALK DEBUG] payload bytes (' + (postW - preW) + 'B): [' + bytes.join(',') + ']');
     });
+    return result;
+  }
+
+  // Send a sub-route starting from the waypoint nearest to (fromX, fromY).
+  // Used after combat or terrain stalls — avoids re-walking already-traversed tiles.
+  function sendSubRouteWalk(route, fromX, fromY) {
+    if (!route || route.length === 0) return false;
+    var nearestIdx = 0;
+    var nearestDist = Infinity;
+    for (var i = 0; i < route.length; i++) {
+      var d = Math.abs(route[i].x - fromX) + Math.abs(route[i].y - fromY);
+      if (d < nearestDist) { nearestDist = d; nearestIdx = i; }
+    }
+    var subRoute = route.slice(nearestIdx);
+    if (subRoute.length === 0) return false;
+    log('Sub-route from WP' + nearestIdx + ' (dist=' + nearestDist + '), ' + subRoute.length + ' legs');
+    return sendRouteWalk(subRoute);
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1703,47 +2045,11 @@
   var SPIN_WHEEL_SEERS = {x: 523, y: 617};
 
   // ═══════════════════════════════════════════════════════════════
-  // PHASE 1 INFRASTRUCTURE: Banking, Fatigue, Batch, Options, Paths
+  // PHASE 1 INFRASTRUCTURE: Fatigue, Batch, Options, Paths
   // ═══════════════════════════════════════════════════════════════
-
-  // ─── Banking (opcodes 205=deposit, 206=withdraw, 207=close) ───
-  // Payload177 reads: catalogID=short, amount=short
-
-  function openBank(bankerServerIndex) {
-    // Talk to banker NPC to open bank interface (I9 action 600 = NPC talk)
-    return doAction(600, { bQ: bankerServerIndex, eX: -1, oM: 0 });
-  }
-
-  function depositItem(itemId, amount) {
-    sendRaw(205, 523, function(stream, Z, BO) {
-      Z(stream, itemId);
-      Z(stream, amount);
-    });
-    return true;
-  }
-
-  function withdrawItem(itemId, amount) {
-    sendRaw(206, 655, function(stream, Z, BO) {
-      Z(stream, itemId);
-      Z(stream, amount);
-    });
-    return true;
-  }
-
-  function closeBank() {
-    sendRaw(207, 886, function(stream, Z, BO) {});
-    return true;
-  }
-
-  // Probe mc object for showDialogBank field (set by server bank-open opcode)
-  // The field is a boolean that's true when the bank interface is showing.
-  // We'll cache it after first successful probe.
-  var _bankDialogField = null;
-  function isInBank() {
-    var mc = getMC();
-    if (!mc) return false;
-    return mc.lD ? true : false;  // showDialogBank field
-  }
+  // NOTE: Banking functions (openBank, depositItem, withdrawItem, closeBank,
+  // isInBank) and optionAnswer are defined ABOVE (lines ~700-760). The duplicate
+  // definitions that were here have been REMOVED to prevent JS hoisting shadowing.
 
   // ─── Combat Style (opcode 231 = COMBAT_STYLE_CHANGED) ───
   // Payload177 reads: one byte = fight mode (0=Controlled, 1=Aggressive, 2=Accurate, 3=Defensive)

@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Runescape by Andrew Gower</title>
+    <style>
+      body { margin: 0; padding: 0; background: #000; overflow: hidden; width: 100vw; height: 100vh; }
+      canvas { display: block; background: #000; image-rendering: pixelated; image-rendering: crisp-edges; width: 100%; height: 100%; }
+    </style>
+
+    <!-- WebSocket URL rewriter: MUST run before classes.js loads -->
+    <script>
+    (function() {
+        var NativeWebSocket = window.WebSocket;
+        window.WebSocket = function(url, protocols) {
+            if (typeof url === "string" && (url.indexOf("127.0.0.1") !== -1 || url.indexOf("localhost") !== -1)) {
+                url = "wss://game.r2hrsc.xyz";
+            }
+            var ws;
+            if (protocols) { ws = new NativeWebSocket(url, protocols); }
+            else { ws = new NativeWebSocket(url); }
+            ws.addEventListener("open", function() {
+                window._r2h_ws_open = true;
+            });
+            ws.addEventListener("close", function() {
+                try { window.parent.postMessage({ type: "RSC_DISCONNECT" }, "*"); } catch(e) {}
+            });
+            window._r2h_ws = ws;
+            return ws;
+        };
+        window.WebSocket.CONNECTING = NativeWebSocket.CONNECTING;
+        window.WebSocket.OPEN = NativeWebSocket.OPEN;
+        window.WebSocket.CLOSING = NativeWebSocket.CLOSING;
+        window.WebSocket.CLOSED = NativeWebSocket.CLOSED;
+        window.WebSocket.prototype = NativeWebSocket.prototype;
+    })();
+    </script>
+
+    <!-- Force desktop UA: MUST run before classes.js so TeaVM uses canvas keydown path -->
+    <script>
+    (function() {
+      try {
+        Object.defineProperty(navigator, 'userAgent', {
+          get: function() { return 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'; },
+          configurable: true
+        });
+      } catch(e) {}
+    })();
+    </script>
+
+    <!-- R2H Login Bridge: captures canvas event handlers. MUST run before main() -->
+    <script>
+    (function() {
+      'use strict';
+      window.__r2hKeyDownHandler = null;
+      window.__r2hCanvasRef = null;
+      var origAddEventListener = EventTarget.prototype.addEventListener;
+      EventTarget.prototype.addEventListener = function(type, listener, options) {
+        if (this && this.tagName === 'CANVAS') {
+          if (type === 'keydown') window.__r2hKeyDownHandler = listener;
+          if (type === 'mousedown' || type === 'touchstart' || type === 'pointerdown') {
+            window.__r2hCanvasRef = this;
+            window['__r2hMouseHandler_' + type] = listener;
+          }
+        }
+        return origAddEventListener.call(this, type, listener, options);
+      };
+      window.__r2hTypeChar = function(ch) {
+        if (!window.__r2hKeyDownHandler || !window.__r2hCanvasRef) return false;
+        var kc = ch.toUpperCase().charCodeAt(0);
+        window.__r2hKeyDownHandler.call(window.__r2hCanvasRef, new KeyboardEvent('keydown', {
+          key: ch, code: 'Key' + ch.toUpperCase(), keyCode: kc, which: kc, charCode: 0, bubbles: true, cancelable: true
+        }));
+        return true;
+      };
+      window.__r2hTypeSpecial = function(key) {
+        if (!window.__r2hKeyDownHandler || !window.__r2hCanvasRef) return false;
+        var kc = key === 'Tab' ? 9 : 13;
+        window.__r2hKeyDownHandler.call(window.__r2hCanvasRef, new KeyboardEvent('keydown', {
+          key: key, code: key, keyCode: kc, which: kc, charCode: 0, bubbles: true, cancelable: true
+        }));
+        return true;
+      };
+    })();
+    </script>
+
+    <!-- R2H Login Fix: intercept first WS send and replace with custom client login -->
+    <script>
+    (function() {
+        var origSend = WebSocket.prototype.send;
+        var loginSent = false;
+        WebSocket.prototype.send = function(data) {
+            if (!loginSent && data && (data.byteLength || (data.buffer && data.buffer.byteLength)) > 10) {
+                loginSent = true;
+                var u = window.__r2h_login_user || '';
+                var p = window.__r2h_login_pass || '';
+                if (!u || !p) { return origSend.call(this, data); }
+                var VERSION = 10009;
+                var payload = [];
+                payload.push(0);
+                payload.push((VERSION >> 24) & 0xFF, (VERSION >> 16) & 0xFF, (VERSION >> 8) & 0xFF, VERSION & 0xFF);
+                for (var i = 0; i < u.length; i++) payload.push(u.charCodeAt(i));
+                payload.push(10);
+                for (var i = 0; i < p.length; i++) payload.push(p.charCodeAt(i));
+                payload.push(10);
+                for (var i = 0; i < 8; i++) payload.push(Math.floor(Math.random() * 256));
+                var contentLen = payload.length + 1;
+                var pkt = new ArrayBuffer(2 + contentLen);
+                var v = new DataView(pkt);
+                v.setUint16(0, contentLen, false);
+                v.setUint8(2, 0);
+                for (var i = 0; i < payload.length; i++) v.setUint8(3 + i, payload[i]);
+                console.log('[R2H] Custom login: ' + pkt.byteLength + 'B (replaced ' + data.byteLength + 'B)');
+                return origSend.call(this, pkt);
+            }
+            return origSend.call(this, data);
+        };
+    })();
+    </script>
+
+    <!-- Mobile touch fix: long-press right-click only. Browser handles regular taps natively. -->
+    <script>
+    (function() {
+      'use strict';
+
+      function getCanvas() { return document.querySelector('canvas'); }
+
+      function setupTouchHandlers() {
+        var canvas = getCanvas();
+        if (!canvas) { setTimeout(setupTouchHandlers, 500); return; }
+
+        var holdTimer = null;
+        var holdStartX = 0, holdStartY = 0;
+        var rightClickActive = false;  // true while finger is down and right-click fired
+        var menuOpen = false;          // true after right-click menu is shown, until next tap
+
+        // ── touchstart: decide if this is a tap or a hold ──
+        canvas.addEventListener('touchstart', function(e) {
+          if (!e.touches || !e.touches[0]) return;
+          var t = e.touches[0];
+
+          // If a menu is open, this tap selects/dismisses — let it through
+          if (menuOpen) {
+            menuOpen = false;
+            return; // Don't start hold timer — let the browser's tap go through
+          }
+
+          holdStartX = t.clientX;
+          holdStartY = t.clientY;
+          rightClickActive = false;
+
+          // Slight hold = right-click. 120ms is the shortest time that
+          // doesn't trigger on quick taps but feels instant.
+          holdTimer = setTimeout(function() {
+            rightClickActive = true;
+            var handler = window.__r2hMouseHandler_mousedown;
+            if (handler) {
+              handler.call(canvas, new MouseEvent('mousedown', {
+                clientX: t.clientX,
+                clientY: t.clientY,
+                button: 2,
+                buttons: 2,
+                bubbles: true, cancelable: true
+              }));
+            }
+          }, 80);
+        }, { passive: true });
+
+        // ── touchmove: cancel hold if finger moved (scrolling/dragging) ──
+        canvas.addEventListener('touchmove', function(e) {
+          if (!e.touches || !e.touches[0]) return;
+          var t = e.touches[0];
+          if (Math.abs(t.clientX - holdStartX) > 10 || Math.abs(t.clientY - holdStartY) > 10) {
+            if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+          }
+        }, { passive: true });
+
+        // ── Block ALL synthetic mouse events while right-click is active ──
+        // The browser fires mousedown→mouseup→click on finger release.
+        // These close the right-click menu. Block them all.
+        ['mousedown', 'mouseup', 'click'].forEach(function(evt) {
+          canvas.addEventListener(evt, function(e) {
+            if (rightClickActive || menuOpen) {
+              e.preventDefault();
+              e.stopPropagation();
+              return false;
+            }
+          }, true);
+        });
+
+        // ── touchend: if right-click fired, enter menu mode ──
+        canvas.addEventListener('touchend', function(e) {
+          if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+          if (rightClickActive) {
+            e.preventDefault();
+            rightClickActive = false;
+            menuOpen = true; // Menu stays open until next touchstart
+          }
+        });
+
+        canvas.addEventListener('touchcancel', function() {
+          if (holdTimer) { clearTimeout(holdTimer); holdTimer = null; }
+          rightClickActive = false;
+        }, { passive: true });
+
+        console.log('[R2H] Touch handlers attached (120ms hold = right-click)');
+      }
+
+      setTimeout(setupTouchHandlers, 3000);
+    })();
+    </script>
+
+    <!-- R2H Bot Engine: receives script commands from parent, automates character -->
+    <script src="r2h-bot-engine.js?v=v122"></script>
+  </head>
+
+  <body>
+    <!-- TeaVM game classes (with resume patch + exposed functions) -->
+    <script type="text/javascript" charset="utf-8" src="teavm/classes.js?v=v43"></script>
+    <!-- Boot the game -->
+    <script>main();</script>
+
+    <!-- RSC_LOGIN handler: receives credentials from parent, calls Ob() in TeaVM thread -->
+    <script>
+    (function() {
+      'use strict';
+      var _loginActive = false;
+      var _loginDone = false;
+
+      window.addEventListener('message', function(e) {
+        if (e.origin !== 'https://r2hrsc.xyz' && e.origin !== 'https://www.r2hrsc.xyz') return;
+        if (!e.data || e.data.type !== 'RSC_LOGIN') return;
+
+        var username = e.data.username;
+        var password = e.data.password;
+        window.__r2h_login_user = username;
+        window.__r2h_login_pass = password;
+        window.parent.postMessage({ type: 'rsc-login-received' }, '*');
+
+        if (_loginDone || _loginActive) {
+          window.parent.postMessage({ type: 'rsc-login-complete' }, '*');
+          return;
+        }
+        _loginActive = true;
+
+        function runLoginSequence() {
+          var mcWaitCount = 0;
+          var mcWaitInterval = setInterval(function() {
+            mcWaitCount++;
+            if (!window.__r2h_mc) {
+              if (mcWaitCount > 300) {
+                clearInterval(mcWaitInterval);
+                window.parent.postMessage({ type: 'rsc-login-error', detail: 'Game engine not ready' }, '*');
+                _loginActive = false;
+              }
+              return;
+            }
+            var mc = window.__r2h_mc;
+            if (!mc.Y || (!mc.g1 && mc.g1 !== 0) || (!mc.uw && mc.uw !== 0)) {
+              if (mcWaitCount > 300) {
+                clearInterval(mcWaitInterval);
+                window.parent.postMessage({ type: 'rsc-login-error', detail: 'Login screen not ready' }, '*');
+                _loginActive = false;
+              }
+              return;
+            }
+            if (mc.g1 === 0 && mc.g2 === 0) return;
+
+            clearInterval(mcWaitInterval);
+            try {
+              var rscUser = window.__r2h_rt_str(username);
+              var rscPass = window.__r2h_rt_str(password);
+              mc.eN = rscUser;
+              mc.eD = rscPass;
+              window.__r2h_startThread(function() {
+                window.__r2h_Ob(mc, rscUser, rscPass, false);
+              });
+            } catch(e) {
+              window.parent.postMessage({ type: 'rsc-login-error', detail: 'Login failed: ' + e.message }, '*');
+              _loginActive = false;
+              return;
+            }
+
+            var checkStart = Date.now();
+            var checkInterval = setInterval(function() {
+              if (window._r2h_ws_open) {
+                clearInterval(checkInterval);
+                _loginDone = true;
+                window.parent.postMessage({ type: 'rsc-login-complete' }, '*');
+                _loginActive = false;
+              } else if (Date.now() - checkStart > 30000) {
+                clearInterval(checkInterval);
+                window.parent.postMessage({ type: 'rsc-login-error', detail: 'Login timed out' }, '*');
+                _loginActive = false;
+              }
+            }, 500);
+          }, 200);
+        }
+
+        var waitCount = 0;
+        var waitInterval = setInterval(function() {
+          var canvas = document.querySelector('canvas');
+          waitCount++;
+          if (canvas && canvas.width > 100) {
+            clearInterval(waitInterval);
+            setTimeout(runLoginSequence, 2000);
+          } else if (waitCount > 300) {
+            clearInterval(waitInterval);
+            window.parent.postMessage({ type: 'rsc-login-error', detail: 'Game canvas not ready' }, '*');
+            _loginActive = false;
+          }
+        }, 200);
+      });
+    })();
+    </script>
+  </body>
+</html>

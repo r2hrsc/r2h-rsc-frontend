@@ -1,0 +1,45 @@
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Ad label styling — muted, clean, consistent across all four zones */
+.ad-label {
+  color: #444;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  font-weight: 500;
+}
+
+/* On mobile: hide only the side ad columns (too narrow for phones).
+   Top/bottom bars stay visible — they're horizontal and work full-width. */
+@media (max-width: 768px) {
+  .ad-zone-side { display: none !important; }
+}
+
+/* Prevent Reown AppKit w3m-modal from flashing visible during web component
+   initialization. Before the element is upgraded (:not(:defined)), force it
+   invisible. Once upgraded, the component's own shadow DOM styles control opacity. */
+w3m-modal:not(:defined) {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  display: none !important;
+}
+
+/* Force the w3m-modal host background to be fully transparent.
+   The modal's shadow DOM has a semi-dark background (rgba(0,0,0,0.5))
+   that creates a visual veil over the ad zones even at opacity:0. */
+w3m-modal {
+  background: transparent !important;
+}

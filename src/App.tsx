@@ -7,12 +7,14 @@ import AuthOverlay from './components/AuthOverlay';
 import UsernamePicker from './components/UsernamePicker';
 import { AdSlot } from './components/Ads/AdSlot';
 import { ChatWidget } from './components/Chat/ChatWidget';
+import ScriptPanel from './components/ScriptPanel/ScriptPanel';
 import { MediaKit } from './pages/MediaKit';
 import { AdManagerPage } from './components/Admin/AdManager';
 import { PrivacyPolicy, TermsOfService, About } from './pages/LegalPages';
 import { useGameScale } from './hooks/useGameScale';
 import { initWalletKit } from './lib/walletKit';
 import './index.css';
+import './layout.css';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
 const WS_URL  = import.meta.env.VITE_WS_URL  || 'wss://game.r2hrsc.xyz';
@@ -289,6 +291,57 @@ function AppContent() {
               onExistingUser={handleExistingUser}
             />
           )}
+          {/* Script panel — all 123 APOS scripts, visible when logged in */}
+          <ScriptPanel
+            open={appState === 'playing'}
+            onStartScript={(script) => {
+              console.log('[ScriptPanel] Starting:', script.id, 'config:', script.config);
+              const iframe = document.querySelector('iframe[title*="Game"]') as HTMLIFrameElement;
+              if (iframe?.contentWindow) {
+                const cfg = script.config || {};
+                const modeMap: Record<string, number> = { 'Controlled': 0, 'Aggressive': 1, 'Accurate': 2, 'Defensive': 3 };
+                // Parse NPC IDs: comma-separated string → number array. Empty = auto-detect.
+                let npcIds: number[] = [];
+                if (cfg.npcIds && cfg.npcIds.trim()) {
+                  npcIds = cfg.npcIds.split(',').map((s: string) => parseInt(s.trim())).filter((n: number) => !isNaN(n) && n > 0);
+                }
+                // Parse loot IDs: comma-separated string. '-1' or empty = no loot filtering (loot nothing extra).
+                let lootIds: number[] = [];
+                if (cfg.lootIds && cfg.lootIds !== '-1' && cfg.lootIds.trim()) {
+                  lootIds = cfg.lootIds.split(',').map((s: string) => parseInt(s.trim())).filter((n: number) => !isNaN(n) && n > 0);
+                }
+                const engineConfig = {
+                  npcIds: npcIds,
+                  buryBones: cfg.buryBones ?? false,
+                  prioritizeBones: cfg.buryBones ?? false,
+                  eatAtHp: parseInt(cfg.eatAtHp) || 50,
+                  maxWander: parseInt(cfg.wander) || 20,
+                  fightMode: typeof cfg.fightMode === 'string' ? (modeMap[cfg.fightMode] ?? -1) : (cfg.fightMode ?? -1),
+                  targetLevel: parseInt(cfg.targetLevel) || -1,
+                  lootIds: lootIds,
+                  openDoors: cfg.openDoors ?? false,
+                  useMagic: cfg.useMagic ?? false,
+                  combatSpell: cfg.combatSpell ?? '',
+                  useRanging: cfg.useRanging ?? false,
+                  arrowType: cfg.arrowType ?? '',
+                  switchId: parseInt(cfg.switchId) || 0,
+                };
+                iframe.contentWindow.postMessage({
+                  type: 'R2H_BOT_START',
+                  scriptId: script.id,
+                  scriptName: script.name,
+                  config: engineConfig,
+                }, '*');
+              }
+            }}
+            onStopScript={() => {
+              console.log('[ScriptPanel] Stopping');
+              const iframe = document.querySelector('iframe[title*="Game"]') as HTMLIFrameElement;
+              if (iframe?.contentWindow) {
+                iframe.contentWindow.postMessage({ type: 'R2H_BOT_STOP' }, '*');
+              }
+            }}
+          />
         </div>
 
         {/* ── Right ad column — mirrors the left (hidden on mobile) ── */}

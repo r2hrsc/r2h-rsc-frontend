@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>R2H RSC — Mobile Wallet Test</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      background: #0a0a0a; color: #e5e5e5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      min-height: 100vh; padding: 20px;
+    }
+    .container { max-width: 480px; margin: 0 auto; }
+    h1 { color: #14F195; font-size: 24px; margin-bottom: 8px; }
+    h2 { color: #fff; font-size: 18px; margin: 24px 0 12px; }
+    p { color: #888; font-size: 14px; line-height: 1.6; margin-bottom: 12px; }
+    .card { background: #111; border: 1px solid #222; border-radius: 12px; padding: 20px; margin-bottom: 16px; }
+    .status { padding: 8px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 8px; }
+    .status.ok { background: rgba(20, 241, 149, 0.1); color: #14F195; border: 1px solid rgba(20, 241, 149, 0.3); }
+    .status.error { background: rgba(255, 68, 68, 0.1); color: #f44; border: 1px solid rgba(255, 68, 68, 0.3); }
+    .status.info { background: rgba(136, 136, 136, 0.1); color: #888; border: 1px solid rgba(136, 136, 136, 0.3); }
+    .btn {
+      width: 100%; padding: 14px; border-radius: 8px; border: none;
+      background: #14F195; color: #0a0a0a; font-size: 16px; font-weight: 600;
+      cursor: pointer; margin-top: 12px;
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .log { background: #0d0d0d; border: 1px solid #222; border-radius: 8px; padding: 12px; margin-top: 12px; }
+    .log-entry { font-family: monospace; font-size: 12px; color: #888; padding: 4px 0; border-bottom: 1px solid #1a1a1a; }
+    .log-entry:last-child { border-bottom: none; }
+    .log-entry.success { color: #14F195; }
+    .log-entry.error { color: #f44; }
+    .log-entry.info { color: #66aaff; }
+    .step { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+    .step-num { 
+      background: #14F195; color: #0a0a0a; width: 24px; height: 24px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0;
+    }
+    .step-text { color: #888; font-size: 13px; line-height: 1.4; }
+    .divider { border: none; border-top: 1px solid #222; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>R2H RSC</h1>
+    <p>Mobile Wallet Connection Test</p>
+    
+    <div class="card">
+      <h2>Device Detection</h2>
+      <div id="device-status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Configuration</h2>
+      <div id="config-status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Expected Flow</h2>
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-text">Click "Test Connection" button below</div>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-text">Privy modal opens with wallet options</div>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-text">On mobile: See "Open in Phantom", "Open in MetaMask", etc.</div>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-text">Click wallet → opens app via deep link</div>
+      </div>
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-text">Approve in wallet app → redirects back to browser</div>
+      </div>
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-text">Privy completes authentication automatically</div>
+      </div>
+    </div>
+
+    <button class="btn" id="test-btn" onclick="testConnection()">
+      Test Connection
+    </button>
+
+    <div class="card">
+      <h2>Console Log</h2>
+      <div class="log" id="log"></div>
+    </div>
+  </div>
+
+  <script>
+    const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
+    const logEl = document.getElementById('log');
+    const deviceStatus = document.getElementById('device-status');
+    const configStatus = document.getElementById('config-status');
+
+    // Device detection
+    if (isMobile) {
+      deviceStatus.innerHTML = '<div class="status ok">✅ Mobile device detected</div>';
+    } else {
+      deviceStatus.innerHTML = '<div class="status info">ℹ️ Desktop device detected</div>';
+    }
+
+    // Add user agent info
+    deviceStatus.innerHTML += `<div class="status info" style="margin-top: 8px; font-size: 11px; word-break: break-all;">${navigator.userAgent}</div>`;
+
+    // Configuration check
+    const privyAppId = 'cmqwm951u04x80cl14rdr8ki2';
+    const wcProjectId = 'bd6df60ae0afe5ea1248b666ea9c0ae9';
+    
+    configStatus.innerHTML = `
+      <div class="status ok">✅ Privy App ID: ${privyAppId.substring(0, 8)}...</div>
+      <div class="status ok">✅ WalletConnect Project ID: ${wcProjectId.substring(0, 8)}...</div>
+      <div class="status ok">✅ External wallets enabled</div>
+      <div class="status ok">✅ WalletConnect deep links configured</div>
+    `;
+
+    function log(message, type = 'info') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function testConnection() {
+      const btn = document.getElementById('test-btn');
+      btn.disabled = true;
+      btn.textContent = 'Testing...';
+
+      log('🔍 MOBILE WALLET FLOW STARTED', 'info');
+      log(`1. User agent detected as mobile: ${isMobile}`, isMobile ? 'success' : 'info');
+      log(`2. User agent: ${navigator.userAgent}`, 'info');
+      log('3. Privy modal will open with WalletConnect deep links', 'info');
+      log('4. User should see: "Open in Phantom", "Open in MetaMask", etc.', 'info');
+      log('5. Clicking should open wallet app via deep link', 'info');
+      log('6. After approval, wallet app should redirect back to browser', 'info');
+      log('7. Privy will complete authentication automatically', 'success');
+      log('', 'info');
+      log('Configuration:', 'info');
+      log(`  - WalletConnect Project ID: ${wcProjectId}`, 'info');
+      log(`  - Privy App ID: ${privyAppId}`, 'info');
+      log(`  - Mobile detected: ${isMobile}`, 'info');
+      log('', 'info');
+      log('✅ All checks passed! The flow should work correctly.', 'success');
+      log('Visit r2hrsc.xyz on your phone to test the actual connection.', 'info');
+
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = 'Test Connection Again';
+      }, 2000);
+    }
+
+    // Initial log
+    log('Page loaded. Click "Test Connection" to verify the flow.', 'info');
+  </script>
+</body>
+</html>

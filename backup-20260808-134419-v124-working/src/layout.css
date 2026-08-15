@@ -1,0 +1,751 @@
+/* ════════════════════════════════════════════════════════════════
+   layout.css — Arcade cabinet layout via CSS Grid
+   Replaces inline-style absolute positioning with deterministic grid.
+   Same result on every browser, no overlap, no hardcoded pixel math.
+   ════════════════════════════════════════════════════════════════ */
+
+/* The outer flex container centers the cabinet in the viewport */
+.cabinet-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  width: 100vw;
+  background: #0a0a0a;
+  overflow: visible;
+  position: fixed;
+  inset: 0;
+}
+
+/* ── Game Cabinet: CSS Grid ──
+   Single-column layout: top bar, game, bottom bar.
+   Side bars removed — game gets full width. */
+.game-cabinet {
+  display: grid;
+  grid-template-areas:
+    "top"
+    "game"
+    "bottom";
+  grid-template-rows: auto 1fr auto;
+  grid-template-columns: 1fr;
+  width: 100vw;
+  max-width: 100vw;
+  gap: 0;
+  border: 1px solid #1a1a1a;
+  border-radius: 10px;
+  overflow: hidden;
+  z-index: 30;
+}
+
+/* ── Real browser Fullscreen API ──
+   When the game-frame enters native fullscreen, it fills the entire screen.
+   Use flex to center the game, black background for letterboxing. */
+.game-frame:fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: #000 !important;
+  box-shadow: none;
+}
+
+.game-frame:-webkit-full-screen {
+  width: 100vw !important;
+  height: 100vh !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: #000 !important;
+  box-shadow: none;
+}
+
+/* GameContainer child — let flex center it, don't force 100% */
+.game-frame:fullscreen > div,
+.game-frame:-webkit-full-screen > div {
+  margin: auto !important;
+}
+
+/* ── Ad Zones ──
+   Visually distinct gradient + subtle green inner glow so the cabinet
+   frame reads as a border on ALL browsers, even when ad content is blocked. */
+.ad-zone {
+  background: linear-gradient(135deg, #111, #1a1a1a);
+  box-shadow: inset 0 0 20px rgba(20, 241, 149, 0.03);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.ad-bar-top {
+  grid-area: top;
+  height: 80px;
+  border-top: 1px solid #1a1a1a;
+  border-left: 1px solid #1a1a1a;
+  border-right: 1px solid #1a1a1a;
+  border-radius: 10px 10px 0 0;
+}
+
+.ad-bar-bottom {
+  grid-area: bottom;
+  height: 80px;
+  border-bottom: 1px solid #1a1a1a;
+  border-left: 1px solid #1a1a1a;
+  border-right: 1px solid #1a1a1a;
+  border-radius: 0 0 10px 10px;
+}
+
+/* ── Game Frame ──
+   Centered between the four ad zones.
+   Width/height are set inline from JS gameScale (dynamic values). */
+.game-frame {
+  grid-area: game;
+  max-width: 100%;
+  min-width: 0;
+  justify-self: center;
+  align-self: center;
+  box-shadow: 0 0 0 1px #1a1a1a;
+  z-index: 1;
+  position: relative;
+}
+
+/* ── Fullscreen toggle button ──
+   Positioned inside .game-frame so it's visible in native fullscreen mode */
+.fs-toggle {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 9999;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #1a1a1a;
+  background: rgba(15, 15, 15, 0.9);
+  color: #14F195;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.fs-toggle:hover {
+  background: rgba(30, 30, 30, 0.95);
+  border-color: #14F195;
+}
+
+.fs-toggle svg {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Mobile Keyboard — sleek input overlay for touch devices
+   ════════════════════════════════════════════════════════════════ */
+
+/* Floating toggle button — compact pill, bottom-left of game frame */
+.mk-toggle {
+  position: absolute;
+  bottom: 6px;
+  right: 6px;
+  z-index: 9999;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 10, 10, 0.7);
+  color: #14F195;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.15s ease;
+}
+
+.mk-toggle:active {
+  transform: scale(0.9);
+  background: rgba(25, 25, 25, 0.9);
+}
+
+.mk-toggle svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+/* Input bar — thin, full-width, minimal */
+.mk-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
+  background: rgba(8, 8, 8, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  animation: mk-slide-up 0.18s ease-out;
+}
+
+@keyframes mk-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.mk-input {
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
+  color: #e8e8e8;
+  font-size: 16px; /* 16px prevents iOS zoom */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.mk-input::placeholder {
+  color: #555;
+}
+
+.mk-input:focus {
+  border-color: rgba(20, 241, 149, 0.4);
+}
+
+.mk-send, .mk-close {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.mk-send {
+  background: #14F195;
+  color: #0a0a0a;
+}
+
+.mk-send:active {
+  transform: scale(0.88);
+}
+
+.mk-close {
+  background: rgba(255, 255, 255, 0.08);
+  color: #888;
+}
+
+.mk-close:active {
+  transform: scale(0.88);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mk-send svg, .mk-close svg {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+}
+
+/* ════════════════════════════════════════════════════════════════
+   Bot Panel — player-facing script selection UI
+   ════════════════════════════════════════════════════════════════ */
+
+/* Floating toggle button — compact, bottom-left of game frame */
+.bot-toggle {
+  position: absolute;
+  bottom: 6px;
+  left: 6px;
+  z-index: 9999;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(10, 10, 10, 0.7);
+  color: #14F195;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.15s ease;
+}
+
+.bot-toggle:active {
+  transform: scale(0.9);
+  background: rgba(25, 25, 25, 0.9);
+}
+
+.bot-toggle svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+/* Active script badge — shows when bot is running, panel is closed */
+.bot-active-badge {
+  position: absolute;
+  bottom: 6px;
+  left: 46px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(20, 241, 149, 0.2);
+  font-size: 11px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #ccc;
+  max-width: 200px;
+  overflow: hidden;
+}
+
+.bot-active-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #14F195;
+  animation: bot-pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes bot-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 4px rgba(20, 241, 149, 0.6); }
+  50% { opacity: 0.4; box-shadow: 0 0 8px rgba(20, 241, 149, 0.8); }
+}
+
+.bot-active-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #14F195;
+  font-weight: 500;
+}
+
+.bot-active-time {
+  color: #666;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+/* ── Bot Panel (slides up from bottom-left) ── */
+.bot-panel {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 70%;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 8, 8, 0.92);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px 12px 0 0;
+  animation: bot-slide-up 0.22s ease-out;
+  box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes bot-slide-up {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* Header */
+.bot-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.bot-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e8e8e8;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.bot-running-tag {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #14F195;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgba(20, 241, 149, 0.08);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.bot-close-btn {
+  margin-left: auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: rgba(255, 255, 255, 0.06);
+  color: #888;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.1s ease;
+}
+
+.bot-close-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ccc;
+}
+
+.bot-close-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Category Tabs */
+.bot-categories {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.bot-categories::-webkit-scrollbar {
+  display: none;
+}
+
+.bot-cat-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.03);
+  color: #888;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s ease;
+}
+
+.bot-cat-tab:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #bbb;
+}
+
+.bot-cat-tab.active {
+  background: rgba(20, 241, 149, 0.1);
+  border-color: rgba(20, 241, 149, 0.2);
+  color: #14F195;
+}
+
+.bot-cat-icon {
+  font-size: 14px;
+}
+
+.bot-cat-label {
+  font-weight: 500;
+}
+
+/* Script List */
+.bot-script-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 6px 10px;
+}
+
+.bot-script-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.bot-script-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+}
+
+.bot-script-card {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  margin-bottom: 4px;
+  transition: background 0.12s ease;
+}
+
+.bot-script-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.bot-script-card:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.bot-script-card.running {
+  background: rgba(20, 241, 149, 0.06);
+  border: 1px solid rgba(20, 241, 149, 0.15);
+}
+
+.bot-script-card.expanded {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bot-config-indicator {
+  font-size: 10px;
+  margin-left: 4px;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.bot-config-summary {
+  font-size: 10px;
+  color: #14F195;
+  margin-top: 3px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ── Combat Config Panel (APOS AIOFighter style) ── */
+.bot-config-panel {
+  margin-top: 8px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.bot-config-section {
+  margin-bottom: 8px;
+}
+
+.bot-config-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #ccc;
+  cursor: pointer;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.bot-config-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: #14F195;
+}
+
+.bot-config-toggle.bot-config-sub {
+  margin-left: 22px;
+  font-size: 11px;
+  color: #999;
+  margin-top: 4px;
+}
+
+.bot-config-hint {
+  color: #666;
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.bot-config-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.bot-config-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bot-config-field label {
+  font-size: 10px;
+  color: #888;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.bot-config-field input,
+.bot-config-field select {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: #ddd;
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  outline: none;
+}
+
+.bot-config-field input:focus,
+.bot-config-field select:focus {
+  border-color: rgba(20, 241, 149, 0.4);
+}
+
+.bot-config-field select option {
+  background: #1a1a2e;
+}
+
+.bot-script-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.bot-script-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #ddd;
+  margin-bottom: 2px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.bot-script-desc {
+  font-size: 11px;
+  color: #666;
+  line-height: 1.3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.bot-script-req {
+  font-size: 10px;
+  color: #f0a020;
+  margin-top: 2px;
+}
+
+.bot-script-btn {
+  flex-shrink: 0;
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.bot-script-btn.start {
+  background: #14F195;
+  color: #0a0a0a;
+}
+
+.bot-script-btn.start:active {
+  transform: scale(0.92);
+}
+
+.bot-script-btn.stop {
+  background: #f44336;
+  color: #fff;
+}
+
+.bot-script-btn.stop:active {
+  transform: scale(0.92);
+}
+
+/* Stop bar */
+.bot-stop-all {
+  padding: 10px;
+  margin: 6px 10px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  background: rgba(244, 67, 54, 0.1);
+  color: #f44336;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.bot-stop-all:active {
+  transform: scale(0.97);
+  background: rgba(244, 67, 54, 0.2);
+}
+
+/* ── Mobile: full viewport, thinner top/bottom bars ── */
+@media (max-width: 768px) {
+  .cabinet-wrapper {
+    height: 100dvh !important;
+  }
+
+  .game-cabinet {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    border-radius: 0 !important;
+    border: none !important;
+    height: 100dvh !important;
+    align-items: center;
+    justify-items: center;
+  }
+
+  .game-frame {
+    align-self: center;
+    max-width: 100vw !important;
+    overflow: hidden;
+  }
+
+  .game-cabinet {
+    overflow: hidden;
+  }
+
+  .ad-bar-top, .ad-bar-bottom {
+    padding: 0 8px;
+    font-size: 11px;
+  }
+
+  .ad-bar-top > div, .ad-bar-bottom > div {
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    font-size: 11px !important;
+  }
+
+  .ad-bar-bottom span {
+    font-size: 11px !important;
+    white-space: normal !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .ad-bar-top {
+    height: 50px;
+    border-radius: 0;
+  }
+
+  .ad-bar-bottom {
+    height: 50px;
+    border-radius: 0;
+  }
+}
