@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v228';
+  var VERSION = 'v229';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1548,11 +1548,21 @@
           // route node IS the gate node) and hop-line (b) passes 2 tiles south of
           // the gate. Both miss; engine re-sent the same blocked walkTo forever.
           // This is the corridor-approach geometry: gate inline with the walk.
+          // v229 FIX: direction-aware — the gate must be AHEAD of the player in
+          // the direction of travel. Live capture 02:52: player crossed the open
+          // gate (x 211→212) heading to (218,3282); check (c)'s bbox still matched
+          // (gate x=211 ∈ [210,220]) → handler re-engaged on the WRONG side →
+          // clicked the open gate (id 58 walkto) endlessly, server walking him
+          // back to the gate column each time. Rule: engage only when the gate is
+          // between, i.e. sign(target - gate) == sign(gate - player) on the axis.
           if (!hit) {
-            var gxIn = (g.axis === 'y')
-              ? ((g.y > Math.min(py, nxt.y) - 2) && (g.y < Math.max(py, nxt.y) + 2))
-              : ((g.x > Math.min(px, nxt.x) - 2) && (g.x < Math.max(px, nxt.x) + 2));
-            if (gxIn) {
+            var ahead;
+            if (g.axis === 'y') {
+              ahead = ((nxt.y > g.y) && (py < g.y)) || ((nxt.y < g.y) && (py > g.y)) || (py === g.y);
+            } else {
+              ahead = ((nxt.x > g.x) && (px < g.x)) || ((nxt.x < g.x) && (px > g.x)) || (px === g.x);
+            }
+            if (ahead) {
               if (g.axis === 'y' && Math.abs(g.x - px) <= 4) hit = true;   // vertical gate ahead
               if (g.axis === 'x' && Math.abs(g.y - py) <= 4) hit = true;   // horizontal gate ahead
             }
