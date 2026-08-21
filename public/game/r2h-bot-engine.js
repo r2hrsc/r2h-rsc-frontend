@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v230';
+  var VERSION = 'v231';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1722,10 +1722,26 @@
 
     // v216: when stuck, check nearby tiles for an openable door/gate (unlabeled
     // graph edges cross them — the pathfinder just fails). Open it with atObject.
+    // v230 FIX (real): two flaws caused endless "game object wall has null object"
+    // spam at Falador/Taverley (live 03:32, 04:16):
+    //   (a) atObject (opcode 242) alone cannot open wall/boundary-type doors —
+    //       the WORKING special-edge handler sends atBoundary + atObject together.
+    //   (b) ghost tiles (client object array has scenery the server map doesn't)
+    //       were re-clicked forever whenever the player moved 1 tile between stuck
+    //       checks — the v230 player-position rejection never fired.
+    // Fix: send BOTH opcodes, and blacklist each clicked door TILE for 30s —
+    // real doors open on the first click so the cooldown never hurts a real door;
+    // ghost tiles get exactly one click each, then the loop falls through to
+    // nudge/escape.
     function tryOpenNearbyDoor(tx, ty) {
       var doorFilter = {};
       for (var di = 0; di < OPENABLE_DOORS.length; di++) doorFilter[OPENABLE_DOORS[di]] = true;
       var px = getX(), py = getY();
+      var now = Date.now();
+      scriptState._doorTileBlacklist = scriptState._doorTileBlacklist || {};
+      for (var bk in scriptState._doorTileBlacklist) {
+        if (now - scriptState._doorTileBlacklist[bk] > 30000) delete scriptState._doorTileBlacklist[bk];
+      }
       // Client object arrays carry only the loaded region — perfect for finding
       // the blocking door. The blocking door is the one ON the line player→target
       // (the walk failed crossing it), not necessarily adjacent. atObject makes
@@ -1735,6 +1751,7 @@
       var bestDoor = null, bestD = Infinity;
       for (var i = 0; i < near.length; i++) {
         var d = near[i];
+        if (scriptState._doorTileBlacklist[d.worldX + ',' + d.worldY]) continue;  // v230: already tried
         // is this door roughly on the line to the hop target? (projection check)
         var vx = txv - px, vy = tyv - py;
         var wx = d.worldX - px, wy = d.worldY - py;
@@ -1747,7 +1764,9 @@
       }
       if (bestDoor) {
         log('Opening blocking door/gate id=' + bestDoor.id + ' at (' + bestDoor.worldX + ',' + bestDoor.worldY + ')');
+        atBoundary(bestDoor.worldX, bestDoor.worldY, 0);   // v230: wall-type doors need opcode 238
         atObject(bestDoor.worldX, bestDoor.worldY);
+        scriptState._doorTileBlacklist[bestDoor.worldX + ',' + bestDoor.worldY] = now;
         return true;
       }
       return false;
