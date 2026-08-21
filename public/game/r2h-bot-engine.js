@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v229';
+  var VERSION = 'v230';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1657,9 +1657,19 @@
       // v216: FIRST check for an openable door/gate blocking us (unlabeled graph
       // edges cross gates — Edgeville Dungeon Gate 57 at (186,3300) verified).
       // Cooldown 4s between open attempts (door animates + server walks us).
-      if (Date.now() - (scriptState._lastDoorOpen || 0) > 4000) {
+      // v229: skip tryOpenNearbyDoor entirely if the last attempt was rejected
+      // (player still stuck at the same position 3.5s later = server "null object").
+      // Without this, the engine spams atObject on a ghost/fence tile forever
+      // (live: shafster at (373,558) Taverley, 03:32-03:33, 6× "null object").
+      var _doorOpenPos = scriptState._doorOpenPos || { x: 0, y: 0, t: 0 };
+      var _movedSinceDoor = (px !== _doorOpenPos.x || py !== _doorOpenPos.y);
+      var _doorRejected = (!_movedSinceDoor && (Date.now() - _doorOpenPos.t) < 6000);
+      if (_doorRejected) {
+        log('Stuck — last door click rejected (null object), skipping door-opener');
+      } else if (Date.now() - (scriptState._lastDoorOpen || 0) > 4000) {
         if (tryOpenNearbyDoor(tx, ty)) {
           scriptState._lastDoorOpen = Date.now();
+          scriptState._doorOpenPos = { x: px, y: py, t: Date.now() };
           invalidateRoute();
           return;   // door opening — retry the hop next tick
         }
