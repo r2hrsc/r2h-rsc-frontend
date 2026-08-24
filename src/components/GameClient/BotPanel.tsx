@@ -87,6 +87,7 @@ const SCRIPTS: BotScript[] = [
   { id: 'wc-oak', name: 'Chop Oaks', description: 'Chops oak trees east of Varrock.', category: 'Woodcutting', requiredLevel: 15 },
   { id: 'wc-willow', name: 'Chop Willows', description: 'Chops willow trees in Draynor.', category: 'Woodcutting', requiredLevel: 30 },
   { id: 'wc-yew', name: 'Chop Yews', description: 'Chops yew trees. High value.', category: 'Woodcutting', requiredLevel: 60 },
+  { id: 'skilling-woodcutting', name: 'Normal Tree Woodcutting (pilot)', description: 'Dynamic tree scanning, felled-tile rotation, axe check, fatigue handling. Stops at full inventory.', category: 'Woodcutting' },
 
   // Cooking
   { id: 'cook-meat', name: 'Cook Meat', description: 'Cooks raw meat on a range.', category: 'Cooking' },

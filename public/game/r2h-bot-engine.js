@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v231';
+  var VERSION = 'v274';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -71,6 +71,47 @@
   var BONES = [20, 413, 604, 814];
   var SLEEPING_BAG = 1263;
   var LOOT_ITEMS = [20, 413, 604, 814, 38, 132, 526, 11, 41, 42, 714];
+
+  // Woodcutting constants (pilot)
+  var NORMAL_TREE_IDS = [0, 1];
+  var STUMP_IDS = [4, 314];
+  var AXE_IDS = [1480, 405, 204, 203, 428, 88, 12, 87];
+  var LOG_ID = 14;
+
+  // v265: FULL woodcutting registry — server-verified 2026-08-23:
+  //   tree ids/log ids/req levels/fell%/respawn: ObjectWoodcutting.xml + Formulae.java
+  //   grove tiles: SceneryLocs.json extraction; stands verified clear of scenery+boundaries.
+  // Normals fell 100% per log (blacklist on gain); oak–magic are multi-log
+  // (blacklist on miss-streak — a live tree at these rates can't miss N in a row).
+  var WC_LOG_IDS = [14, 632, 633, 634, 635, 636];
+  var WC_TREE_TYPES = {
+    Normal: { ids: [0, 1], logId: 14, level: 1, xp: 100, fellOnGain: true, respawnMs: 45000, missLimit: 3, dryLimit: 1,
+      groves: [
+        { name: 'Lumbridge', stand: [118, 636], tiles: [[114,631],[122,632],[120,633],[114,634],[115,635],[118,635],[122,636],[118,637],[114,638],[117,639],[114,640],[119,640]] },
+        { name: 'Seers', stand: [509, 440], tiles: [[489,425],[501,443],[516,454],[506,461],[510,485],[517,486],[526,492],[515,494],[521,497],[511,498],[503,499],[487,436],[492,442],[508,455],[489,458],[511,464],[486,468],[484,471],[492,475],[483,496],[491,496]] }
+      ] },
+    Oak: { ids: [306], logId: 632, level: 15, xp: 150, fellOnGain: false, respawnMs: 22000, missLimit: 6, dryLimit: 2,
+      groves: [
+        { name: 'Seers West', stand: [508, 446], tiles: [[508,444],[515,445],[491,447],[511,447],[488,448],[486,458],[509,460],[512,460],[486,484],[502,487],[522,509],[504,514],[523,515],[518,556],[503,558],[512,558],[508,560],[495,569],[512,582]] }
+      ] },
+    Willow: { ids: [307], logId: 633, level: 30, xp: 250, fellOnGain: false, respawnMs: 40000, missLimit: 6, dryLimit: 3,
+      groves: [
+        { name: 'Seers North', stand: [509, 440], tiles: [[500,437],[513,438],[509,439],[512,441]] }
+      ] },
+    Maple: { ids: [308], logId: 634, level: 45, xp: 400, fellOnGain: false, respawnMs: 75000, missLimit: 6, dryLimit: 4,
+      groves: [
+        { name: 'Seers', stand: [507, 455], tiles: [[506,449],[523,459],[499,461],[513,466],[520,487],[538,488],[544,536],[536,543]] }
+      ] },
+    Yew: { ids: [309], logId: 635, level: 60, xp: 700, fellOnGain: false, respawnMs: 125000, missLimit: 6, dryLimit: 5,
+      groves: [
+        { name: 'Seers', stand: [517, 474], tiles: [[519,471],[515,476],[519,476]] }
+      ] },
+    Magic: { ids: [310], logId: 636, level: 75, xp: 1000, fellOnGain: false, respawnMs: 245000, missLimit: 8, dryLimit: 6,
+      groves: [
+        { name: 'Seers', stand: [521, 491], tiles: [[524,489],[521,492],[519,494]] }
+      ] }
+  };
+  var WC_BANKER_IDS = [95, 224, 268, 485, 540, 617];
   // Cooked/edible food only (raw food can't be eaten). From server ItemDefs.json command=Eat/Drink.
   // Excludes potions (heal 0), raw/burnt items, and non-healing drinks.
   var FOOD = [18,132,138,142,179,193,210,228,249,257,258,259,261,262,263,267,268,269,
@@ -247,6 +288,78 @@
   function thieveNpc(serverIndex) {
     // Payload177: opcode 195 = NPC_COMMAND (pickpocket), Z(serverIndex)
     return sendRaw(195, 0, function(stream, Z, BO) { Z(stream, serverIndex); });
+  }
+
+  // v265: WC routing graph — prune labeled edges EXCEPT the two Taverley gates,
+  // the graph's only Asgarnia↔Kandarin links (cut-vertex simulation verified).
+  // Routing leads the player TO the gate; the WC gate handler crosses it.
+  var _webAdjNoGates = null;
+  var WC_KEEP_LABELS = { northFallyTavGate: true, southFallyTavGate: true };
+  function webwalkGraphNoGates() {
+    if (_webAdjNoGates) return _webAdjNoGates;
+    var g = webwalkGraph(false);
+    var adj = {};
+    for (var k in g) adj[k] = { x: g[k].x, y: g[k].y, out: [] };
+    for (var k2 in g) {
+      var n = g[k2];
+      for (var i = 0; i < n.out.length; i++) {
+        var e = n.out[i];
+        if (e.label && !WC_KEEP_LABELS[e.label]) continue;
+        adj[k2].out.push({ node: adj[e.node.x + ',' + e.node.y], label: e.label || null });
+      }
+    }
+    _webAdjNoGates = adj;
+    return adj;
+  }
+  function webwalkSnapNoGates(x, y) {
+    var g = webwalkGraphNoGates(), best = null, bd = Infinity;
+    for (var k in g) {
+      var n = g[k];
+      var d = Math.abs(n.x - x) + Math.abs(n.y - y);
+      if (d < bd) { bd = d; best = n; }
+    }
+    return best;
+  }
+  function webwalkDijkstraNoGates(fx, fy) {
+    var g = webwalkGraphNoGates();
+    var src = webwalkSnapNoGates(fx, fy);
+    var dist = {}, prev = {}, pq = [[0, src.x + ',' + src.y]];
+    dist[src.x + ',' + src.y] = 0;
+    while (pq.length > 0) {
+      pq.sort(function(a, b) { return a[0] - b[0]; });
+      var top = pq.shift();
+      var du = top[0], uk = top[1];
+      if (du > (dist[uk] !== undefined ? dist[uk] : Infinity)) continue;
+      var u = g[uk];
+      if (!u) continue;
+      for (var i = 0; i < u.out.length; i++) {
+        var v = u.out[i].node;
+        var vk = v.x + ',' + v.y;
+        var nd = du + Math.max(Math.abs(v.x - u.x) + Math.abs(v.y - u.y), 1);
+        if (nd < (dist[vk] !== undefined ? dist[vk] : Infinity)) {
+          dist[vk] = nd; prev[vk] = uk; pq.push([nd, vk]);
+        }
+      }
+    }
+    return { dist: dist, prev: prev };
+  }
+  function webwalkRouteNoGates(fx, fy, tx, ty) {
+    var g = webwalkGraphNoGates();
+    var dst = webwalkSnapNoGates(tx, ty);
+    var r = webwalkDijkstraNoGates(fx, fy);
+    var dk = dst.x + ',' + dst.y;
+    if (r.dist[dk] === undefined) return null;
+    var chain = [];
+    var cur = dk;
+    while (cur) {
+      var node = g[cur];
+      chain.push({ x: node.x, y: node.y });
+      var pk = r.prev[cur];
+      if (!pk) break;
+      cur = pk;
+    }
+    chain.reverse();
+    return chain;
   }
 
   // ─── Object actions ───
@@ -476,7 +589,30 @@
   // ─── Inventory ───
   function getInventoryCount() {
     var mc = getMC();
-    return mc ? (mc[F.invCount] || 0) : 0;
+    if (!mc) return 0;
+    // v246 FIX: mc.cU desyncs from reality (live 2026-08-23 00:26: cU=1 while 30
+    // slots hold items — login packet delivered a stale count; every subsequent
+    // gate on cU>=30 failed → bot mined forever with a FULL inventory → every
+    // rock click "unresponsive" → blacklist loop = the Al-Kharid/Varrock hang).
+    // v249 FIX (source-verified, classes.js opcode 252): the inventory snapshot
+    // sets cU and writes slots [0, cU) but NEVER clears slots >= cU — after a
+    // bank deposit shrinks the stack, stale ore ids linger in slots [cU, 30)
+    // (live: 23 real junk + 7 ghost ores = engine read "30 full" → banked with
+    // nothing, looped Dwarven Mine 00:48–02:41 & 16:47–17:00). And the mirror
+    // desync exists too (cU=1 with 30 real items, Al-Kharid 00:26). So:
+    // count = non-zero slots within [0, cU) when that window is sane; else
+    // fall back to all non-zero slots. Ghosts beyond cU are invisible.
+    var arr = mc[F.invItemId];
+    var cu = mc[F.invCount] || 0;
+    if (arr && arr.data) {
+      var nIn = 0;
+      for (var i = 0; i < cu && i < 30; i++) { if (arr.data[i]) nIn++; }
+      if (nIn > 0) return nIn;          // window sane → authoritative
+      var nAll = 0;                      // cU desynced low → fall through
+      for (var i2 = 0; i2 < 30; i2++) { if (arr.data[i2]) nAll++; }
+      return nAll;
+    }
+    return cu;
   }
 
   function getInventoryId(slot) {
@@ -806,6 +942,22 @@
     return MINING_SCRIPT_IDS.indexOf(id) >= 0;
   }
 
+  // v264: Woodcutting APOS script IDs — route to makeWoodcuttingPilotScript.
+  // MUST be checked BEFORE combatScriptFactories/isCombatScript: the 'K_' prefix
+  // captures K_ArdyYewTree/K_GnomeMagicTree/K_SeersMagicTree (their NPC_COMBAT_MAP
+  // entries are placeholder [0], so no factory is built for them) and would start
+  // a fighter auto-attacking nearby NPCs instead of chopping.
+  var WOODCUTTING_SCRIPT_IDS = ['Woodcutting', 'K_ArdyYewTree', 'K_GnomeMagicTree', 'K_SeersMagicTree'];
+  function isWoodcuttingScript(id) {
+    return WOODCUTTING_SCRIPT_IDS.indexOf(id) >= 0;
+  }
+
+  // v258: NON-ATTACKABLE NPC blacklist (server NpcDefs.json, attackable=0 — 518 of
+  // 794 types incl. Banker 95, shopkeepers, quest NPCs). Auto-detect fed these to the
+  // combat loop: the bot walked to a banker, server rejected the attack, 15s walk
+  // timeout, repeat — forever. Only attackable types may enter the target list.
+  var NPC_NON_ATTACKABLE = {1:true,2:true,7:true,9:true,10:true,12:true,13:true,14:true,15:true,16:true,17:true,18:true,20:true,24:true,26:true,27:true,28:true,30:true,31:true,32:true,33:true,36:true,38:true,39:true,42:true,44:true,48:true,49:true,51:true,54:true,55:true,56:true,58:true,59:true,69:true,71:true,73:true,75:true,77:true,82:true,83:true,84:true,85:true,87:true,88:true,90:true,91:true,92:true,95:true,97:true,98:true,101:true,103:true,105:true,106:true,107:true,110:true,111:true,112:true,113:true,115:true,116:true,117:true,118:true,119:true,120:true,121:true,122:true,123:true,124:true,125:true,126:true,128:true,129:true,130:true,131:true,132:true,133:true,134:true,138:true,141:true,142:true,143:true,144:true,145:true,146:true,147:true,148:true,149:true,150:true,151:true,152:true,155:true,156:true,157:true,160:true,161:true,162:true,163:true,164:true,165:true,166:true,167:true,168:true,169:true,170:true,171:true,172:true,173:true,174:true,175:true,176:true,183:true,185:true,186:true,187:true,191:true,193:true,194:true,197:true,198:true,204:true,205:true,206:true,207:true,208:true,209:true,210:true,211:true,212:true,213:true,215:true,217:true,218:true,219:true,220:true,221:true,222:true,223:true,224:true,225:true,226:true,227:true,228:true,229:true,230:true,231:true,233:true,235:true,240:true,241:true,242:true,245:true,246:true,247:true,250:true,253:true,255:true,256:true,257:true,258:true,260:true,261:true,267:true,268:true,269:true,272:true,273:true,274:true,275:true,278:true,279:true,280:true,281:true,282:true,283:true,284:true,285:true,286:true,287:true,288:true,289:true,297:true,299:true,300:true,301:true,302:true,303:true,304:true,305:true,306:true,307:true,308:true,309:true,310:true,313:true,314:true,316:true,317:true,325:true,326:true,327:true,328:true,329:true,330:true,331:true,332:true,333:true,334:true,335:true,336:true,337:true,339:true,340:true,341:true,345:true,346:true,347:true,349:true,350:true,353:true,354:true,355:true,357:true,360:true,362:true,363:true,365:true,366:true,368:true,369:true,370:true,371:true,372:true,373:true,374:true,375:true,376:true,377:true,378:true,379:true,380:true,381:true,382:true,385:true,387:true,389:true,390:true,391:true,392:true,393:true,394:true,395:true,396:true,397:true,398:true,400:true,403:true,404:true,405:true,406:true,408:true,411:true,412:true,413:true,414:true,415:true,418:true,419:true,422:true,423:true,424:true,427:true,429:true,430:true,431:true,432:true,433:true,434:true,435:true,436:true,437:true,443:true,444:true,445:true,446:true,447:true,448:true,449:true,450:true,451:true,452:true,453:true,454:true,455:true,456:true,457:true,458:true,459:true,460:true,461:true,465:true,466:true,467:true,468:true,469:true,470:true,471:true,472:true,474:true,475:true,476:true,478:true,479:true,480:true,481:true,482:true,483:true,484:true,485:true,486:true,487:true,488:true,489:true,490:true,491:true,492:true,493:true,494:true,496:true,497:true,499:true,500:true,501:true,503:true,504:true,505:true,506:true,507:true,508:true,509:true,510:true,511:true,512:true,513:true,514:true,515:true,517:true,520:true,522:true,524:true,526:true,527:true,528:true,529:true,530:true,532:true,533:true,534:true,535:true,536:true,537:true,538:true,539:true,540:true,541:true,543:true,544:true,545:true,546:true,547:true,548:true,549:true,552:true,553:true,554:true,556:true,560:true,561:true,563:true,564:true,565:true,566:true,569:true,570:true,571:true,572:true,573:true,575:true,576:true,577:true,578:true,579:true,580:true,581:true,587:true,588:true,589:true,590:true,591:true,596:true,601:true,609:true,610:true,611:true,612:true,616:true,617:true,618:true,619:true,620:true,621:true,622:true,623:true,624:true,625:true,626:true,627:true,628:true,629:true,642:true,643:true,648:true,649:true,650:true,652:true,654:true,657:true,659:true,661:true,662:true,665:true,666:true,667:true,672:true,673:true,674:true,675:true,676:true,677:true,678:true,679:true,680:true,681:true,682:true,685:true,686:true,687:true,688:true,689:true,691:true,693:true,695:true,696:true,698:true,700:true,701:true,707:true,708:true,709:true,711:true,712:true,714:true,715:true,719:true,720:true,722:true,723:true,724:true,725:true,726:true,727:true,728:true,730:true,731:true,732:true,733:true,734:true,735:true,736:true,737:true,738:true,739:true,740:true,741:true,742:true,743:true,744:true,745:true,746:true,747:true,748:true,749:true,750:true,751:true,752:true,753:true,754:true,755:true,756:true,763:true,764:true,765:true,770:true,771:true,773:true,774:true,778:true,779:true,780:true,781:true,782:true,783:true,784:true,785:true,788:true,792:true,793:true};
+
   // Get NPC IDs of all attackable NPCs currently visible to the player
   function getNearbyNpcIds() {
     var mc = getMC();
@@ -813,7 +965,7 @@
     var ids = {};
     for (var i = 0; i < mc.b0.data.length; i++) {
       var n = mc.b0.data[i];
-      if (n && n.bV) ids[n.bV] = true;
+      if (n && n.bV && !NPC_NON_ATTACKABLE[n.bV]) ids[n.bV] = true;
     }
     var result = Object.keys(ids).map(Number);
     return result.length > 0 ? result : [3, 29, 34, 62];
@@ -867,7 +1019,11 @@
 
     // Combat scripts are factories — build with runtime config if available
     var tickFn;
-    if (combatScriptFactories[scriptId]) {
+    if (isWoodcuttingScript(scriptId)) {
+      // v265: WC APOS ids → full woodcutting (6 tree types, banking, power-chop)
+      log('Woodcutting: "' + scriptId + '" → v265 full script');
+      tickFn = makeWoodcuttingScript(runtimeConfig);
+    } else if (combatScriptFactories[scriptId]) {
       tickFn = combatScriptFactories[scriptId](runtimeConfig);
     } else if (scripts[scriptId]) {
       tickFn = scripts[scriptId];
@@ -922,7 +1078,7 @@
       // stale (v205 invariant), so the mining loop frequently targets rocks via this
       // server-authoritative list. Unfiltered = bot mines unselected ores.
       var mineFallback = mine.rocks.filter(function(r) { return campIds[r[2]] && mineRocks.indexOf(r[2]) >= 0; })
-                                   .map(function(r) { return { x: r[0], y: r[1] }; });
+                                   .map(function(r) { return { x: r[0], y: r[1], id: r[2] }; });
       // ── v210 BANK SELECTION ──
       // Auto: closest bank by actual webwalk route cost (same graph the bot walks —
       // distance through gates/ladders, not straight-line). Manual choice is ONLY
@@ -970,7 +1126,10 @@
         if (!botActive) return;  // Check again after tick
         botLoop = setTimeout(runTick, Math.max(200, delay || 2000));
       } catch(e) {
-        log('Error: ' + e.message);
+        // v237: log the STACK, not just the message — a throw site was nearly
+        // impossible to locate from 'Error: <msg>' alone during the 2026-08-22
+        // Varrock freeze investigation.
+        log('Error: ' + e.message + (e.stack ? ' | ' + String(e.stack).split('\n').slice(1,3).join(' <=') : ''));
         if (botActive) botLoop = setTimeout(runTick, 3000);
       }
     })();
@@ -1113,10 +1272,16 @@
         } else {
         var inMeleeCombat = false;
         var mcRange = getMC();
-        // Check player's own combat state: g8 >= 8 means the player is in melee
+        // v258 FIX: g8>=8 on the player fires for RANGED attacks too (own attack
+        // animation) — the old check read our own bow shots as "melee enemy" and
+        // flapped weapons. Real melee pressure = one of OUR target types adjacent
+        // (<=2 tiles) AND the player in combat state.
         if (mcRange && mcRange[F.localPlayer]) {
           var playerG8 = mcRange[F.localPlayer].g8 || 0;
-          inMeleeCombat = (playerG8 >= 8);
+          if (playerG8 >= 8) {
+            var adjTargets = findNpcs(npcIds, 2);
+            inMeleeCombat = (adjTargets.length > 0);
+          }
         }
 
         if (inMeleeCombat) {
@@ -1233,6 +1398,11 @@
             if (targetDied) {
               scriptState.killedNpcs[scriptState.target] = Date.now();
               scriptState.killCount++;
+            } else {
+              // v259: magic timeout on an "alive-looking" target = unresponsive
+              // (corpse in array / out of runes) — blacklist so we switch NPCs
+              scriptState.killedNpcs[scriptState.target] = Date.now();
+              log('Magic target idx ' + scriptState.target + ' unresponsive — switching monsters');
             }
             scriptState.target = -1;
             return 300;
@@ -1261,6 +1431,16 @@
           if (!isTargetAlive(scriptState.target)) {
             scriptState.killedNpcs[scriptState.target] = Date.now();
             scriptState.killCount++;
+          } else if (isAdjacent) {
+            // v259: ADJACENT-TIMEOUT = unresponsive target. Corpse NPC entries
+            // stay in the client array (kill-on-our-tile → corpse at dist 0-1)
+            // so isTargetAlive reads TRUE and the old code cleared the target
+            // WITHOUT re-blacklisting → next scan re-picked the SAME corpse →
+            // attackNpc → 8s timeout → repeat. Live 19:57-19:58: 7 consecutive
+            // rejected attackNpc(2758) on a corpse, ~8s apart, bot "sitting
+            // there". Blacklist 12s so the scan switches to a live monster.
+            scriptState.killedNpcs[scriptState.target] = Date.now();
+            log('Target idx ' + scriptState.target + ' unresponsive (corpse/rejected) — switching monsters');
           }
           scriptState.target = -1;
           return 300;
@@ -1275,8 +1455,10 @@
             var loot = lootItems[li];
             if (cfg.maxWander >= 0 && distFromStart(loot.worldX, loot.worldY) > cfg.maxWander) continue;
             var lootDist = Math.abs(getX() - loot.worldX) + Math.abs(getY() - loot.worldY);
-            // Magic fights from range — allow loot pickup up to 10 tiles, walk if > 3
-            var maxLootDist = (cfg.useMagic && cfg.combatSpell) ? 10 : 4;
+            // Magic AND ranged both fight from range — allow loot pickup up to
+            // 10 tiles, walk if > 1 (v258: ranged had melee's 4-tile cap while
+            // shooting from 6-8 tiles → kills outside loot range were abandoned).
+            var maxLootDist = ((cfg.useMagic && cfg.combatSpell) || cfg.useRanging) ? 10 : 4;
             if (lootDist > maxLootDist) continue;
             var bkey = loot.worldX + ',' + loot.worldY + ',' + loot.itemId;
             if (scriptState.lootBlacklist[bkey]) continue;
@@ -1320,7 +1502,37 @@
         }
         scriptState.inMeleeMode = false;
       }
-      var targets = findNpcs(npcIds, cfg.maxWander >= 0 ? cfg.maxWander : undefined);
+      // v257: LIVE TARGET RE-SCAN. Both the panel's Scan and the engine's
+      // auto-detect were one-shot snapshots — NPCs that spawned/patrolled into
+      // view after start were permanently invisible ("monsters around me but
+      // script won't attack"). Merge newly-visible types every 30s — ONLY in
+      // auto-detect mode (empty npcIds field). A hand-picked selection is the
+      // user's explicit intent and is never overridden.
+      if (!scriptState._autoDetect) {
+        scriptState._autoDetect = !!(runtimeConfig.npcIds && runtimeConfig.npcIds.length === 0) ||
+                                   runtimeConfig.npcIds === undefined;
+      }
+      if (scriptState._autoDetect) {
+        var lastRescan = scriptState._npcRescanAt || 0;
+        if (Date.now() - lastRescan > 30000) {
+          scriptState._npcRescanAt = Date.now();
+          var known = {};
+          for (var ri2 = 0; ri2 < npcIds.length; ri2++) known[npcIds[ri2]] = true;
+          var live = getNearbyNpcIds();
+          var added = [];
+          for (var ri3 = 0; ri3 < live.length; ri3++) {
+            if (!known[live[ri3]]) { npcIds.push(live[ri3]); added.push(live[ri3]); }
+          }
+          if (added.length > 0) {
+            log('Auto-detect: new NPC types in view → [' + added.join(',') + '] (targets now ' + npcIds.length + ')');
+          }
+        }
+      }
+
+      // v257: scan the full view (server sends ~40 tiles) for TARGETS; the
+      // wander leash above still pulls the player back if they stray. Old
+      // maxDist=cfg.maxWander(20) silently ignored monsters across the room.
+      var targets = findNpcs(npcIds, 40);
 
       if (scriptState.firstScan) {
         log('Scan: ' + targets.length + ' targets | HP ' + currentHp + '/' + maxHp +
@@ -1470,7 +1682,7 @@
       scriptState._routeCache = { t: tx + ',' + ty, r: r };
       return r;
     }
-    function invalidateRoute() { scriptState._routeCache = null; }
+    function invalidateRoute() { scriptState._routeCache = null; scriptState._routeProgress = 0; }
 
     // Next walk target: the NEXT graph node only (edge-by-edge) — the exact
     // IdleRSC webwalkTowards pattern. Each graph edge is a short, walked-and-
@@ -1488,13 +1700,40 @@
         var d = Math.abs(route[i].x - px) + Math.abs(route[i].y - py);
         if (d < bestD) { bestD = d; bestIdx = i; }
       }
+      // v245 FIX: monotonic route progress. Pure nearest-node indexing walked
+      // BACKWARD on ties: at Falador (284,563) nodes (283,570)/(289,560) tie at
+      // distance 8, `<` keeps the LOWER index → target (289,572) BEHIND the
+      // player → walk east → tie breaks → next node west → tie again → player
+      // ping-ponged (283-287,563) for 4+ min (live 23:17-23:21, Falador East
+      // return trip). Route index must never decrease within one trip leg:
+      // clamp to the highest index already achieved this leg.
+      if (scriptState._routeProgress === undefined ||
+          scriptState._routeTargetKey !== route[route.length-1].x + ',' + route[route.length-1].y) {
+        scriptState._routeProgress = 0;
+        scriptState._routeTargetKey = route[route.length-1].x + ',' + route[route.length-1].y;
+      }
+      if (bestIdx < scriptState._routeProgress) bestIdx = scriptState._routeProgress;
+      else scriptState._routeProgress = bestIdx;
       var nxt = route[bestIdx + 1];
       if (!nxt) return { x: finalDest.x, y: finalDest.y };
       if (nxt.label) {   // special edge first — walkTo can't cross it
         // v222: attach the node BEYOND the edge (route[bestIdx+2]) so the
         // edge handler can walk through to a verified graph node after opening
         var beyond = route[bestIdx + 2];
-        if (beyond && !beyond.label) {
+        // v237 FIX: when the labeled edge IS the final route node there is no
+        // beyond — zombie-click starvation. Live 2026-08-22 17:01 + repro 18:50:
+        // Varrock East route (91,509)→(104,510,varrockEastBankDoor) ENDS at the
+        // door node; node.bx undefined → the walk-first alternation (which
+        // requires bx) never runs → atObject(102,509) fires from 11 tiles away
+        // → the server SILENTLY drops every click (zero onOpLoc, zero
+        // null-object — not even 'suspicious' spam) → FAILED after 12 →
+        // re-engage → infinite loop, player frozen. APOS S_DummyTrainer's
+        // on_road() does the walk FIRST (walk_to_bank: walkTo 102±2, 510+1..3)
+        // and only then atObject(102,509). Synthesize the beyond from the final
+        // destination: the even-attempt walk delivers the player ADJACENT to
+        // the door, then the odd-attempt click executes from range.
+        if (!beyond) beyond = { x: finalDest.x, y: finalDest.y };
+        if (!beyond.label) {
           return { x: nxt.x, y: nxt.y, label: nxt.label, bx: beyond.x, by: beyond.y };
         }
         return nxt;
@@ -1615,14 +1854,45 @@
               } else {
                 // last resort: synthesize 2 tiles past the gate on the CROSS axis
                 // (the axis _edgeSide measures — that's the direction of crossing)
+                // v232 FIX: when nxt IS the gate node (nxt.y === g.y), the old
+                // fallback used `py > g.y` — the PLAYER'S side — synthesizing a
+                // beyond tile BEHIND the player (surface door: player south at
+                // (218,466) → beyond (218,467) → walk AWAY → handler re-engages →
+                // toggles the open door shut → oscillation, sim + live 01:22).
+                // Derive the crossing direction from the DESTINATION side of the
+                // route instead: the first node ≥4 past the gate, else the final
+                // destination itself — never the player's position.
+                var dirNode = route[route.length - 1];
+                for (var di2 = bestIdx + 1; di2 < route.length; di2++) {
+                  if (Math.abs(route[di2].x - g.x) + Math.abs(route[di2].y - g.y) >= 4) { dirNode = route[di2]; break; }
+                }
                 if (g.axis === 'y') {
-                  var cy = (nxt.y !== undefined && nxt.y !== g.y) ? (nxt.y > g.y ? 1 : -1) : (py > g.y ? 1 : -1);
+                  var cy = (dirNode.y > g.y) ? 1 : (dirNode.y < g.y) ? -1 : ((py > g.y) ? -1 : 1);
                   bxx = g.x; byy = g.y + cy * 2;
                 } else {
-                  var cx = (nxt.x !== undefined && nxt.x !== g.x) ? (nxt.x > g.x ? 1 : -1) : (px > g.x ? 1 : -1);
+                  var cx = (dirNode.x > g.x) ? 1 : (dirNode.x < g.x) ? -1 : ((px > g.x) ? -1 : 1);
                   bxx = g.x + cx * 2; byy = g.y;
                 }
               }
+            }
+            // v238 FIX: crossing-side invariant. The beyond MUST lie on the
+            // opposite side of the gate from the player on the gate's cross axis.
+            // Live 2026-08-22 19:40–19:45 (Barbarian return trip): hop line from
+            // (218,462) to (221,473) passed 0.8 tiles from hut door (218,465)
+            // (check b) → engaged; but every candidate beyond — (226,459) — was on
+            // the player's OWN (north) side → the walk-through could never cross →
+            // blind re-clicks toggled the OPEN door shut (onOpBound id=2 at
+            // 19:41:35 / 19:44:43) → player oscillated (218,460)↔(223,457) for
+            // minutes. If no opposite-side beyond exists, this route does not
+            // cross the gate: do not engage at all.
+            var crossPlayer = (g.axis === 'y')
+                ? (py < g.y ? -1 : (py > g.y ? 1 : 0))
+                : (px < g.x ? -1 : (px > g.x ? 1 : 0));
+            var crossBeyond = (g.axis === 'y')
+                ? (byy < g.y ? -1 : (byy > g.y ? 1 : 0))
+                : (bxx < g.x ? -1 : (bxx > g.x ? 1 : 0));
+            if (crossPlayer !== 0 && crossBeyond === crossPlayer) {
+              continue;   // beyond on OUR side — route doesn't cross this gate
             }
             return { x: g.x, y: g.y, label: 'knownGate', bx: bxx, by: byy, axis: g.axis || 'x', boundary: !!g.boundary };
           }
@@ -1635,11 +1905,18 @@
       // on blocked tiles in rock-filled rooms (pcap 2026-08-18: player ping-ponged
       // (191,3296)↔(190,3296) for 3.5 min). Sub-step ONLY genuinely long open-
       // terrain edges (>24 tiles) at 20 tiles.
+      // v242b: sub-step CHOPS long edges into unverified straight-line midpoints —
+      // catastrophic in the Barbarian woods where the client pathfinder happily
+      // routes 40+ tiles around shifting trees but our 10-tile synthetic midpoints
+      // land on tree tiles and get silently dropped (live 22:45: bank return
+      // oscillated (217,447)↔(221,450) for minutes on sub-step tiles). The client
+      // pathfinder is authoritative for reachability — hand it the FULL node hop
+      // and let it detour. Keep a sub-step only for extreme (>48 tile) hops.
       var dd = Math.abs(nxt.x - px) + Math.abs(nxt.y - py);
-      if (dd > 14) {
+      if (dd > 48) {
         return {
-          x: px + Math.round((nxt.x - px) * 10 / dd),
-          y: py + Math.round((nxt.y - py) * 10 / dd)
+          x: px + Math.round((nxt.x - px) * 24 / dd),
+          y: py + Math.round((nxt.y - py) * 24 / dd)
         };
       }
       return { x: nxt.x, y: nxt.y };
@@ -1667,7 +1944,7 @@
       if (_doorRejected) {
         log('Stuck — last door click rejected (null object), skipping door-opener');
       } else if (Date.now() - (scriptState._lastDoorOpen || 0) > 4000) {
-        if (tryOpenNearbyDoor(tx, ty)) {
+        if (tryOpenNearbyDoor(tx, ty) || tryChopBlockingTree(tx, ty)) {
           scriptState._lastDoorOpen = Date.now();
           scriptState._doorOpenPos = { x: px, y: py, t: Date.now() };
           invalidateRoute();
@@ -1714,9 +1991,29 @@
         scriptState._nudgeCount = 0;                     // reset after escape
         invalidateRoute();                               // re-path from new position
       } else {
-        log('Stuck — no escape node found, re-pathing');
-        invalidateRoute();
-        scriptState._nudgeCount = 0;
+        // v239: last-resort ANTI-PARK escape. If no node makes forward progress
+        // (pocket terrain — live 2026-08-22 20:19-20:46: shafster parked (225,459)
+        // Barbarian woods 27 min, every forward hop silently dropped by the client
+        // pathfinder), walking to the NEAREST node in ANY direction still moves
+        // the player onto verified graph tiles, from which the router re-paths.
+        // A stationary bot is the only unrecoverable state.
+        var anyNode = null, anyD = Infinity;
+        for (var k2 in g) {
+          var n2 = g[k2];
+          var d2 = Math.abs(n2.x - px) + Math.abs(n2.y - py);
+          if (d2 < 2 || d2 > 30) continue;
+          if (d2 < anyD) { anyD = d2; anyNode = n2; }
+        }
+        if (anyNode) {
+          log('Stuck — no forward node; escaping to nearest node ANY direction (' + anyNode.x + ',' + anyNode.y + ')');
+          walkTo(anyNode.x, anyNode.y);
+          scriptState._nudgeCount = 0;
+          invalidateRoute();
+        } else {
+          log('Stuck — no escape node found, re-pathing');
+          invalidateRoute();
+          scriptState._nudgeCount = 0;
+        }
       }
     }
 
@@ -1733,6 +2030,50 @@
     // real doors open on the first click so the cooldown never hurts a real door;
     // ghost tiles get exactly one click each, then the loop falls through to
     // nudge/escape.
+    // v251: PATH CHOPPING — dynamic tree regrowth walls off mine entrances overnight
+    // (live 2026-08-23 17:40-18:10: Edgeville hut ladder + door sealed by respawning
+    // trees; every walk from the bank dropped; player parked at (213,465)/(225,459)
+    // class pockets). Authentic solution (APOS/IdleRSC obstacle handlers): chop the
+    // blocking tree. Trees are scenery ids 1/70 (GameObjectDef 'Tree', cmd1=Chop).
+    // Same projection logic as doors; stump (id 4) is walkable so no re-check needed
+    // beyond the standard tile blacklist.
+    var CHOP_TREES = [1, 70];
+    function tryChopBlockingTree(tx, ty) {
+      var px = getX(), py = getY();
+      var now = Date.now();
+      scriptState._chopTileBlacklist = scriptState._chopTileBlacklist || {};
+      for (var bk in scriptState._chopTileBlacklist) {
+        if (now - scriptState._chopTileBlacklist[bk] > 60000) delete scriptState._chopTileBlacklist[bk];
+      }
+      var near = findObjects(CHOP_TREES, 12);
+      var txv = tx, tyv = ty;
+      var best = null, bestOff = Infinity;
+      var vx = txv - px, vy = tyv - py;
+      var vlen = Math.max(Math.abs(vx) + Math.abs(vy), 1);
+      for (var i = 0; i < near.length; i++) {
+        var d = near[i];
+        if (scriptState._chopTileBlacklist[d.worldX + ',' + d.worldY]) continue;
+        var wx = d.worldX - px, wy = d.worldY - py;
+        var proj = (wx * vx + wy * vy) / vlen;
+        if (proj < 0 || proj > vlen) continue;
+        var cross = Math.abs(wx * vy - wy * vx) / vlen;   // perpendicular distance to line
+        if (cross > 3) continue;                           // not blocking our line
+        if (cross < bestOff) { bestOff = cross; best = d; }
+      }
+      if (best) {
+        scriptState._chopTileBlacklist[best.worldX + ',' + best.worldY] = Date.now();
+        log('Path blocked by tree at (' + best.worldX + ',' + best.worldY + ') — chopping');
+        // v264: dead trees (obj 70) have commands [WalkTo, Chop] — Chop is command
+        // index 1 → atObject2 (opcode 230). All other trees: Chop is command 0
+        // (atObject, opcode 242). The old atObject(x,y,1) dropped the index and
+        // sent WalkTo clicks at dead trees — never felled them.
+        if (best.id === 70) atObject2(best.worldX, best.worldY);
+        else atObject(best.worldX, best.worldY);
+        return true;
+      }
+      return false;
+    }
+
     function tryOpenNearbyDoor(tx, ty) {
       var doorFilter = {};
       for (var di = 0; di < OPENABLE_DOORS.length; di++) doorFilter[OPENABLE_DOORS[di]] = true;
@@ -1810,9 +2151,48 @@
         case 'dwarvenMineFaladorEntrance': return { x: 251, y: py < 1000 ? 537 : 3369 };
         case 'dwarvenMineCannonEntrance':  return { x: 279, y: py < 1000 ? 494 : 3326 };
         case 'edgeDungeonLadder':          return { x: 215, y: py < 1000 ? 468 : 3300 };
-        case 'dwarfTunnel':                return { x: getX() > 400 ? 385 : 426, y: py < 1000 ? 466 : 3294 };
+        // v233: def-verified TRUE interaction tiles. The graph NODES are not the
+        // objects — every obstacle below sits mid-edge at its own tile. Clicking
+        // the node produced 'wall/action null object' spam + zombie clicks
+        // (live log 2026-08-22 01:25–01:35, player oscillating mine↔(343,579)).
+        // Sources: server SceneryLocs/GameObjectDef (ids/dims/dirs) + IdleRSC
+        // CustomLabelHandlers.java + IdleScriptPathWalker.java ground truth.
+        // dwarfTunnel ladders (def-verified: id 359 surface / 43 underground):
+        //   west (Taverley)  surface (385,466) / tunnel (385,3298)
+        //   east (Catherby)  surface (426,458) / tunnel (426,3290)
+        case 'dwarfTunnel':
+          if (getX() > 400) return { x: 426, y: py < 1000 ? 458 : 3290 };  // player at EAST end
+          return { x: 385, y: py < 1000 ? 466 : 3298 };                    // player at WEST end
+        // Taverley gates (scenery 138/137, type 2 — atObject, NOT atBoundary)
+        case 'southFallyTavGate':          return { x: 343, y: 581 };
+        case 'northFallyTavGate':          return { x: 341, y: 487 };
+        // Falador west bank door (scenery 63 'doors' @ (327,552))
+        case 'faladorWestBankDoor':        return { x: 327, y: 552 };
+        // Varrock east bank door (scenery 63 'doors' @ (102,509) — APOS
+        // S_DummyTrainer open_bank_door(): atObject(102,509) when id==64)
+        case 'varrockEastBankDoor':        return { x: 102, y: 509 };
+        // Boundary doors (id 1/2, mid-edge of their graph edges)
+        case 'miningGuildDoor':            return { x: 268, y: 3381 };
+        case 'edgeDungeonDoor':            return { x: 218, y: 465 };
+        // v250: Edgeville Dungeon ladders (SceneryLocs-verified: down id6 @ (215,468),
+        // up id5 @ (215,3300)). Click the ladder on the player's side of the edge.
+        case 'edgeDungeonLadder':            return getY() < 1000 ? { x: 215, y: 468 } : { x: 215, y: 3300 };
+        case 'catherbyChefDoor':           return { x: 435, y: 486 };
+        case 'gerrantHouseDoor':           return { x: 277, y: 651 };
+        case 'witchsHouseDoor':            return { x: 363, y: 494 };
+        // Stepping stones: IdleRSC taverleySteppingStones() clicks the FAR stone
+        // relative to approach (goingWest?395:397, 502); nodes are (391,502)/(398,500)
+        case 'taverleySteppingStones':     return { x: getX() < 396 ? 395 : 397, y: 502 };
+        // lummy gates: object tiles from SceneryLocs (gate id 60), not nodes
+        case 'lummyNorthSheepGate':        return { x: 152, y: 615 };
+        case 'lummyNorthWheatNorthGate':   return { x: 177, y: 595 };
+        case 'lummyNorthWheatSouthGate':   return { x: 172, y: 607 };
+        case 'lummyCabbageGate':           return { x: 148, y: 596 };
+        case 'lummyEastCowGate':           return { x: 105, y: 619 };
+        case 'lummyNorthCowGate':          return { x: 154, y: 593 };
+        case 'lummyEastChickenGate':       return { x: 114, y: 608 };
+        case 'lummyNorthChickensGate':     return { x: 158, y: 614 };
         case 'knownGate':           return { x: node.x, y: node.y };
-        // gates / doors / stepping stones: interaction tile IS the node
         default: return { x: node.x, y: node.y };
       }
     }
@@ -1835,6 +2215,69 @@
     // gate column. Never click without evidence the walk is blocked.
     var _specialEdgeStartSide = 0;   // sign of (player - gate) on the cross axis
     var _specialEdgeLastAction = ''; // v224: 'click' | 'walk' — alternate while in box
+    // v236: consecutive "waiting for walk to finish" returns. The v228 stale-eu
+    // fix (3.5s stationary ⇒ not walking) is defeated by periodic micro-moves
+    // (antiIdle nudges / stuck-escape offsets): every position change resets the
+    // stationary timer while eu stays >0 → isPlayerWalking() true forever →
+    // the atObject click is unreachable code. Live 2026-08-22 17:01: player
+    // frozen at (91,509) 4+ min, ZERO door clicks, drift (91,509)→(88,508) from
+    // the nudges themselves. Bound the wait: after 6 consecutive waits (~6s),
+    // declare the eu stale and proceed. A real walk to a stand tile completes in
+    // 2-4 ticks; a server-dropped click just gets retried 1.8s later (IdleRSC
+    // open() retries every 1.28s regardless of walk state).
+    var _specialEdgeWaitTicks = 0;
+
+    // v233: def-verified interaction boxes + IdleRSC enterStatic stand tiles.
+    // Box = server GameObject.getObjectBoundary() for scenery type-2/3 — the
+    // player MUST be inside it for atObject to execute (Mob.atObject box rule;
+    // clicks from outside are zombie actions). Stand tiles taken from IdleRSC
+    // CustomLabelHandlers enterStatic()/walkTo() ground truth.
+    var OBSTACLE_STAND = {
+      southFallyTavGate:   { minX:343, minY:580, maxX:344, maxY:582, vertical:true,  nx:343, ny:580, sx2:343, sy2:582 },
+      northFallyTavGate:   { minX:341, minY:487, maxX:342, maxY:488, vertical:false, wx:341, wy:487, ex2:342, ey2:487 },
+      faladorWestBankDoor: { minX:327, minY:552, maxX:328, maxY:553, vertical:false, wx:327, wy:553, ex2:328, ey2:553 },
+      miningGuildDoor:     { minX:268, minY:3380, maxX:268, maxY:3381, vertical:true, nx:268, ny:3380, sx2:268, sy2:3381 },
+      edgeDungeonDoor:     { minX:218, minY:464, maxX:218, maxY:466, vertical:true,  nx:218, ny:464, sx2:218, sy2:466 },
+      catherbyChefDoor:    { minX:435, minY:485, maxX:435, maxY:486, vertical:true,  nx:435, ny:485, sx2:435, sy2:486 },
+      gerrantHouseDoor:    { minX:277, minY:650, maxX:277, maxY:651, vertical:true,  nx:277, ny:650, sx2:277, sy2:651 },
+      witchsHouseDoor:     { minX:363, minY:493, maxX:363, maxY:494, vertical:true,  nx:363, ny:493, sx2:363, sy2:494 },
+      lummyNorthSheepGate:      { minX:152, minY:615, maxX:152, maxY:616, vertical:true, nx:152, ny:615, sx2:152, sy2:616 },
+      lummyNorthWheatNorthGate: { minX:177, minY:595, maxX:177, maxY:596, vertical:true, nx:177, ny:595, sx2:177, sy2:596 },
+      lummyNorthWheatSouthGate: { minX:172, minY:606, maxX:173, maxY:607, vertical:true, nx:172, ny:606, sx2:172, sy2:607 },
+      lummyCabbageGate:         { minX:148, minY:596, maxX:148, maxY:597, vertical:true, nx:148, ny:596, sx2:148, sy2:597 },
+      lummyEastCowGate:         { minX:104, minY:619, maxX:106, maxY:620, vertical:true, nx:105, ny:619, sx2:105, sy2:620 },
+      lummyNorthCowGate:        { minX:154, minY:592, maxX:155, maxY:593, vertical:true, nx:154, ny:592, sx2:154, sy2:593 },
+      lummyEastChickenGate:     { minX:114, minY:608, maxX:115, maxY:609, vertical:false, wx:114, wy:608, ex2:115, ey2:609 },
+      lummyNorthChickensGate:   { minX:158, minY:614, maxX:158, maxY:616, vertical:true, nx:158, ny:614, sx2:158, sy2:616 }
+    };
+
+    // v233: IdleRSC-exact stand tiles — stand on OUR side, INSIDE the interaction
+    // box, before clicking. Sources: CustomLabelHandlers southFallyTavGate /
+    // northFallyTavGate / miningGuildDoor enterStatic params; gerrantHouseDoor /
+    // catherbyChefDoor walkTo(goingNorth ? y-1 : y); lummy gates same pattern.
+    // Returns null when the server walks the player itself (open() doors).
+    function standTileFor(label, px, py) {
+      switch (label) {
+        case 'southFallyTavGate':   return py < 581   ? { x: 343, y: 580 } : { x: 343, y: 582 };
+        case 'northFallyTavGate':   return px <= 341  ? { x: 341, y: 487 } : { x: 342, y: 487 };
+        case 'miningGuildDoor':     return py < 3381  ? { x: 268, y: 3380 } : { x: 268, y: 3381 };
+        case 'gerrantHouseDoor':    return py >= 651  ? { x: 277, y: 650 } : { x: 277, y: 651 };
+        case 'catherbyChefDoor':    return py >= 486  ? { x: 435, y: 485 } : { x: 435, y: 486 };
+        case 'witchsHouseDoor':     return py < 494   ? { x: 363, y: 495 } : { x: 363, y: 493 };
+        case 'edgeDungeonDoor':     return py < 465   ? { x: 218, y: 464 } : { x: 218, y: 466 };
+        case 'lummyNorthSheepGate':      return py >= 616 ? { x: 152, y: 615 } : { x: 152, y: 616 };
+        case 'lummyNorthWheatNorthGate': return py >= 596 ? { x: 177, y: 595 } : { x: 177, y: 596 };
+        case 'lummyNorthWheatSouthGate': return py >= 607 ? { x: 172, y: 606 } : { x: 172, y: 607 };
+        case 'lummyCabbageGate':         return py >= 597 ? { x: 148, y: 596 } : { x: 148, y: 597 };
+        case 'lummyEastCowGate':         return py >= 620 ? { x: 105, y: 619 } : { x: 105, y: 620 };
+        case 'lummyNorthCowGate':        return py >= 593 ? { x: 154, y: 592 } : { x: 154, y: 593 };
+        case 'lummyEastChickenGate':     return px <= 114 ? { x: 114, y: 608 } : { x: 115, y: 608 };
+        case 'lummyNorthChickensGate':   return py >= 615 ? { x: 158, y: 614 } : { x: 158, y: 615 };
+        // faladorWestBankDoor: scenery id 63 — server walks the player into
+        // range on atObject (IdleRSC open() has no stand step) → null.
+        default: return null;
+      }
+    }
 
     function handleSpecialEdge(node) {
       if (_specialEdgeNode && _specialEdgeNode.label === node.label) {
@@ -1852,6 +2295,7 @@
       _specialEdgeNode = node;
       _specialEdgeAttempts = 0;
       _specialEdgeLastAction = '';
+      _specialEdgeWaitTicks = 0;   // v236: reset wait-starvation counter per edge
       return _trySpecialEdge();
     }
 
@@ -1866,7 +2310,14 @@
     // Both known gates are id 57 (1 wide, 2 tall) = VERTICAL: side = sign(px - gx).
     function _edgeSide(tile, px, py) {
       var axis = 'x';
-      if (_specialEdgeNode && _specialEdgeNode.axis) axis = _specialEdgeNode.axis;
+      // v233b: def-verified axis wins. OBSTACLE_STAND.vertical=true means the
+      // obstacle blocks N-S passage → sides are north/south (axis y); false
+      // means E-W blocking → axis x. Inference from the beyond-node direction
+      // mislabeled the south Taverley gate as X-axis on the return trip
+      // (beyond (356,576) due east of the gate) → crossing never detected.
+      if (_specialEdgeNode && OBSTACLE_STAND[_specialEdgeNode.label]) {
+        axis = OBSTACLE_STAND[_specialEdgeNode.label].vertical ? 'y' : 'x';
+      } else if (_specialEdgeNode && _specialEdgeNode.axis) axis = _specialEdgeNode.axis;
       else if (_specialEdgeNode && _specialEdgeNode.by !== undefined &&
           Math.abs(_specialEdgeNode.by - tile.y) > Math.abs(_specialEdgeNode.bx - tile.x)) {
         axis = 'y';
@@ -1897,6 +2348,13 @@
           // mode (click open gate → server walks player adjacent → delta≥2 →
           // false "crossed") cannot happen with side-flip: walking adjacent
           // keeps the player on the SAME side.
+          // v233b: the axis comes from OBSTACLE_STAND.vertical when the label
+          // is registered there (def-verified), NOT inferred from the beyond-
+          // node direction. Live 2026-08-22 03:22: return trip crossed the
+          // south gate (343,582)→(349,576) but the side test used axis X
+          // (beyond-node (356,576) is due east) → startSide=0 → "crossed"
+          // never fired → engine walked the player BACK and re-clicked the
+          // open gate in a loop.
           var side = _edgeSide(tile, px, py);
           if (side !== 0 && _specialEdgeStartSide !== 0 && side !== _specialEdgeStartSide) {
             log('Special edge ' + node.label + ': crossed (side ' + _specialEdgeStartSide + '→' + side + ')');
@@ -1928,10 +2386,21 @@
               log('knownGate: walking through to (' + node.bx + ',' + node.by + ')');
               walkTo(node.bx, node.by);
             } else {
-              _specialEdgeLastAction = 'click';
-              log('knownGate: walk blocked — re-clicking gate from inside box');
-              if (node.boundary) { atBoundary(tile.x, tile.y, 0); }
-              atObject(tile.x, tile.y);
+              // v238: we clicked once (lastAction 'click') and the FOLLOW-UP walk
+              // still didn't cross. Re-clicking is wrong twice over:
+              //  (a) if the first click OPENED the door, a second click CLOSES it
+              //      (boundary doors toggle — live 19:41:35/19:44:43 clicked id=2
+              //      = open, shut it again) and the loop never ends;
+              //  (b) if the first click did nothing, the door was never the
+              //      blocker — the walk is blocked by something else.
+              // Either way: DISENGAGE and let the normal walk/nudge machinery
+              // find another way. (APOS open_bank_door() only ever clicks when
+              // the object id says CLOSED — we have no client-side boundary
+              // state, so verify-by-walk is our equivalent.)
+              log('knownGate: walk blocked after click — disengaging (door not the blocker or already open)');
+              _specialEdgeNode = null;
+              invalidateRoute();
+              return 2500;
             }
             _specialEdgeAttempts++;
             return 1800;
@@ -1953,8 +2422,17 @@
       // sequence: WAIT until not walking, then send atObject, repeat every ~1.5s
       // until the plane/position changes.
       if (isPlayerWalking()) {
-        log('Special edge ' + node.label + ': waiting for walk to finish...');
-        return 1000;
+        _specialEdgeWaitTicks++;
+        if (_specialEdgeWaitTicks <= 6) {
+          log('Special edge ' + node.label + ': waiting for walk to finish...');
+          return 1000;
+        }
+        // v236: 6 consecutive waits = stale eu (see _specialEdgeWaitTicks decl).
+        // Proceed to the click — the retry loop covers a genuinely-dropped one.
+        log('Special edge ' + node.label + ': walk-wait exceeded 6s (stale eu) — proceeding to click');
+        _specialEdgeWaitTicks = 0;
+      } else {
+        _specialEdgeWaitTicks = 0;
       }
 
       // v222: WALK-FIRST ALTERNATION for gates/doors. Even attempts try to WALK
@@ -1967,13 +2445,32 @@
       var isGateOrDoor = (node.label === 'miningGuildDoor' ||
           node.label === 'edgeDungeonDoor' || node.label === 'northFallyTavGate' ||
           node.label === 'southFallyTavGate' || node.label === 'faladorWestBankDoor' ||
+          node.label === 'varrockEastBankDoor' ||
           node.label === 'catherbyChefDoor' || node.label === 'gerrantHouseDoor' ||
           node.label === 'witchsHouseDoor' || node.label === 'lummyNorthSheepGate' ||
           node.label === 'lummyNorthWheatNorthGate' || node.label === 'lummyNorthWheatSouthGate' ||
           node.label === 'lummyCabbageGate' || node.label === 'lummyEastCowGate' ||
           node.label === 'lummyNorthCowGate');
       if (isGateOrDoor && node.bx !== undefined && _specialEdgeAttempts % 2 === 0) {
-        // WALK attempt — target the verified graph node beyond the gate.
+        // WALK attempt. v233: stand-tile discipline (IdleRSC enterStatic exact
+        // pairing — stand on OUR side of the obstacle, inside its interaction
+        // box, BEFORE clicking; clicks from outside the box are zombie actions,
+        // harness-proven: 12 failed clicks at (343,579) with the gate box at
+        // y∈[580,582]). Per-label stand pairing transcribed from IdleRSC
+        // CustomLabelHandlers (southFallyTavGate/northFallyTavGate/miningGuildDoor
+        // enterStatic params; others follow the same adjacent-tile rule).
+        var stand = standTileFor(node.label, px, py);
+        var stB = OBSTACLE_STAND[node.label];
+        var inBoxNow = stB && px >= stB.minX && px <= stB.maxX && py >= stB.minY && py <= stB.maxY;
+        if (stand && !inBoxNow) {
+          log('Special edge ' + node.label + ': walking to stand tile (' + stand.x + ',' + stand.y + ') before clicking');
+          _specialEdgeStartX = px; _specialEdgeStartY = py;
+          _specialEdgeStartSide = _edgeSide(tile, px, py);
+          walkTo(stand.x, stand.y);
+          _specialEdgeAttempts++;
+          return 1800;
+        }
+        // In the box already — walk through to the verified node beyond.
         log('Special edge ' + node.label + ': walk attempt through to (' + node.bx + ',' + node.by + ')');
         _specialEdgeStartX = px; _specialEdgeStartY = py;
         _specialEdgeStartSide = _edgeSide(tile, px, py);
@@ -1992,12 +2489,44 @@
         case 'dwarvenMineCannonEntrance':
         case 'edgeDungeonLadder':
         case 'dwarfTunnel':
+          // v253b: LADDER RANGE GUARD. The server silently drops atObject from
+          // beyond adjacency (Mining plugin: withinRange(obj,1); live 18:36:
+          // 60+ dropped ladder clicks at (215,468) from (218,464) — 3 tiles).
+          // The Falador/Dwarven ladders only worked because their preceding
+          // graph node happened to sit adjacent. Walk to an adjacent tile FIRST
+          // (same stand-first discipline as the doors), then click.
+          if (Math.max(Math.abs(px - tile.x), Math.abs(py - tile.y)) > 1) {
+            var ladX = tile.x, ladY = tile.y;
+            // pick the adjacent tile on the player's side (avoid the object col)
+            var ax = px < ladX ? ladX - 1 : (px > ladX ? ladX + 1 : ladX);
+            var ay = py < ladY ? ladY - 1 : (py > ladY ? ladY + 1 : ladY);
+            if (Math.abs(px - ladX) <= 1 && Math.abs(py - ladY) <= 1) { ax = px; ay = py; }
+            if (!(ax === px && ay === py)) {
+              log('Ladder ' + node.label + ': walking adjacent to (' + ax + ',' + ay + ') before clicking');
+              walkTo(ax, ay);
+              return 1800;
+            }
+          }
+          atObject(tile.x, tile.y);
+          break;
+        // v233: scenery gates/doors (server SceneryLocs: ids 60/63/137/138/180).
+        // atObject ONLY — these are scenery, not boundaries. The old
+        // atBoundary+atObject fired 'wall has null object' every attempt
+        // (live log 2026-08-22 01:25+, gate 138 @ (343,581) clicked at node
+        // (343,579) where no wall exists). Cross-detection: side flip on the
+        // gate's axis (computed below from def dims/dir).
+        case 'southFallyTavGate':
+        case 'northFallyTavGate':
+        case 'faladorWestBankDoor':
+        case 'varrockEastBankDoor':
         case 'lummyNorthSheepGate':
         case 'lummyNorthWheatNorthGate':
         case 'lummyNorthWheatSouthGate':
         case 'lummyCabbageGate':
         case 'lummyEastCowGate':
         case 'lummyNorthCowGate':
+        case 'lummyEastChickenGate':
+        case 'lummyNorthChickensGate':
         case 'taverleySteppingStones':
           atObject(tile.x, tile.y);
           break;
@@ -2020,16 +2549,35 @@
             var bInBox = (px >= tile.x - 1 && px <= tile.x + 1 &&
                           py >= tile.y - 1 && py <= tile.y + 1);
             if (!bInBox) {
+              // v240: if the stand-tile walk itself is blocked (runtime trees —
+              // live 22:02: (219,471)→(218,466) silently dropped every tick,
+              // FAILED×12 loop with the disengage never firing because the walk
+              // never "finished"), bail after 3 stand-walk attempts: blacklist
+              // this gate 60s and let the walk machinery route around.
+              scriptState._gateStandFails = (scriptState._gateStandFails || 0) + 1;
+              if (scriptState._gateStandFails >= 3) {
+                log('knownGate: stand tile unreachable 3× — blacklisting gate 60s');
+                scriptState._doorTileBlacklist = scriptState._doorTileBlacklist || {};
+                scriptState._doorTileBlacklist[tile.x + ',' + tile.y] = Date.now();
+                _specialEdgeNode = null;
+                scriptState._gateStandFails = 0;
+                invalidateRoute();
+                return 2500;
+              }
               _specialEdgeStartSide = bSide;
               log('knownGate(boundary): walking to stand tile (' + tile.x + ',' + bStand + ') before clicking');
               walkTo(tile.x, bStand);
               break;
             }
+            scriptState._gateStandFails = 0;
             atBoundary(tile.x, tile.y, 0);
-            atObject(tile.x, tile.y);
             _specialEdgeLastAction = 'click';
             break;
           }
+          // v238: NON-boundary knownGates only below. (The old unconditional
+          // atObject+atBoundary pair on pure boundary doors produced the
+          // 'game object action null object' spam — boundary tiles have NO
+          // scenery, atObject is always a null click there.)
           var side4 = (px > tile.x) ? 1 : -1;
           // Gate 57 is vertical (h=2): stand tile = gate.x + side, y = gate.y or
           // gate.y+1 (both are in the box and both are corridor tiles)
@@ -2060,20 +2608,17 @@
         }
         case 'miningGuildDoor':
         case 'edgeDungeonDoor':
-        case 'northFallyTavGate':
-        case 'southFallyTavGate':
-        case 'faladorWestBankDoor':
         case 'catherbyChefDoor':
         case 'gerrantHouseDoor':
         case 'witchsHouseDoor': {
-          // v220: Same fix as knownGate — atBoundary + atObject ONLY, no walkTo.
-          // walkTo in the same tick interrupts the server's WalkToBoundaryAction
-          // (same mechanism as WalkToObjectAction — see GameObjectAction.java:50).
-          // IdleRSC open() sends atWallObject/atObject, sleeps 1280ms, rechecks.
-          // The server walks the player adjacent and opens the door. Crossing
-          // is detected by position delta on the next tick.
+          // v233: TRUE boundary doors (BoundaryLocs id 1/2 at the def-verified
+          // tiles). atBoundary ONLY — SceneryLocs shows NO scenery on these
+          // tiles, so the old unconditional atObject produced the paired
+          // 'game object action null object' spam (IdleRSC open() guards:
+          // atWallObject only when getWallObjectIdAtCoord != -1).
+          // The server walks the player into the boundary interaction range
+          // (WalkToBoundaryAction), so no same-tick walkTo before the click.
           atBoundary(tile.x, tile.y, 0);
-          atObject(tile.x, tile.y);
           break;
         }
         case 'alkharidGate': {
@@ -2183,9 +2728,14 @@
               walkTo(oTarget.x, oTarget.y);
             }
             scriptState._toMineSent = true;
-            scriptState._toMineStuck = 0;
-            scriptState._toMineLastX = oX;
-            scriptState._toMineLastY = oY;
+            // v252b: do NOT reset _toMineStuck here — the 3.2s re-send ran every
+            // cycle and zeroed the counter before it could reach 3, so stuckNudge
+            // (and the v251 tree-chop) NEVER fired on a dropped orientation walk
+            // (live 18:30: parked at (217,447), 15+ identical walkTo(216,468)).
+            // The counter is reset ONLY when the player actually moves (tracking
+            // block below does that).
+            if (!scriptState._toMineLastX) { scriptState._toMineLastX = oX; }
+            if (!scriptState._toMineLastY) { scriptState._toMineLastY = oY; }
             scriptState._toMineLastWalkAt = Date.now();
             return 3000;
           }
@@ -2217,7 +2767,29 @@
         return 800;  // nothing left to drop — resume mining
       }
 
-      if (getInventoryCount() >= 30 || scriptState.phase === 'banking') {
+      if (getInventoryCount() >= 30 && scriptState.phase !== 'banking') {
+        var _heldOrePre = false;
+        var _OG2 = [155, 157, 158, 150, 202, 151, 153, 152, 154, 383, 160, 161, 162, 163];
+        for (var _og2 = 0; _og2 < _OG2.length && !_heldOrePre; _og2++) {
+          if (getInventoryIndex(_OG2[_og2]) >= 0) _heldOrePre = true;
+        }
+        if (!_heldOrePre && (!scriptState._noOreWarn || Date.now() - scriptState._noOreWarn > 30000)) {
+          scriptState._noOreWarn = Date.now();
+          log('Inventory reads full but NO ores held (ghost slots) — skipping empty bank run');
+        }
+      }
+      // v247 FIX: ghost-slot guard. The client inventory desyncs BOTH ways
+      // (live 2026-08-23: cU=1 with 30 real items at Al-Kharid; AND 23 real
+      // items reading as 30 after a deposit at Dwarven Mine — bank deposits
+      // leave stale b4 slots). A count alone can never be trusted: bank ONLY
+      // when a depositable ore/gem is actually HELD. This kills the empty-bank
+      // loop (down→up→banker→deposit-0→repeat) in every client version.
+      var _heldOre = false;
+      var _ORE_GATE = [155, 157, 158, 150, 202, 151, 153, 152, 154, 383, 160, 161, 162, 163];
+      for (var _ogi = 0; _ogi < _ORE_GATE.length && !_heldOre; _ogi++) {
+        if (getInventoryIndex(_ORE_GATE[_ogi]) >= 0) _heldOre = true;
+      }
+      if ((getInventoryCount() >= 30 && _heldOre) || scriptState.phase === 'banking') {
         // ══ BANKING STATE MACHINE ══
         // Sub-phases: delay → walk → talk → option → deposit → close → return_walk → done
         var BANK = {x: BANK_TILE[0], y: BANK_TILE[1]};
@@ -2449,6 +3021,23 @@
           // Bank is open — deposit coal ore (ID 158) and other ores
           var ORE_IDS = [155, 157, 158, 150, 202, 151, 153, 152, 154, 383, 160, 161, 162, 163]; // v228: server ItemDefs-verified — coal 155, copper 150, tin 202, iron 151, gold 152, mith 153, addy 154, silver 383; uncut gems 157/158/160 + cut 161/162/163. REMOVED 156 (Bronze Pickaxe!) and 243 (Soft Clay) — old list banked the pickaxe.
           var deposited = 0;
+          // v248 DEAD-STOP guard: bank open, nothing depositable, nothing deposited
+          // last time either → this run can never produce ore (no pickaxe / wrong
+          // rocks / junk-filled inventory). Lapping forever (live: 20+ empty
+          // bank↔mine round-trips at Dwarven Mine 00:48–02:41) helps nobody.
+          if (deposited === 0 && scriptState._lastDepositCount === 0) {
+            var _heldNow = false;
+            var _OG3 = [155, 157, 158, 150, 202, 151, 153, 152, 154, 383, 160, 161, 162, 163];
+            for (var _og3 = 0; _og3 < _OG3.length && !_heldNow; _og3++) {
+              if (getInventoryIndex(_OG3[_og3]) >= 0) _heldNow = true;
+            }
+            if (!_heldNow) {
+              log('STOP: banked twice with zero ores — no pickaxe, wrong rock selection, or inventory full of non-ore items. Fix inventory/rocks and restart.');
+              stopBot();
+              return 3000;
+            }
+          }
+          scriptState._lastDepositCount = 0;
           log('[BANK DEBUG] deposit phase: invCount=' + getInventoryCount());
           for (var oi = 0; oi < ORE_IDS.length; oi++) {
             var oreId = ORE_IDS[oi];
@@ -2461,6 +3050,7 @@
               }
             }
           }
+          scriptState._lastDepositCount = deposited;
           log('Deposited ' + deposited + ' ore types — closing bank');
           closeBank();
           scriptState._bankPhase = 'close';
@@ -2593,10 +3183,19 @@
       if (targets.length === 0 && fallbackCoords.length > 0) {
         var px = getX(), py = getY();
         var fbList = [];
+        // v256: filter fallback coords by the CONFIGURED rock ids — the coords
+        // entries carry their rock id at index [2]. Live 19:23: Edgeville Dungeon
+        // client arrays are sparse underground → fallback fired every tick and
+        // fed SILVER rocks (195, lvl 20) to a lvl-1 test miner — 10 min of
+        // rejected clicks ("unresponsive" blacklist cycle) with copper/tin
+        // configured. The user's rock selection must always win.
+        var idSet = {};
+        for (var oi9 = 0; oi9 < objectIds.length; oi9++) idSet[objectIds[oi9]] = true;
         for (var fi = 0; fi < fallbackCoords.length; fi++) {
           var fc = fallbackCoords[fi];
+          if (fc.id !== undefined && !idSet[fc.id]) continue;
           var fd = Math.abs(fc.x - px) + Math.abs(fc.y - py);
-          if (fd <= 20) fbList.push({ worldX: fc.x, worldY: fc.y, dist: fd });
+          if (fd <= 20) fbList.push({ worldX: fc.x, worldY: fc.y, dist: fd, id: fc.id });
         }
         fbList.sort(function(a,b) { return a.dist - b.dist; });
         targets = fbList;
@@ -2695,7 +3294,33 @@
           if (nd < bestAdjDist) { bestAdjDist = nd; bestAdj = {x: nx, y: ny}; }
         }
         if (bestAdj) {
+          // v254b: rotate neighbors when the chosen approach tile proves
+          // unwalkable (live 18:55: dungeon mining room — (185,3298) dropped
+          // every send for 2+ min while (184,3299)/(186,3299) pathed fine;
+          // rock-adjacent dead tiles aren't in any def file). Remember the
+          // failed tile per rock; pick the next-best neighbor on retry.
+          scriptState._adjFail = scriptState._adjFail || {};
+          var rockKey = target.worldX + ',' + target.worldY;
+          var failKey = rockKey + '=' + bestAdj.x + ',' + bestAdj.y;
+          if (scriptState._adjSent === failKey && scriptState._adjSentAt &&
+              Date.now() - scriptState._adjSentAt < 12000) {
+            scriptState._adjFail[failKey] = Date.now();
+          }
+          // rebuild candidate list excluding recently failed tiles
+          var altAdj = null, altD = Infinity;
+          for (var ni2 = 0; ni2 < neighbors.length; ni2++) {
+            var ax2 = target.worldX + neighbors[ni2][0];
+            var ay2 = target.worldY + neighbors[ni2][1];
+            if (rockTiles[ax2 + ',' + ay2]) continue;
+            var fk2 = rockKey + '=' + ax2 + ',' + ay2;
+            if (scriptState._adjFail[fk2] && Date.now() - scriptState._adjFail[fk2] < 60000) continue;
+            var nd2 = Math.abs(ax2 - px2) + Math.abs(ay2 - py2);
+            if (nd2 < altD) { altD = nd2; altAdj = {x: ax2, y: ay2}; }
+          }
+          if (altAdj) bestAdj = altAdj;
           log('Walking adjacent to rock (' + target.worldX + ',' + target.worldY + ') via (' + bestAdj.x + ',' + bestAdj.y + ')');
+          scriptState._adjSent = rockKey + '=' + bestAdj.x + ',' + bestAdj.y;
+          scriptState._adjSentAt = Date.now();
           walkTo(bestAdj.x, bestAdj.y);
           return 1500;
         }
@@ -2708,6 +3333,817 @@
       scriptState.pendingRockCheck = true;
       atObject(target.worldX, target.worldY);
       return actionTime;
+};
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // WOODCUTTING PILOT (v260) — Normal trees only (IDs 0, 1)
+  // Modeled on AIO Miner (makeGatheringScript) architecture
+  // ════════════════════════════════════════════════════════════════
+
+  function makeWoodcuttingPilotScript() {
+    var CHOP_ACTION_TIME = 1200;
+    var FELLED_TILE_EXPIRY = 45000;
+    var STUCK_TIMEOUT = 60000;
+
+    // v263: client object arrays are STALE (v205 invariant — same reason the miner
+    // uses MINE_REGISTRY). Targeting MUST come from server SceneryLocs.json.
+    // These are REAL tree tiles (ids 0/1) around Lumbridge, verified server-side
+    // 2026-08-23: /opt/openrsc/server/conf/server/defs/locs/SceneryLocs.json
+    var TREE_REGISTRY = [
+      { x: 114, y: 631 }, { x: 122, y: 632 }, { x: 120, y: 633 },
+      { x: 114, y: 634 }, { x: 115, y: 635 }, { x: 118, y: 635 },
+      { x: 122, y: 636 }, { x: 118, y: 637 }, { x: 114, y: 638 },
+      { x: 117, y: 639 }, { x: 114, y: 640 }, { x: 119, y: 640 }
+    ];
+
+    return function() {
+      if (!isLoggedIn()) return 5000;
+
+      // ══ PHASE: INIT ══
+      if (scriptState.phase === 'init') {
+        // Verify axe in inventory OR equipped (server checks CarriedItems =
+        // inventory ∪ equipment — a wielded axe is valid, only banked is not)
+        var hasAxe = false;
+        for (var ai = 0; ai < AXE_IDS.length; ai++) {
+          if (getInventoryIndex(AXE_IDS[ai]) >= 0 || isItemIdEquipped(AXE_IDS[ai])) {
+            hasAxe = true;
+            break;
+          }
+        }
+        if (!hasAxe) {
+          log('NO AXE — kit via ::item 405');
+          stopBot();
+          return 1000;
+        }
+
+        scriptState.startX = getX();
+        scriptState.startY = getY();
+        scriptState.logsCount = 0;
+        scriptState.lastLogCount = 0;
+        scriptState.felledTiles = {};
+        scriptState.phase = 'gather';
+        scriptState.stuckStart = Date.now();
+
+        log('Woodcutting Pilot: start=(' + scriptState.startX + ',' + scriptState.startY + ')');
+        log('Target trees: ' + NORMAL_TREE_IDS.join(',') + ' | Stumps excluded: ' + STUMP_IDS.join(','));
+      }
+
+      // ══ FATIGUE / SLEEP (reuse miner's exact logic) ══
+      if (getIsSleeping()) {
+        if (!scriptState.sleepTyping) {
+          scriptState.sleepTyping = true;
+          var sleepWord = 'asleep';
+          for (var ci = 0; ci < sleepWord.length; ci++) {
+            window.__r2hTypeChar(sleepWord[ci]);
+          }
+          setTimeout(function() {
+            window.__r2hTypeSpecial('Enter');
+            scriptState.sleepTyping = false;
+          }, 500);
+        }
+        return 2000;
+      }
+      var fatigue = getFatigue();
+      if (fatigue >= 90) {
+        var bagSlot = getInventoryIndex(SLEEPING_BAG);
+        if (bagSlot >= 0) {
+          log('Fatigue ' + fatigue + '% — using sleeping bag');
+          useItem(bagSlot);
+          return 3000;
+        }
+      }
+
+      // ══ INVENTORY FULL → STOP (pilot does NOT bank) ══
+      var invCount = getInventoryCount();
+      var logsNow = 0;
+      for (var li = 0; li < invCount; li++) {
+        if (getInventoryId(li) === LOG_ID) logsNow++;
+      }
+      scriptState.logsCount = logsNow;
+      // v263: flag log gain at the tile we were chopping — drives fell detection
+      if (scriptState.lastTree && logsNow > (scriptState.lastLogsSeen || 0)) {
+        scriptState.gainedAtLastTree = true;
+      }
+      scriptState.lastLogsSeen = logsNow;
+
+      if (invCount >= 30) {
+        log('PILOT COMPLETE: inv full, ' + logsNow + ' logs');
+        stopBot();
+        return 1000;
+      }
+
+      // Log progress every 10 logs
+      if (logsNow > 0 && logsNow % 10 === 0 && logsNow !== scriptState.lastLogCount) {
+        log('Progress: ' + logsNow + ' logs');
+        scriptState.lastLogCount = logsNow;
+      }
+
+      // ══ CLEAN EXPIRED FELLED TILES ══
+      var now = Date.now();
+      for (var ft in scriptState.felledTiles) {
+        if (now - scriptState.felledTiles[ft] > FELLED_TILE_EXPIRY) {
+          delete scriptState.felledTiles[ft];
+        }
+      }
+
+      // ══ FIND NEAREST TREE (server-authoritative registry, NOT client scan) ══
+      // v263: the client object list is stale/unreliable (v205 invariant). The
+      // server IS the truth: if our chop packet hits a live tree, Woodcutting.onOpLoc
+      // fires and we gain logs; if the tree is a stump, the server silently no-ops.
+      // So: iterate registry tiles, skip blacklisted (felled) ones, walk adjacent, chop.
+      var now = Date.now();
+      var availTargets = [];
+      for (var ti = 0; ti < TREE_REGISTRY.length; ti++) {
+        var t = TREE_REGISTRY[ti];
+        var tkey = t.x + ',' + t.y;
+        if (scriptState.felledTiles[tkey]) continue;
+        var tdist = Math.abs(t.x - getX()) + Math.abs(t.y - getY());
+        availTargets.push({ worldX: t.x, worldY: t.y, id: 1, dist: tdist });
+      }
+      availTargets.sort(function(a, b) { return a.dist - b.dist; });
+
+      if (availTargets.length === 0) {
+        // No trees found — walk back toward start tile
+        var distToStart = Math.abs(getX() - scriptState.startX) + Math.abs(getY() - scriptState.startY);
+        if (distToStart > 5) {
+          log('No trees found — walking back to start area');
+          walkTo(scriptState.startX, scriptState.startY);
+          return 2000;
+        }
+        // Stuck near start with no trees
+        if (now - (scriptState.stuckStart || now) > STUCK_TIMEOUT) {
+          log('No trees for 60s+ — stopping');
+          stopBot();
+          return 1000;
+        }
+        return 3000;
+      }
+
+      // Reset stuck timer when trees are available
+      scriptState.stuckStart = now;
+
+      var target = availTargets[0];
+
+      // ══ WALK ADJACENT TO TREE (server requires withinRange 2) ══
+      var cheb = Math.max(Math.abs(target.worldX - getX()), Math.abs(target.worldY - getY()));
+      if (cheb > 1) {
+        var px = getX(), py = getY();
+        // Avoid standing on other registry trees or felled (stump) tiles
+        var rockTiles = {};
+        for (var fi = 0; fi < TREE_REGISTRY.length; fi++) {
+          rockTiles[TREE_REGISTRY[fi].x + ',' + TREE_REGISTRY[fi].y] = true;
+        }
+        for (var si in scriptState.felledTiles) {
+          rockTiles[si] = true;
+        }
+        var neighbors = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+        neighbors.sort(function(a, b) {
+          var da = Math.abs(target.worldX + a[0] - px) + Math.abs(target.worldY + a[1] - py);
+          var db = Math.abs(target.worldX + b[0] - px) + Math.abs(target.worldY + b[1] - py);
+          return da - db;
+        });
+        var bestAdj = null;
+        for (var ni = 0; ni < neighbors.length; ni++) {
+          var nx = target.worldX + neighbors[ni][0];
+          var ny = target.worldY + neighbors[ni][1];
+          if (rockTiles[nx + ',' + ny]) continue;
+          bestAdj = {x: nx, y: ny};
+          break;
+        }
+        if (bestAdj) {
+          walkTo(bestAdj.x, bestAdj.y);
+          return 1500;
+        }
+      }
+
+      // ══ CHOP TREE + FELL DETECTION (inventory-based, server-authoritative) ══
+      // v263: client scan can't confirm tree existence, so detect felling the way
+      // the server reports it: a successful log (inv gained while chopping) is
+      // ALWAYS followed by the tree felling (fell=100% for normal trees). After a
+      // log gain at this tile, blacklist it for the respawn window and rotate.
+      if (scriptState.lastTree && scriptState.gainedAtLastTree) {
+        scriptState.felledTiles[scriptState.lastTree] = Date.now();
+        log('Tree felled at (' + scriptState.lastTree + ') — rotating (logs: ' + logsNow + ')');
+        scriptState.lastTree = null;
+        scriptState.gainedAtLastTree = false;
+        return 600;
+      }
+      log('Chopping tree at (' + target.worldX + ',' + target.worldY + ')');
+      scriptState.lastTree = target.worldX + ',' + target.worldY;
+      scriptState.invBeforeChop = invCount;
+      atObject(target.worldX, target.worldY);
+      return CHOP_ACTION_TIME;
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // v265: FULL WOODCUTTING — 6 tree types, banking, power-chop.
+  // Config (ScriptPanel → App.tsx spread → engine):
+  //   treeTypes: {Normal:bool,Oak:bool,Willow:bool,Maple:bool,Yew:bool,Magic:bool}
+  //   wcBank: bool (false = power-chop/drop)
+  //   bankDestination: 'Auto' | bank name (manual only sensible far from groves)
+  // Registry-driven (v263 lesson: client object arrays are stale). Bank machine
+  // ports the miner's proven talk→option→deposit→close sequence. Long walks use
+  // the global webwalk graph; groves chosen here have NO labeled-edge (gate)
+  // crossings to their banks — Seers is open terrain, Lumbridge→Draynor is gate-free.
+  // ═══════════════════════════════════════════════════════════════
+  function makeWoodcuttingScript(runtimeConfig) {
+    var CHOP_ACTION_TIME = 850;
+    var WALK_RESEND_MS = 2500;
+    var cfg = runtimeConfig || {};
+
+    // ── Tree selection ──
+    var selNames = [];
+    if (cfg.treeTypes) {
+      for (var tk in cfg.treeTypes) if (cfg.treeTypes[tk] && WC_TREE_TYPES[tk]) selNames.push(tk);
+    }
+    if (selNames.length === 0 && cfg.treeType && WC_TREE_TYPES[cfg.treeType]) selNames.push(cfg.treeType);
+    if (selNames.length === 0) selNames.push('Normal');
+
+    var powerMode = (cfg.wcBank === false);
+    var manualBank = (!powerMode && cfg.bankDestination && cfg.bankDestination !== 'Auto' &&
+                      BANK_REGISTRY[cfg.bankDestination]) ? cfg.bankDestination : null;
+
+    // Flatten: every registry tile of every selected type, tagged with its meta
+    var TILES = [];   // {x, y, key, name, respawnMs, fellOnGain, missLimit, logId}
+    var GROVES = [];  // {stand:[x,y], name}
+    var seenGrove = {};
+    for (var si = 0; si < selNames.length; si++) {
+      var meta = WC_TREE_TYPES[selNames[si]];
+      for (var gi = 0; gi < meta.groves.length; gi++) {
+        var grove = meta.groves[gi];
+        var gkey = grove.stand[0] + ',' + grove.stand[1];
+        if (!seenGrove[gkey]) { seenGrove[gkey] = true; GROVES.push({ stand: grove.stand, name: grove.name }); }
+        for (var ti = 0; ti < grove.tiles.length; ti++) {
+          TILES.push({ x: grove.tiles[ti][0], y: grove.tiles[ti][1],
+            key: grove.tiles[ti][0] + ',' + grove.tiles[ti][1], name: selNames[si],
+            ids: meta.ids, respawnMs: meta.respawnMs, fellOnGain: meta.fellOnGain,
+            missLimit: meta.missLimit, dryLimit: meta.dryLimit || 2, logId: meta.logId });
+        }
+      }
+    }
+
+    // Nearest graph hop toward dest — GATE-FREE routing (v265 test 1 lesson:
+    // the miner's labeled-edge crossing machinery is mining-private; WC prunes
+    // labeled edges instead, so Dijkstra routes around gates entirely).
+    function nextHop(destX, destY) {
+      var route = webwalkRouteNoGates(getX(), getY(), destX, destY);
+      if (!route || route.length < 2) return { x: destX, y: destY };
+      var bestIdx = 0, bestD = Infinity;
+      for (var i = 0; i < route.length; i++) {
+        var d = Math.abs(route[i].x - getX()) + Math.abs(route[i].y - getY());
+        if (d < bestD) { bestD = d; bestIdx = i; }
+      }
+      if (bestIdx >= route.length - 1) return { x: destX, y: destY };
+      return { x: route[bestIdx + 1].x, y: route[bestIdx + 1].y };
+    }
+
+    // Shared long-distance walker. Returns delay; sets phase via onArrive().
+    // Minimal gate-crossing for the two Taverley gates — the graph's ONLY
+    // Asgarnia↔Kandarin links (verified by cut-vertex simulation). Pattern is
+    // the miner's proven known-gate sequence: walk to side-specific stand tile,
+    // atObject the gate, verify side-flip on the N-S axis, bounded retries.
+    var WC_GATES = {
+      // north gate = HORIZONTAL (E-W crossing, x-side flip); south = VERTICAL (N-S, y-side flip).
+      // Click tiles + stand tiles from the miner's def-verified OBSTACLE_STAND/standTileFor.
+      northFallyTavGate: { x: 341, y: 487, axis: 'x', standW: { x: 341, y: 487 }, standE: { x: 342, y: 487 } },
+      southFallyTavGate: { x: 343, y: 581, axis: 'y', standN: { x: 343, y: 580 }, standS: { x: 343, y: 582 } }
+    };
+    // v273 STATE-AWARE GATE CROSSING. The client's object list carries the gate's
+    // LIVE id: closed = 57/137/138 (cmd1 "open"), open = 58 (cmd1 WalkTo).
+    // Rules that fix two live failures:
+    //   - v268: clicking an ALREADY-OPEN gate (58) toggles/does nothing useful → we
+    //     bounced forever. Fix: see 58 → just walk through, never click.
+    //   - v269: walkTo(beyond) 1.5s after the open-click CANCELS the server's
+    //     WalkToObjectAction before the click lands → zero gate packets (live:
+    //     shafster frozen at north gate 22:56–22:58). Fix: after a click, STAND
+    //     STILL and wait for the client to see the id flip closed→open; only then walk.
+    var WC_GATE_IDS_CLOSED = [57, 137, 138];
+    function wcGateOpenAt(x, y) {
+      var objs = findObjects([57, 58, 137, 138], 6);
+      for (var i = 0; i < objs.length; i++) {
+        if (objs[i].worldX === x && objs[i].worldY === y) return objs[i].id === 58;
+      }
+      return null;   // not visible — client list may be stale
+    }
+    function wcTryGate(destX, destY) {
+      var g = null, gname = '';
+      for (var gn in WC_GATES) {
+        if (Math.abs(getX() - WC_GATES[gn].x) <= 12 && Math.abs(getY() - WC_GATES[gn].y) <= 12) {
+          g = WC_GATES[gn]; gname = gn; break;
+        }
+      }
+      if (!g) { scriptState._wcGate = null; return 0; }
+      var side, wantSide, stand;
+      if (g.axis === 'y') {
+        side = getY() < g.y ? -1 : (getY() > g.y ? 1 : 0);
+        wantSide = destY < g.y ? -1 : 1;
+        stand = side < 0 ? g.standN : g.standS;
+      } else {
+        side = getX() < g.x ? -1 : (getX() > g.x ? 1 : 0);
+        wantSide = destX < g.x ? -1 : 1;
+        stand = side < 0 ? g.standW : g.standE;
+      }
+      if (side === wantSide) { scriptState._wcGate = null; return 1; }
+      if (side === 0) return 0;
+      var beyond = g.axis === 'y'
+        ? (side < 0 ? { x: g.x, y: g.y + 3 } : { x: g.x, y: g.y - 3 })
+        : (side < 0 ? { x: g.x + 3, y: g.y } : { x: g.x - 3, y: g.y });
+
+      if (!scriptState._wcGate) {
+        scriptState._wcGate = { name: gname, startSide: side, stand: stand, clicked: false,
+                                clickTs: 0, start: Date.now() };
+        log('Gate ' + gname + ': engaging (side ' + side + ' → ' + wantSide + ')');
+      }
+      var st = scriptState._wcGate;
+      if (st.name !== gname) { scriptState._wcGate = null; return 2; }
+
+      // Crossed already?
+      var sideNow = g.axis === 'y'
+        ? (getY() < g.y ? -1 : (getY() > g.y ? 1 : 0))
+        : (getX() < g.x ? -1 : (getX() > g.x ? 1 : 0));
+      if (sideNow === wantSide) {
+        log('Gate ' + gname + ' crossed');
+        scriptState._wcGate = null;
+        return 1;
+      }
+      if (Date.now() - st.start > 30000) {
+        log('Gate ' + gname + ' FAILED after 30s — stopping. Report position.');
+        stopBot();
+        return 3;
+      }
+
+      var isOpen = wcGateOpenAt(g.x, g.y);
+      if (isOpen === true) {
+        // OPEN: walk straight through — do NOT click (clicking 58 = walkto at best)
+        if (st.clicked) log('Gate ' + gname + ': now open — walking through');
+        st.clicked = false;
+        walkTo(beyond.x, beyond.y);
+        return 2;
+      }
+      // CLOSED (or not visible): if we clicked recently, STAND STILL and wait for
+      // the server interaction to complete — a walkTo now would cancel it.
+      if (st.clicked && Date.now() - st.clickTs < 5000) {
+        return 2;   // waiting on the open-click
+      }
+      // Click expired without opening → re-approach stand and click again
+      var atStand = Math.abs(getX() - stand.x) <= 1 && Math.abs(getY() - stand.y) <= 1;
+      if (!atStand) {
+        walkTo(stand.x, stand.y);
+        return 2;
+      }
+      atObject(g.x, g.y);   // closed gate 57/137/138: cmd1 = "open"
+      st.clicked = true;
+      st.clickTs = Date.now();
+      log('Gate ' + gname + ': gate shut — clicking open');
+      return 2;
+    }
+
+    function walkToward(destX, destY, onArrive, arriveDist) {
+      var chebFar = Math.max(Math.abs(destX - getX()), Math.abs(destY - getY()));
+      if (chebFar <= (arriveDist || 3)) { onArrive(); return 400; }
+      // v271: CLOSE-range direct walk — graph snap nodes can sit ~5+ tiles from
+      // the true destination, stalling arrival at cheb 5 vs threshold 4 while
+      // the hop machinery drags the player away (live: 9 min, zero chops). Inside
+      // 12 tiles the client pathfinder handles it — bypass the graph entirely.
+      if (chebFar <= 12) {
+        walkTo(destX, destY);
+        return 1200;
+      }
+      // COMMIT to one hop until reached/stale (test-3 lesson: per-tick route
+      // recompute at a graph fork ping-pongs the walk target between two hops).
+      var dkey = destX + ',' + destY;
+      if (scriptState._wcHopDest !== dkey) { scriptState._wcHopDest = dkey; scriptState._wcHop = null; }
+      var hop = scriptState._wcHop;
+      var atHop = hop && Math.max(Math.abs(hop.x - getX()), Math.abs(hop.y - getY())) <= 1;
+      var hopStale = hop && Date.now() - (scriptState._wcHopTs || 0) > 25000;
+      if (!hop || atHop || hopStale) {
+        hop = nextHop(destX, destY);
+        scriptState._wcHop = hop;
+        scriptState._wcHopTs = Date.now();
+        scriptState._wcLastWalk = 0;
+        scriptState._wcSent = false;
+        scriptState._wcSendX = -9999; scriptState._wcSendY = -9999;
+      }
+      var chebHop = Math.max(Math.abs(hop.x - getX()), Math.abs(hop.y - getY()));
+      var now = Date.now();
+      var moved = (getX() !== (scriptState._wcSendX || -9999) || getY() !== (scriptState._wcSendY || -9999));
+      // Gate check FIRST: near a Taverley gate needing a cross → handle it,
+      // skip normal hop-walking this tick
+      var gateRes = wcTryGate(destX, destY);
+      if (gateRes === 2) return 1500;      // gate handling owns this tick
+      if (gateRes === 3) return 3000;      // gate failed — stopped
+      if (gateRes === 1) { scriptState._wcLastWalk = 0; }  // crossed/none-needed — fresh hop next tick
+      if (!scriptState._wcLastWalk || now - scriptState._wcLastWalk > WALK_RESEND_MS || (scriptState._wcSent && !moved)) {
+        if (scriptState._wcSent && !moved) {
+          walkTo(hop.x + 1, hop.y);  // nudge
+        } else {
+          walkTo(hop.x, hop.y);
+        }
+        scriptState._wcLastWalk = now;
+        scriptState._wcSent = true;
+        scriptState._wcSendX = getX(); scriptState._wcSendY = getY();
+      }
+      // Stuck watchdog: reset on MOVEMENT (a long legit walk never trips it);
+      // 45s with zero position change → hard stop with reason
+      var px2 = getX(), py2 = getY();
+      if (px2 !== (scriptState._wcLastPosX || -9999) || py2 !== (scriptState._wcLastPosY || -9999)) {
+        scriptState._wcLastPosX = px2; scriptState._wcLastPosY = py2;
+        scriptState._wcWalkStart = now;
+      } else if (now - scriptState._wcWalkStart > 45000) {
+        log('STUCK walking to (' + destX + ',' + destY + ') for 45s — stopping. Report position.');
+        stopBot();
+        return 2000;
+      }
+      return 1500;
+    }
+
+    return function() {
+      if (!isLoggedIn()) return 5000;
+
+      // ══ INIT ══
+      if (scriptState.phase === 'init') {
+        var hasAxe = false;
+        for (var ai = 0; ai < AXE_IDS.length; ai++) {
+          if (getInventoryIndex(AXE_IDS[ai]) >= 0 || isItemIdEquipped(AXE_IDS[ai])) { hasAxe = true; break; }
+        }
+        if (!hasAxe) { log('NO AXE — kit via ::item 405'); stopBot(); return 1000; }
+
+        // Level gate per selected type (WC = stat index 8, verified empirically)
+        var wcLevel = getStatBase(8);
+        var kept = [], dropped = [];
+        for (var li = 0; li < selNames.length; li++) {
+          if (wcLevel >= WC_TREE_TYPES[selNames[li]].level) kept.push(selNames[li]);
+          else dropped.push(selNames[li] + ' (need ' + WC_TREE_TYPES[selNames[li]].level + ')');
+        }
+        if (dropped.length) log('Skipped for level: ' + dropped.join(', ') + ' — you are ' + wcLevel + ' WC');
+        if (kept.length === 0) { log('WC level ' + wcLevel + ' too low for every selected tree — stopping'); stopBot(); return 1000; }
+        // Re-filter TILES to kept types
+        TILES = TILES.filter(function(t) { return kept.indexOf(t.name) >= 0; });
+
+        // Pick starting grove: nearest stand to player
+        var bestG = null, bestGD = Infinity;
+        for (var gi2 = 0; gi2 < GROVES.length; gi2++) {
+          var gd = Math.abs(GROVES[gi2].stand[0] - getX()) + Math.abs(GROVES[gi2].stand[1] - getY());
+          if (gd < bestGD) { bestGD = gd; bestG = GROVES[gi2]; }
+        }
+        scriptState.wcGrove = bestG;
+
+        // Auto-bank: nearest bank by webwalk route cost from the grove (miner's v210 logic)
+        scriptState.wcBankTile = null; scriptState.wcBankName = '';
+        if (!powerMode) {
+          if (manualBank) {
+            scriptState.wcBankName = manualBank;
+            scriptState.wcBankTile = BANK_REGISTRY[manualBank];
+          } else {
+            var wk = webwalkDijkstraNoGates(bestG.stand[0], bestG.stand[1]);
+            var bestBank = null, bestCost = Infinity;
+            for (var bn in BANK_REGISTRY) {
+              var bt = BANK_REGISTRY[bn];
+              var bnode = webwalkSnapNoGates(bt[0], bt[1]);
+              var bcost = wk.dist[bnode.x + ',' + bnode.y];
+              if (bcost !== undefined && bcost < bestCost) { bestCost = bcost; bestBank = bn; }
+            }
+            if (bestBank) { scriptState.wcBankName = bestBank; scriptState.wcBankTile = BANK_REGISTRY[bestBank]; }
+          }
+        }
+
+        scriptState.felledTiles = {};
+        scriptState.logsCount = 0; scriptState.lastLogCount = 0; scriptState.lastLogsSeen = 0;
+        scriptState.bankedTrips = 0;
+        scriptState._wcWalkStart = 0; scriptState._wcLastWalk = 0; scriptState._wcSent = false;
+        // Trees already within reach? Skip the grove-stand walk entirely — gather
+        // now. (Test-2 lesson: insisting on the stand tile stranded the bot across
+        // a pond from reachable trees.) Only travel when the nearest live tile is
+        // genuinely far.
+        var nearestTileD = Infinity;
+        for (var nti = 0; nti < TILES.length; nti++) {
+          var ntd = Math.max(Math.abs(TILES[nti].x - getX()), Math.abs(TILES[nti].y - getY()));
+          if (ntd < nearestTileD) nearestTileD = ntd;
+        }
+        // v274: FULL INVENTORY AT START → bank FIRST. Restarting mid-route (e.g.
+        // at a gate with 30 logs) used to send the bot grove-first — a full
+        // round-trip before it noticed it needed the bank anyway.
+        if (!powerMode && getInventoryCount() >= 30 && scriptState.wcBankTile) {
+          scriptState.phase = 'toBank';
+          log('Starting with full inventory — banking first at ' + scriptState.wcBankName);
+        } else if (nearestTileD <= 20) {
+          scriptState.phase = 'gather';
+          log('Trees ' + nearestTileD + ' tiles away — chopping directly (skip grove walk)');
+        } else {
+          scriptState.phase = 'toGrove';
+        }
+        log('Woodcutting v265: types=[' + kept.join(',') + '] grove=' + bestG.name +
+            ' mode=' + (powerMode ? 'POWER-CHOP (drop)' : 'BANK → ' + scriptState.wcBankName) +
+            ' tiles=' + TILES.length + ' WClvl=' + wcLevel);
+      }
+
+      // ══ FATIGUE / SLEEP ══
+      if (getIsSleeping()) {
+        if (!scriptState.sleepTyping) {
+          scriptState.sleepTyping = true;
+          var sleepWord = 'asleep';
+          for (var ci = 0; ci < sleepWord.length; ci++) window.__r2hTypeChar(sleepWord[ci]);
+          setTimeout(function() {
+            window.__r2hTypeSpecial('Enter');
+            scriptState.sleepTyping = false;
+          }, 500);
+        }
+        return 2000;
+      }
+      var fatigue = getFatigue();
+      if (fatigue >= 90) {
+        var bagSlot = getInventoryIndex(SLEEPING_BAG);
+        if (bagSlot >= 0) { log('Fatigue ' + fatigue + '% — using sleeping bag'); useItem(bagSlot); return 3000; }
+      }
+
+      var invCount = getInventoryCount();
+      var logsNow = 0;
+      for (var ii = 0; ii < invCount; ii++) {
+        if (WC_LOG_IDS.indexOf(getInventoryId(ii)) >= 0) logsNow++;
+      }
+      scriptState.logsCount = logsNow;
+      if (logsNow > 0 && logsNow % 10 === 0 && logsNow !== scriptState.lastLogCount) {
+        log('Progress: ' + logsNow + ' logs' + (scriptState.bankedTrips ? (' (' + scriptState.bankedTrips + ' banked trips)') : ''));
+        scriptState.lastLogCount = logsNow;
+      }
+
+      // ══ PHASE: TO GROVE ══
+      if (scriptState.phase === 'toGrove') {
+        return walkToward(scriptState.wcGrove.stand[0], scriptState.wcGrove.stand[1], function() {
+          scriptState.phase = 'gather';
+          scriptState._wcWalkStart = 0; scriptState._wcLastWalk = 0; scriptState._wcSent = false;
+          log('At grove ' + scriptState.wcGrove.name + ' — chopping');
+        }, 4);
+      }
+
+      // ══ PHASE: TO BANK ══
+      if (scriptState.phase === 'toBank') {
+        return walkToward(scriptState.wcBankTile[0], scriptState.wcBankTile[1], function() {
+          scriptState.phase = 'bankTalk';
+          scriptState._wcWalkStart = 0; scriptState._wcLastWalk = 0; scriptState._wcSent = false;
+          scriptState._wcBankerMisses = 0;
+        }, 2);
+      }
+
+      // ══ PHASE: TO GROVE (return from bank) ══
+      if (scriptState.phase === 'returnGrove') {
+        return walkToward(scriptState.wcGrove.stand[0], scriptState.wcGrove.stand[1], function() {
+          scriptState.phase = 'gather';
+          scriptState._wcWalkStart = 0; scriptState._wcLastWalk = 0; scriptState._wcSent = false;
+        }, 4);
+      }
+
+      // ══ BANK MACHINE (miner's proven sequence) ══
+      if (scriptState.phase === 'bankTalk') {
+        var banker = findNpcs(WC_BANKER_IDS, 3);
+        if (banker.length > 0) {
+          log('Talking to banker (idx=' + banker[0].serverIndex + ')');
+          talkToNpc(banker[0].serverIndex);
+          scriptState._wcBankTimer = Date.now();
+          scriptState.phase = 'bankOption';
+          return 2000;
+        }
+        walkTo(scriptState.wcBankTile[0], scriptState.wcBankTile[1]);
+        scriptState._wcBankerMisses = (scriptState._wcBankerMisses || 0) + 1;
+        if (scriptState._wcBankerMisses >= 12) {
+          log('ERROR: no banker found near ' + scriptState.wcBankName + ' — stopping');
+          stopBot(); return 2000;
+        }
+        return 1500;
+      }
+      if (scriptState.phase === 'bankOption') {
+        if (isInBank()) { scriptState.phase = 'bankDeposit'; return 500; }
+        if (Date.now() - scriptState._wcBankTimer > 2000) {
+          optionAnswer(0);
+          scriptState._wcBankTimer = Date.now();
+        }
+        if (Date.now() - (scriptState._wcBankTalkStart || scriptState._wcBankTimer) > 12000) {
+          log('Bank not opening — retrying talk');
+          scriptState.phase = 'bankTalk';
+          scriptState._wcBankTalkStart = Date.now();
+        }
+        return 1500;
+      }
+      if (scriptState.phase === 'bankDeposit') {
+        if (!isInBank()) {
+          if (Date.now() - (scriptState._wcBankTimer || 0) > 8000) { scriptState.phase = 'bankTalk'; }
+          return 1500;
+        }
+        var deposited = 0;
+        for (var di = 0; di < WC_LOG_IDS.length; di++) {
+          if (getInventoryIndex(WC_LOG_IDS[di]) >= 0) {
+            depositItem(WC_LOG_IDS[di], 9999);
+            deposited++;
+          }
+        }
+        scriptState.bankedTrips++;
+        log('Banked at ' + scriptState.wcBankName + ' (trip ' + scriptState.bankedTrips + ', ' + deposited + ' log types) — returning');
+        closeBank();
+        scriptState.phase = 'returnGrove';
+        return 2000;
+      }
+
+      // ══ PHASE: GATHER ══
+      if (invCount >= 30) {
+        if (powerMode) {
+          // Power-chop: drop one log per tick (server 1-action-per-tick)
+          for (var dpi = 0; dpi < invCount; dpi++) {
+            if (WC_LOG_IDS.indexOf(getInventoryId(dpi)) >= 0) {
+              dropItem(dpi);
+              return 700;
+            }
+          }
+          return 600;  // full of non-logs — keep chopping anyway (axe/bag occupy)
+        }
+        log('Inventory full (' + logsNow + ' logs) — walking to ' + scriptState.wcBankName);
+        scriptState.phase = 'toBank';
+        scriptState._wcWalkStart = 0; scriptState._wcLastWalk = 0; scriptState._wcSent = false;
+        return 1000;
+      }
+
+      // Log-gain detection (drives fell/miss bookkeeping)
+      if (scriptState.lastTree && logsNow > (scriptState.lastLogsSeen || 0)) {
+        scriptState.gainedAtLastTree = true;
+        scriptState.wcTreeGains = scriptState.wcTreeGains || {};
+        scriptState.wcTreeGains[scriptState.lastTree] = (scriptState.wcTreeGains[scriptState.lastTree] || 0) + 1;
+      }
+
+      // Expire blacklisted tiles (per-type respawn windows)
+      var now = Date.now();
+      for (var ft in scriptState.felledTiles) {
+        var tileMeta = scriptState.felledTiles[ft];
+        if (now - tileMeta.at > tileMeta.ms) delete scriptState.felledTiles[ft];
+      }
+      // Expire soft-skips (never-gained trees — likely alive, just unlucky)
+      if (scriptState.wcSoftSkip) {
+        for (var ss in scriptState.wcSoftSkip) {
+          if (now > scriptState.wcSoftSkip[ss]) delete scriptState.wcSoftSkip[ss];
+        }
+      }
+
+      // ══ v272 LIVE-STUMP SCAN ══
+      // When a tree fells, the server broadcasts a scenery update — the client's
+      // object list swaps the tree for a stump (id 4 normal/magic, 314 oak–yew)
+      // AT that tile. Tiles the client currently shows as stumps are depleted:
+      // skip them BEFORE clicking. This is the "Nothing interesting happens"
+      // fast-path — it prevents the wasted swing+walk entirely instead of
+      // reacting to the message afterward. Evidence trust:
+      //   - we gained logs there → certain fell → full respawn blacklist
+      //   - no gains there → maybe-stale client data → short 25s recheck
+      var scanWant = {};
+      for (var swi = 0; swi < TILES.length; swi++) {
+        for (var swj = 0; swj < TILES[swi].ids.length; swj++) scanWant[TILES[swi].ids[swj]] = true;
+      }
+      scanWant[4] = true; scanWant[314] = true;
+      var scanObjs = findObjects(Object.keys(scanWant).map(Number), 24);
+      var objAt = {};
+      for (var soi = 0; soi < scanObjs.length; soi++) {
+        objAt[scanObjs[soi].worldX + ',' + scanObjs[soi].worldY] = scanObjs[soi].id;
+      }
+
+      // Nearest live tile
+      var avail = [];
+      for (var ti2 = 0; ti2 < TILES.length; ti2++) {
+        var t2 = TILES[ti2];
+        if (scriptState.felledTiles[t2.key]) continue;
+        if (scriptState.wcSoftSkip && scriptState.wcSoftSkip[t2.key]) continue;
+        var seenId = objAt[t2.key];
+        if (seenId !== undefined && STUMP_IDS.indexOf(seenId) >= 0) {
+          var stumpGains = (scriptState.wcTreeGains && scriptState.wcTreeGains[t2.key]) || 0;
+          scriptState.felledTiles[t2.key] = { at: Date.now(), ms: stumpGains > 0 ? t2.respawnMs : 25000 };
+          if (stumpGains > 0 && scriptState.wcTreeGains) delete scriptState.wcTreeGains[t2.key];
+          log('Stump visible at (' + t2.key + ') ' + t2.name + ' — blacklisting ' + (stumpGains > 0 ? 'full respawn' : '25s recheck'));
+          if (scriptState.lastTree === t2.key) {
+            scriptState.lastTree = null; scriptState.chopRounds = 0; scriptState.gainedAtLastTree = false;
+          }
+          continue;
+        }
+        avail.push({ t: t2, d: Math.abs(t2.x - getX()) + Math.abs(t2.y - getY()),
+                     live: (seenId !== undefined) ? 1 : 0 });
+      }
+      avail.sort(function(a, b) {
+        // Confirmed-live trees first (client can see the actual tree id), then distance
+        if (a.live !== b.live) return b.live - a.live;
+        return a.d - b.d;
+      });
+
+      if (avail.length === 0) {
+        // All blacklisted — wait at stand for respawns (or walk back to stand)
+        var dStand = Math.abs(getX() - scriptState.wcGrove.stand[0]) + Math.abs(getY() - scriptState.wcGrove.stand[1]);
+        if (dStand > 4) { walkTo(scriptState.wcGrove.stand[0], scriptState.wcGrove.stand[1]); return 2000; }
+        if (!scriptState._wcWaitStart) scriptState._wcWaitStart = now;
+        if (now - scriptState._wcWaitStart > 90000) {
+          log('No live trees for 90s — stopping');
+          stopBot(); return 1000;
+        }
+        return 3000;
+      }
+      scriptState._wcWaitStart = 0;
+
+      // v270 HYSTERESIS: keep the current tree unless the best alternative is
+      // 3+ tiles closer. Without this, a blacklist expiring mid-walk flips the
+      // target and the bot walks in circles between two near trees.
+      var target = avail[0].t;
+      if (scriptState.lastTree) {
+        for (var hi = 0; hi < avail.length; hi++) {
+          if (avail[hi].t.key === scriptState.lastTree && avail[hi].d <= avail[0].d + 3) {
+            target = avail[hi].t;
+            break;
+          }
+        }
+      }
+
+      // v270 GAIN-AWARE FELL DETECTION:
+      //  - normal trees: blacklist on first gain (fell=100%) [unchanged]
+      //  - multi-log trees that GAVE a log this visit, then 2 dry swings →
+      //    felled server-side (oak 10%/log) → blacklist full respawn NOW
+      //    (was: burn the full 6-swing miss window clicking a stump)
+      //  - never-gained tree at miss limit → soft-skip 4s (probably alive)
+      if (scriptState.lastTree && target.key === scriptState.lastTree) {
+        var gainsHere = (scriptState.wcTreeGains && scriptState.wcTreeGains[scriptState.lastTree]) || 0;
+        if (target.fellOnGain && scriptState.gainedAtLastTree) {
+          scriptState.felledTiles[target.key] = { at: Date.now(), ms: target.respawnMs };
+          log('Tree felled at (' + target.key + ') — rotating (logs: ' + logsNow + ')');
+          scriptState.lastTree = null; scriptState.gainedAtLastTree = false;
+          scriptState.chopRounds = 0;
+          return 400;
+        }
+        if (gainsHere > 0 && (scriptState.chopRounds || 0) >= (target.dryLimit || 2)) {
+          // UNCERTAIN fell — tree paid us, then went quiet, but at high tiers
+          // (magic swing-success ~35%) dry streaks happen on LIVE trees. Short
+          // blacklist: if it really felled, 25s ≈ nothing lost vs the 245s
+          // window; if it's alive, we're back on it fast. (v271: the flat 2-dry
+          // rule falsely emptied whole magic groves — bot idled at stand while
+          // two healthy trees stood there.)
+          scriptState.felledTiles[target.key] = { at: Date.now(), ms: 25000 };
+          if (scriptState.wcTreeGains) delete scriptState.wcTreeGains[target.key];
+          log('Tree went quiet after ' + gainsHere + ' logs at (' + target.key + ') — trying others, back in 25s');
+          scriptState.lastTree = null; scriptState.gainedAtLastTree = false;
+          scriptState.chopRounds = 0;
+          return 400;
+        }
+        scriptState.chopRounds = (scriptState.chopRounds || 0) + 1;
+        if (scriptState.chopRounds >= target.missLimit) {
+          if (gainsHere > 0) {
+            scriptState.felledTiles[target.key] = { at: Date.now(), ms: target.respawnMs };
+            if (scriptState.wcTreeGains) delete scriptState.wcTreeGains[target.key];
+            log('No gains in ' + scriptState.chopRounds + ' swings at (' + target.key + ') — rotating');
+          } else {
+            scriptState.wcSoftSkip = scriptState.wcSoftSkip || {};
+            scriptState.wcSoftSkip[target.key] = Date.now() + 4000;
+            log('Dry spell at (' + target.key + ') — trying other trees, back in 4s');
+          }
+          scriptState.lastTree = null; scriptState.gainedAtLastTree = false;
+          scriptState.chopRounds = 0;
+          return 400;
+        }
+      } else if (scriptState.lastTree && target.key !== scriptState.lastTree) {
+        // switched trees — reset the miss counter for the new target
+        scriptState.chopRounds = 0;
+      }
+      scriptState.lastLogsSeen = logsNow;
+      scriptState.gainedAtLastTree = false;
+
+      // Walk adjacent to the tree (server withinRange 2)
+      var cheb = Math.max(Math.abs(target.x - getX()), Math.abs(target.y - getY()));
+      if (cheb > 1) {
+        var occ = {};
+        for (var fi = 0; fi < TILES.length; fi++) occ[TILES[fi].key] = true;
+        for (var fk in scriptState.felledTiles) occ[fk] = true;
+        var neigh = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+        neigh.sort(function(a, b) {
+          var da = Math.abs(target.x + a[0] - getX()) + Math.abs(target.y + a[1] - getY());
+          var db = Math.abs(target.x + b[0] - getX()) + Math.abs(target.y + b[1] - getY());
+          return da - db;
+        });
+        // Rotate through neighbors when one is unreachable (pond/fence between):
+        // 3 stalled sends → try the next-best adjacent tile instead of hammering.
+        var tries = (scriptState._wcAdjKey === target.key) ? (scriptState._wcAdjTries || 0) : 0;
+        var adj = null;
+        for (var ni = 0; ni < neigh.length; ni++) {
+          var cand = neigh[(ni + Math.floor(tries / 3)) % neigh.length];
+          var nx = target.x + cand[0], ny = target.y + cand[1];
+          if (!occ[nx + ',' + ny]) { adj = { x: nx, y: ny }; break; }
+        }
+        if (adj) {
+          if (getX() === (scriptState._wcAdjX || -9999) && getY() === (scriptState._wcAdjY || -9999)) {
+            scriptState._wcAdjTries = tries + 1;
+          } else {
+            scriptState._wcAdjTries = 0;
+            scriptState._wcAdjX = getX(); scriptState._wcAdjY = getY();
+          }
+          scriptState._wcAdjKey = target.key;
+          walkTo(adj.x, adj.y);
+          return 900;   // v270: snappy walk→chop transition
+        }
+      }
+
+      log('Chopping ' + target.name + ' at (' + target.key + ')');
+      scriptState.lastTree = target.key;
+      atObject(target.x, target.y);
+      return CHOP_ACTION_TIME;
     };
   }
 
@@ -2769,14 +4205,20 @@
     // (pcap 2026-08-21 00:20: walk(218,465) then atObject(215,468) climb-downs).
     // Boundary doors block N-S here: axis 'y', open with atBoundary(+atObject).
     { x: 218, y: 465, axis: 'y', boundary: true },
+    // v228: full route audit (all 120 mine↔bank pairs vs server SceneryLocs +
+    // BoundaryLocs openable ids). Three MORE unlabeled obstacles sit directly on
+    // graph route edges — same silent-freeze class as the Edgeville door:
+    { x: 105, y: 587, axis: 'x' },   // Gate 60, Varrock SE mine west fence (Draynor/Falador routes)
+    { x: 567, y: 607, axis: 'x' },   // Gate 57, Wizard Guild area (Yanille routes)
+    { x: 115, y: 511, axis: 'y', boundary: true },  // door id 1, Varrock East bank approach (blocks N-S)
   ];
 
   // ── Webwalk graph (port of IdleRSC WebwalkGraph) ──
   // Default graph prunes boats/wild-tunnel AND guild edges (so non-guild camps
   // never route through the 60-Mining guild ladder). Guild-camp graph keeps
   // guild edges — the guild connects to the surface solely via its ladder.
-  var WEBWALK_DEFAULT = "115,658,121,646,13;115,658,124,658,9;124,658,138,649,23;124,658,137,667,22;100,649,115,658,24;107,618,116,627,18;116,627,130,625,16;130,625,132,635,14;121,646,132,635,15;132,635,145,641,19;107,618,114,609,16;108,595,120,596,13;120,596,130,608,22;117,617,130,608,22;107,618,117,617,11;144,657,145,641,17;144,657,160,656,17;166,671,178,662,21;151,678,166,671,22;134,677,151,678,18;117,680,134,677,20;114,696,117,680,19;114,696,116,711,21;116,711,130,708,17;127,692,130,708,19;114,696,127,692,17;117,680,127,692,22;141,690,151,678,22;134,677,141,690,20;127,692,141,690,16;145,641,156,642,14;156,642,160,656,18;84,574,100,580,22;99,620,107,618,10,lummyEastCowGate;156,642,171,644,17;193,653,208,653,15;208,653,217,646,16;214,631,217,646,18;214,631,220,638,13;214,631,224,632,13;224,632,233,620,21;233,620,243,610,20;243,610,259,611,17;130,625,138,617,16;150,595,157,586,16,lummyNorthCowGate;142,584,157,586,17;142,584,154,574,22;154,574,169,571,18;169,571,171,584,15;157,586,171,584,16;154,574,157,586,15;138,617,153,615,17;153,615,167,611,18;190,592,199,605,22;185,577,190,592,20;185,577,185,562,17;185,562,186,547,16;186,547,196,535,22;196,535,211,529,21;211,529,218,515,21;203,512,218,515,18;186,514,203,512,19;170,510,186,514,20;162,508,170,510,10;150,509,162,508,13;134,510,150,509,17;132,521,134,510,13;131,535,132,521,15;129,549,131,535,16;124,561,129,549,17;113,570,124,561,20;98,574,113,570,19;84,574,98,574,14;129,549,140,555,17;140,555,145,567,17;134,575,145,567,161;127,585,134,575,17;120,596,127,585,18;190,592,205,591,16;205,591,211,577,20;207,562,211,577,21;207,562,211,551,15,draynorManorSouthDoor;199,605,205,591,20;199,605,210,606,12;205,591,210,606,20;210,606,212,620,16;212,620,214,631,13;210,606,223,611,18;223,611,232,610,10;232,610,233,620,11;232,610,243,610,11;259,611,260,626,16;260,626,260,642,16;269,658,275,666,10;275,666,284,676,19;283,692,284,676,17;283,692,286,703,11;286,703,295,694,12;283,692,295,694,14;283,692,295,682,22;295,682,295,694,14;295,682,309,678,18;284,676,297,665,24;297,665,309,668,15;309,668,309,678,10;260,626,273,629,18;273,629,277,644,23;277,644,284,652,15;284,652,291,659,14;291,659,297,665,12;259,611,274,611,15;274,611,283,619,17;273,629,283,619,20;203,512,204,497,16;192,486,204,497,23;202,487,204,497,12;192,486,202,487,11;202,487,203,483,5,brassKeyDoor;191,475,192,486,12;174,478,191,475,20;158,482,174,478,20;158,482,171,490,21;171,490,184,493,16;184,493,192,486,15;176,505,184,493,20;176,505,186,514,19;191,501,204,497,17;184,493,191,501,15;186,514,191,501,18;162,508,176,505,17;161,496,162,508,19;150,509,150,502,7;131,495,134,510,18;131,495,142,487,19;142,487,143,472,16;143,472,146,457,18;132,450,146,457,21;118,455,132,450,19;116,466,118,455,13;116,466,116,474,8;131,495,131,481,14,varrockPalaceFence;131,481,131,475,6;131,475,137,464,17;129,461,137,464,11;125,470,129,461,13;125,470,131,475,11;116,483,131,481,17;109,482,116,483,8;109,482,109,467,15;109,467,110,451,17;110,451,110,438,13;109,482,109,496,14;109,496,111,506,12;111,506,119,511,13;119,511,134,510,16;119,511,120,519,9;107,525,120,519,19;104,510,119,511,18;73,452,75,442,12;91,509,99,520,19;99,520,107,525,17;118,540,129,549,20;105,541,118,540,14;89,541,105,541,16;76,541,89,541,13;72,545,76,541,8;75,528,76,541,14;75,528,83,518,18;71,560,72,545,16;71,560,83,561,13;83,561,84,574,14;83,561,90,554,14;89,541,90,554,16;105,541,109,553,16;109,553,124,561,23;140,555,152,551,12;131,535,145,539,18;145,539,152,551,13;145,539,157,533,18;157,533,163,525,14;163,525,170,518,14;170,518,170,510,12;157,533,162,545,17;152,551,162,545,11;162,545,170,554,17;155,556,170,554,17;152,551,155,556,5;170,554,173,540,17;168,529,173,540,16;163,525,168,529,9;168,529,180,522,19;180,522,186,514,14;178,533,180,522,13;173,540,178,533,12;178,533,191,526,20;191,526,201,518,18;201,518,203,512,8;218,515,219,500,16;219,500,219,486,14;219,486,221,473,15;221,473,226,459,37;217,457,226,459,9;222,447,226,459,12;217,457,222,447,11;212,462,217,457,7;212,462,212,470,8;212,470,221,473,12;209,447,222,447,13;206,440,209,447,7;191,435,206,440,20;175,436,191,435,19;159,437,175,436,19;143,437,159,437,18;128,432,143,437,20;116,441,128,432,21;110,438,116,441,9;159,437,162,450,16;162,450,177,449,18;175,436,177,449,17;186,448,191,435,18;177,449,186,448,12;186,448,198,451,15;198,451,198,463,12;184,464,198,463,15;184,464,186,448,18;174,463,177,449,17;174,463,184,464,11;162,459,174,463,16;162,459,162,450,11;150,450,162,450,14;143,437,150,450,20;222,447,232,438,13;217,437,232,438,16;206,440,217,437,14;221,473,232,474,12;232,474,234,461,15;234,461,237,446,18;234,461,240,473,18;232,474,240,473,9;239,490,240,473,18;239,490,240,504,15;240,504,242,516,14;228,515,242,516,15;218,515,228,515,10;230,488,232,474,16;219,486,230,488,13;226,530,228,515,17;211,529,226,530,16;226,530,239,536,19;239,536,241,524,14;241,524,242,516,9;239,536,239,550,14;239,550,240,566,17;240,566,240,579,13;239,593,240,579,15;225,590,239,593,17;216,586,225,590,13;211,577,216,586,14;205,591,216,586,16;225,590,225,601,11;223,611,225,601,12;239,593,241,605,14;241,605,243,610,7;274,611,279,600,16;266,593,279,600,20;254,591,266,593,14;248,563,248,546,19;248,546,250,532,18;250,532,250,518,14;242,516,250,518,10;250,518,263,512,19;263,512,276,507,18;276,507,293,505,19;293,505,302,510,14;302,510,314,515,17;250,532,266,531,17;266,531,281,527,19;281,527,286,519,13;286,519,299,517,15;299,517,314,515,17;314,515,316,528,15;293,505,306,499,19;306,499,311,489,15;311,489,316,481,13;313,466,316,481,20;306,451,313,466,22;297,440,306,451,20;262,498,263,512,15;262,498,262,482,16;262,482,269,477,12;269,477,278,485,17;278,485,291,489,17;291,489,296,477,17;269,477,276,463,21;276,463,276,452,11;279,600,291,587,17;291,587,289,572,15;289,572,289,560,12;275,556,289,560,18;271,544,275,556,16;257,546,271,544,16;257,546,257,559,13;257,559,269,561,14;269,561,275,556,11;289,560,298,549,20;286,545,298,549,16;286,545,292,533,18;292,533,299,538,12;298,549,299,538,14;298,549,307,541,17;307,541,316,528,22;307,541,321,541,14;321,541,331,545,14;326,577,328,568,11;311,578,326,577,16;297,574,311,578,18;289,572,297,574,8;312,549,321,541,17;307,541,312,549,15;312,549,314,558,11;312,563,314,558,5;321,541,329,530,19;329,530,331,545,17;316,528,329,530,15;314,515,322,502,21;322,502,331,491,20;328,474,331,491,20;321,460,328,474,21;321,460,322,448,15;331,491,340,487,13;340,487,345,487,5,northFallyTavGate;291,587,303,587,12;303,587,318,587,15;318,587,333,585,17;333,585,343,582,10;343,579,343,582,3,southFallyTavGate;274,611,289,611,15;289,611,304,610,16;304,610,318,604,20;318,604,330,596,20;330,596,345,594,15;343,582,345,594,12;330,596,333,585,14;289,611,292,598,16;291,587,292,598,11;303,587,305,599,14;304,610,305,599,12;316,596,318,587,11;316,596,318,604,10;345,594,358,594,13;330,596,331,611,16;331,611,339,622,19;339,622,353,620,16;353,620,363,609,14;353,620,355,635,17;354,648,355,635,14;344,659,354,648,21;335,662,344,659,12;335,662,335,673,11;325,678,335,673,15;318,672,325,678,13;309,678,318,672,15;318,672,323,664,13;323,664,324,653,14;324,653,335,662,20;312,657,324,653,16;309,668,312,657,14;299,654,312,657,16;297,665,299,654,13;291,659,299,654,13;284,652,299,654,17;324,639,324,653,14;314,628,324,639,21;310,616,314,628,16;310,616,318,604,20;304,610,310,616,12;283,619,293,626,17;293,626,305,630,16;305,630,314,628,11;303,640,305,630,12;299,654,303,640,18;324,639,338,643,18;338,643,348,642,11;348,642,354,648,12;348,642,355,635,14;335,636,339,622,18;324,639,335,636,14;322,625,324,639,16;314,628,322,625,11;321,616,331,611,15;321,616,322,625,10;318,604,321,616,15;310,616,321,616,11;289,611,293,626,19;358,594,359,582,13;343,582,359,582,16;343,579,356,576,13;343,579,344,565,14;356,576,365,574,11;365,574,366,566,9;356,566,366,566,10;356,566,356,576,10;344,565,356,566,13;343,553,344,565,13;343,553,346,542,14;331,545,336,548,8;335,561,336,548,14;328,568,335,561,14;346,542,359,539,16;354,551,356,566,17;354,551,359,539,17;359,539,368,532,16;368,519,368,532,15;359,509,368,519,19;346,505,359,509,17;346,505,347,495,11;345,487,347,495,10;366,566,374,555,19;367,542,374,555,20;367,542,368,532,11;345,487,348,474,16;347,460,348,474,15;343,446,347,460,18;343,446,352,437,18;352,437,367,437,15;367,437,368,446,10;368,446,383,445,16;383,445,384,460,16;381,475,384,460,18;381,475,384,490,18;383,504,384,490,15;382,518,383,504,15;380,534,382,518,18;368,532,380,534,14;368,519,382,518,17;359,509,365,500,15;365,500,374,498,11;374,498,384,490,18;374,498,383,504,15;345,487,358,488,14;383,504,393,494,20;393,494,397,480,18;393,465,397,480,19;393,465,396,454,14;396,454,397,463,10;397,463,403,467,10;403,467,407,461,12;401,459,407,461,8;401,459,412,457,13;412,457,414,472,17;404,450,412,457,15;404,450,408,438,16;409,484,414,472,17;401,495,409,484,19;401,495,405,501,10;405,501,416,498,14;416,498,427,495,14;427,495,437,500,15;437,500,448,500,11;448,500,457,489,20;457,489,466,480,18;466,466,466,480,16;466,466,480,465,15;452,464,466,466,16;441,457,452,464,18;427,455,441,457,14;431,465,441,457,12;427,455,431,465,10;431,465,431,474,9;424,486,431,474,19;424,486,427,495,14;416,498,424,486,20;445,490,448,500,13;445,490,457,489,13;451,479,466,480,16;437,474,451,479,19;431,474,437,474,6;445,490,451,479,17;480,465,492,459,18;485,456,492,459,10;480,465,485,456,14;484,443,485,456,14;484,432,484,443,11;484,422,484,432,10;484,422,489,411,16;492,459,500,456,11;500,456,501,451,6;500,456,508,457,9;508,457,520,458,13;492,459,494,446,15;484,443,494,446,13;494,446,506,446,12;506,446,508,457,15;506,446,517,448,13;517,448,520,458,13;517,448,532,448,17;532,448,532,458,10;520,458,532,458,12;480,465,488,476,19;488,476,495,487,18;495,487,501,502,21;501,502,510,515,22;510,515,522,523,20;522,523,535,530,20;535,530,549,534,18;549,534,562,541,20;562,541,564,554,15;563,571,564,554,18;504,469,508,457,16;497,478,504,469,16;495,487,497,478,11;488,476,497,478,11;504,469,509,482,18;497,478,509,482,16;495,487,509,482,19;186,637,192,626,17;192,626,202,625,11;202,625,212,620,15;202,625,214,631,18;198,635,202,625,14;174,628,186,637,21;174,617,174,628,11;167,611,174,617,13;162,629,174,628,13;156,642,162,629,19;184,606,199,605,16;184,606,185,611,6,lummyNorthPotatoGate;184,602,184,606,4,lummyNorthGarlicGate;167,611,173,608,9;173,608,184,606,13;172,604,173,608,5,lummyNorthWheatSouthGate;172,604,178,595,15,lummyNorthWheatNorthGate;97,663,100,649,17;95,650,100,649,6;88,650,95,650,7,alkharidGate;71,682,72,694,15;84,693,92,696,11;114,609,118,607,6,lummyEastChickenGate;153,615,159,616,9,lummyNorthChickensGate;562,541,577,539,17;577,539,592,535,19;592,535,609,531,21;609,531,624,527,19;624,527,640,521,22;640,521,648,520,9;647,528,648,520,9;647,528,661,527,15;646,539,647,528,12;646,539,650,549,14;650,549,658,555,14;658,555,671,549,19;671,549,682,544,16;682,544,693,539,16;693,539,703,535,15;703,528,703,535,6,gnomeTreeGate;703,528,706,515,16;703,501,706,515,17;700,493,703,501,11;693,493,700,493,11;637,550,646,539,20;626,557,637,550,18;612,563,626,557,20;608,569,612,563,10;608,569,611,580,14;611,580,613,593,15;601,595,613,593,14;613,593,616,604,14;598,603,601,595,11;587,604,598,603,12;573,607,587,604,17;562,606,573,607,12;551,607,562,606,12;549,596,551,607,13;548,584,549,596,13;548,584,554,575,15;554,575,563,571,13;563,571,578,571,15;578,571,582,574,7;578,571,589,570,12;582,574,589,570,13;589,570,590,583,14;590,583,591,593,15;587,604,591,593,15;535,596,549,596,14;527,590,535,596,10;517,585,527,590,11;502,550,512,553,10;498,537,502,550,17;493,525,498,537,17;482,515,493,525,21;472,504,482,515,21;459,504,472,504,19;448,500,459,504,15;457,489,467,496,17;467,496,472,504,13;487,502,501,502,16;472,504,487,502,17;500,523,510,515,18;493,525,500,523,9;532,543,535,530,13;557,527,562,541,19;557,511,557,527,16;557,500,557,511,11;547,489,557,500,21;541,475,547,489,20;540,464,541,475,12;532,458,540,464,14;547,489,557,478,21;115,658,116,667,10;208,653,211,665,15;211,665,213,675,12;213,675,217,684,13;215,691,217,684,9,wizardTowerDoor;148,599,150,595,6,lummyCabbageGate;132,635,143,627,19;152,619,153,615,5,lummyNorthSheepGate;143,627,152,619,17;323,713,335,712,13;335,712,346,710,13;346,710,353,700,17;353,700,364,696,11;364,696,370,686,11;370,686,371,698,12;365,710,371,698,13;354,711,365,710,12;346,710,354,711,9;365,710,376,706,15;371,698,376,706,9;376,706,387,703,14;387,703,399,701,14;399,701,410,699,13;410,699,421,698,12;421,698,430,689,18;430,689,433,683,9;433,683,437,683,4,brimhavenKaramjaGate;437,683,448,690,18;448,690,460,689,13;460,689,473,687,15;473,687,479,678,15;479,667,479,678,11;469,659,479,667,18;467,647,469,659,14;458,662,469,659,14;437,674,437,683,9;479,667,488,673,15;488,673,497,669,9;497,658,497,669,11;486,652,497,658,19;473,687,480,694,14;476,704,480,694,14;468,713,476,704,25;464,725,468,713,20;464,725,464,737,12;464,737,464,749,12;464,749,465,760,12;463,771,465,760,13;462,783,463,771,13;458,796,462,783,17;457,810,458,796,17;446,818,457,810,19;443,829,446,818,14;443,829,447,840,15;434,815,446,818,15;421,815,434,815,13;407,815,421,815,14;394,815,407,815,13;380,816,394,815,15;371,825,380,816,18;371,825,365,815,16;365,815,380,816,16;380,816,378,803,15;378,803,380,791,14;380,791,382,779,14;382,779,384,766,15;384,766,396,766,16;396,766,407,769,14;407,769,417,763,16;417,763,420,751,15;420,751,431,746,16;431,746,439,736,18;439,736,450,735,12;450,735,455,728,8;455,728,464,725,9;448,850,448,861,13;448,861,435,863,15;435,863,421,863,14;421,863,408,862,14;408,862,396,863,13;396,863,383,860,16;383,860,383,850,10;383,850,396,851,20,shiloVillageEntrance;396,851,403,852,8;403,852,406,843,12;406,843,406,831,12;406,831,414,830,9;414,830,424,826,18;406,831,395,828,14;110,438,96,438,14;96,438,83,438,15;83,438,75,442,18;61,729,63,739,1,shantayPass;613,593,622,590,12;587,604,593,613,15;593,613,600,620,14;600,620,600,632,12;277,644,277,653,13;277,653,277,649,4,gerrantHouseDoor;600,632,609,640,17;609,640,610,652,12;610,652,610,664,12;610,664,608,677,15;608,677,595,681,17;595,681,589,691,16;589,691,585,702,15;585,702,585,715,15;585,715,594,710,14;594,710,596,698,14;596,698,589,691,14;595,681,600,692,16;600,692,596,698,10;600,692,611,694,13;611,694,621,693,11;621,693,616,682,16;616,682,608,677,15;585,715,591,726,17;591,726,601,731,15;601,731,612,731,11;612,731,625,730,14;625,730,633,729,11;591,726,581,734,18;581,734,581,746,12;581,746,587,753,9;581,746,593,746,12;593,746,602,748,11;602,748,614,746,14;614,746,626,749,15;626,749,637,753,15;637,753,637,761,8;637,761,624,764,18;624,764,612,767,15;612,767,599,767,13;599,767,587,767,12;587,767,581,753,15;581,753,581,746,7;581,746,567,746,14;567,746,556,748,13;556,748,542,748,14;542,748,534,755,15;659,750,666,740,17;666,740,667,728,13;667,728,654,728,13;654,728,642,731,15;642,731,647,742,16;567,746,568,734,13;568,734,581,734,13;568,734,569,721,14;569,721,577,711,18;577,711,575,698,15;575,698,585,702,14;575,698,563,695,15;563,695,552,701,17;552,701,539,703,15;563,695,571,686,17;571,686,568,674,21;568,674,565,661,16;565,661,565,648,13;565,648,570,636,17;570,636,571,624,13;571,624,581,627,15;581,627,591,631,14;591,631,600,632,10;591,631,589,644,15;589,644,589,652,8;589,652,598,655,12;598,655,610,652,12;589,652,575,651,17;575,651,565,648,13;562,606,560,595,13;560,595,573,593,15;573,593,582,597,13;582,597,591,593,13;560,595,549,596,12;527,590,529,602,12;529,602,527,615,15;527,615,536,616,10;536,616,546,616,12;546,616,551,607,14;527,590,514,593,13;514,593,505,584,18;505,584,499,573,17;499,573,508,566,16;508,566,512,553,13;508,566,513,577,16;513,577,517,585,8;472,504,472,517,15;472,517,477,527,15;477,527,485,536,17;485,536,498,537,14;495,487,482,488,14;482,488,471,487,12;471,487,466,480,16;471,487,467,496,19;471,487,457,489,16;506,446,496,435,21;496,435,494,446,13;496,435,484,432,15;489,411,491,399,14;609,531,609,517,14;609,517,609,504,15;609,504,610,492,15;592,535,586,524,15;586,524,586,523,4,fishingGuildEntrance;586,517,598,517,14;598,517,599,504,16;599,504,587,503,17;587,503,586,517,15;586,517,586,523,6;610,492,608,478,16;608,478,607,466,13;607,466,604,455,14;604,455,615,457,13;615,457,622,466,16;622,466,634,466,12;634,466,636,453,15;636,453,647,451,13;647,451,651,439,16;647,451,653,462,17;653,462,650,473,14;650,473,646,483,14;646,483,648,492,11;648,492,644,503,15;644,503,645,514,12;645,514,648,520,9;661,527,664,515,15;664,515,666,503,14;666,503,668,492,13;668,492,670,480,14;670,480,668,467,15;668,467,668,456,13;703,528,715,524,16;715,524,728,522,15;728,522,732,512,14;732,512,733,498,19;733,498,736,487,14;736,487,734,474,15;734,474,733,461,16;733,461,723,453,18;723,453,718,442,16;718,442,705,438,17;705,438,691,439,15;691,439,678,441,15;678,441,675,453,15;675,453,675,465,12;675,465,677,475,12;677,475,688,479,15;688,479,698,479,10;698,479,700,493,16;698,479,703,467,17;703,467,704,457,13;700,493,712,494,13;712,494,721,490,13;721,490,724,479,14;724,479,734,474,15;609,640,614,633,12;614,633,622,633,8;659,654,660,661,7;660,661,660,670,9;660,670,648,669,12;648,669,635,671,13;635,671,625,671,10;659,654,666,655,7;666,655,675,664,12;675,664,679,675,11;679,675,685,684,15;685,684,694,693,18;694,693,699,703,15;699,703,707,710,15;707,710,714,716,13;699,703,705,692,17;705,692,711,687,11;685,684,691,677,13;691,677,703,673,18;703,673,711,662,19;711,662,709,650,14;709,650,710,637,14;710,637,710,624,13;710,624,707,612,15;707,612,709,599,15;709,599,706,587,15;706,587,695,593,17;695,593,682,598,18;682,598,669,602,17;669,602,656,608,19;656,608,645,617,20;645,617,635,625,18;635,625,630,633,9;707,612,693,611,15;693,611,680,615,17;680,615,668,620,13;668,620,654,623,14;654,623,645,617,15;709,580,696,580,15;696,580,683,577,16;683,577,669,578,15;669,578,657,576,14;657,576,644,575,14;644,575,630,576,15;630,576,627,589,18;627,589,624,601,15;624,601,634,604,13;634,604,644,602,12;644,602,654,599,13;654,599,663,590,18;663,590,669,578,18;644,575,641,588,16;644,602,641,588,21;557,478,569,478,12;569,478,580,472,17;580,472,588,464,16;588,464,590,451,15;590,451,583,440,18;583,440,572,437,16;572,437,558,436,15;558,436,546,437,13;546,437,537,436,10;537,436,532,448,17;418,570,408,569,10;408,569,402,560,15;402,560,401,548,15;401,548,402,536,13;402,536,414,536,12;414,536,425,537,12;425,537,433,543,14;433,543,427,547,10;427,547,416,549,17;418,570,426,566,8;426,566,434,558,16;426,566,416,560,16;416,560,402,560,18;430,689,421,681,17;421,681,408,677,17;408,677,395,681,17;395,681,389,691,16;389,691,387,703,14;465,760,453,759,13;453,759,440,759,17;440,759,429,759,13;429,759,417,763,16;417,763,422,775,17;422,775,422,787,14;422,787,419,798,14;419,798,406,800,15;406,800,407,815,16;419,798,431,800,14;431,800,443,796,16;443,796,450,787,16;450,787,462,783,16;450,787,437,781,19;437,781,432,772,14;432,772,422,775,15;422,775,409,778,16;409,778,397,780,14;397,780,388,789,18;388,789,382,779,16;388,789,390,799,12;390,799,398,807,16;398,807,394,815,12;398,807,406,800,15;416,549,410,553,10;416,549,407,543,15;407,543,401,548,11;63,739,71,746,15;71,746,76,757,16;76,757,80,768,15;80,768,87,778,17;87,778,94,789,18;94,789,100,797,14;100,797,104,809,16;104,809,116,806,15;116,806,128,805,13;128,805,140,806,13;140,806,152,804,14;152,804,164,805,13;164,805,175,801,15;383,850,375,840,18;375,840,364,835,16;364,835,351,831,17;351,831,346,820,16;346,820,346,810,12;347,801,355,795,14;355,795,361,785,16;361,785,364,776,12;364,776,364,769,9;364,769,352,771,14;352,771,341,777,17;341,777,340,788,12;340,788,339,798,13;339,798,347,801,11;346,810,338,812,10;338,812,338,825,13;338,825,338,838,13;338,838,341,851,16;341,851,347,859,14;347,859,356,865,15;356,865,368,863,14;368,863,375,865,9;375,865,383,860,13;364,835,360,846,15;360,846,349,852,17;349,852,347,859,9;343,881,356,882,14;356,882,367,882,11;367,882,377,882,10;377,882,389,881,13;389,881,401,881,12;401,881,413,876,17;413,876,425,876,14;425,876,437,879,15;437,879,449,879,12;449,879,460,877,13;460,877,468,885,16;468,885,467,897,13;467,897,458,905,17;458,905,444,906,15;444,906,432,905,13;432,905,419,903,15;419,903,406,903,13;406,903,393,904,14;393,904,381,904,12;381,904,368,903,14;368,903,355,901,15;355,901,343,902,13;343,902,341,890,14;341,890,343,881,11;341,890,352,891,12;352,891,363,892,12;363,892,377,892,14;377,892,390,894,15;390,894,401,891,14;401,891,412,894,14;412,894,425,893,14;425,893,436,892,12;436,892,448,891,13;448,891,460,892,13;460,892,468,885,15;437,879,436,892,14;412,894,419,903,16;436,892,432,905,17;401,891,401,881,10;377,892,381,904,16;377,882,377,892,10;352,891,356,882,13;363,892,355,901,17;443,829,448,829,5;649,766,639,772,16;639,772,630,770,11;630,770,621,778,17;621,778,620,790,13;620,790,620,801,13;620,801,621,812,12;621,812,626,824,17;626,824,637,828,15;637,828,648,833,16;648,833,659,833,13;659,833,661,844,13;661,844,664,853,12;664,853,655,861,17;655,861,648,863,9;648,863,635,863,13;635,863,625,863,10;625,863,613,863,12;613,863,601,863,12;601,863,590,862,12;590,862,576,860,16;576,860,577,848,13;577,848,583,838,16;583,838,583,826,12;583,826,589,817,15;589,817,601,818,13;601,818,612,812,17;612,812,621,812,9;626,824,615,828,15;615,828,604,831,14;604,831,594,833,12;594,833,583,838,16;594,833,594,843,10;594,843,597,853,13;597,853,601,863,14;597,853,604,844,16;604,844,613,842,11;613,842,621,835,15;621,835,630,837,11;630,837,637,828,16;659,833,649,840,17;649,840,639,846,16;639,846,630,851,14;630,851,619,852,12;619,852,609,853,11;609,853,601,863,18;630,837,639,846,18;613,842,619,852,16;621,835,615,828,13;604,831,601,818,16;620,790,608,787,15;608,787,596,780,19;596,780,584,776,16;621,778,609,778,16;609,778,596,780,15;691,716,678,718,15;678,718,675,706,15;675,706,673,693,15;673,693,683,698,15;683,698,686,709,14;686,709,691,716,12;678,718,670,718,8;670,718,670,706,20;670,706,670,697,9;670,697,668,687,12;668,687,658,686,11;658,686,664,683,17;664,683,666,676,15;666,676,670,682,16;670,682,670,674,8;670,674,657,673,14;657,673,644,675,15;644,675,633,675,15;670,718,658,718,12;658,718,646,712,22;646,712,633,708,21;633,708,630,699,18;630,699,631,688,12;631,688,627,691,13;627,691,627,703,16;627,703,626,710,8;626,710,630,716,14;630,716,638,718,12;638,718,649,717,12;649,717,634,714,20;616,682,623,675,14;623,675,635,679,16;635,679,644,680,14;644,680,656,679,17;639,683,633,684,15;633,684,643,685,11;653,685,662,689,13;653,685,643,685,18;656,679,639,683,25;662,689,668,692,9;668,692,665,701,12;665,701,656,706,14;656,706,663,706,7;663,706,666,712,13;666,712,661,712,15;661,712,655,710,22;655,710,641,708,16;635,679,625,684,23;625,684,625,697,17;625,697,626,710,14;595,681,584,677,15;584,677,577,669,15;577,669,568,674,14;589,570,591,557,17;591,557,600,549,17;600,549,606,540,15;606,540,609,531,12;577,539,584,549,17;584,549,591,557,15;535,530,538,518,15;538,518,539,506,13;539,506,540,495,12;540,495,547,489,13;540,495,529,491,15;529,491,517,485,18;517,485,509,482,11;232,438,242,431,17;242,431,248,421,16;248,421,258,417,14;258,417,254,428,15;254,428,254,439,11;254,439,257,449,13;257,449,257,455,6;257,455,257,468,13;257,468,257,478,10;257,478,262,482,9;254,428,264,422,16;264,422,274,415,17;274,415,282,409,14;282,409,293,411,13;293,411,305,411,14;305,411,316,412,12;316,412,326,411,11;326,411,328,423,14;328,423,319,432,18;319,432,307,437,17;307,437,297,440,13;297,440,299,428,14;299,428,294,421,12;294,421,293,411,15;294,421,283,425,15;283,425,274,429,13;274,429,263,435,17;263,435,265,447,14;265,447,276,452,16;276,452,286,449,13;286,449,294,453,12;294,453,299,464,16;299,464,296,477,16;258,417,265,407,17;265,407,274,400,16;274,400,285,397,14;285,397,297,395,14;297,395,307,391,14;307,391,318,392,12;318,392,327,384,17;327,384,327,372,12;327,372,328,359,14;328,359,328,347,12;328,347,329,334,14;329,334,324,323,16;324,323,327,310,16;327,310,327,297,13;327,297,326,285,15;326,285,329,273,15;329,273,326,262,14;326,262,327,250,13;327,250,326,237,14;326,237,326,225,14;326,225,325,212,13;325,212,324,199,13;324,199,328,187,16;328,187,327,174,14;327,174,328,165,10;328,165,328,152,13;328,152,331,144,8;331,144,331,140,4,icePlateauGate;331,140,331,128,12;331,128,323,118,18;323,118,311,119,13;311,119,308,129,13;308,129,306,139,12;306,139,318,139,12;318,139,319,128,12;319,128,323,123,9;323,123,331,128,13;306,139,298,139,8;298,139,298,123,16,wildyAgilityGate;298,139,286,139,14;286,139,273,139,13;273,139,259,139,14;259,139,248,132,18;248,132,248,124,8;248,124,240,115,17;240,115,234,103,13;234,103,221,103,13;221,103,214,109,9;214,109,205,118,18;205,118,196,122,13;196,122,186,119,13;186,119,183,107,15;183,107,174,101,15;174,101,164,101,10;164,101,150,101,16;150,101,135,101,15;135,101,122,101,13;122,101,109,101,13;109,101,96,101,15;96,101,83,106,18;83,106,70,112,19;70,112,59,117,16;59,117,59,127,10;59,127,59,141,14;59,141,69,140,11;69,140,81,138,14;81,138,95,138,14;95,138,108,135,16;108,135,111,141,6;111,141,111,143,2,deepWildyGate;111,141,123,138,12;123,138,133,138,10;133,138,147,138,16;147,138,160,138,13;160,138,170,138,10;170,138,183,138,15;183,138,194,138,13;194,138,205,138,13;205,138,209,133,9;194,138,198,129,13;198,129,196,122,9;214,109,201,108,22;201,108,191,102,16;191,102,183,107,13;234,103,245,107,11;245,107,258,110,13;258,110,268,115,11;268,115,280,122,13;280,122,282,128,6;282,128,286,139,11;268,115,258,122,12;258,122,248,124,10;164,101,163,113,15;163,113,162,125,13;162,125,160,138,15;147,138,147,125,15;147,125,147,114,11;147,114,150,101,16;135,101,130,109,13;130,109,118,116,25;118,116,121,126,13;121,126,123,138,14;95,138,94,125,14;94,125,93,113,13;93,113,96,101,15;59,127,71,126,13;71,126,84,123,16;84,123,94,125,12;94,125,105,121,15;105,121,118,116,18;118,116,126,123,15;126,123,134,126,11;134,126,147,125,14;147,125,155,121,12;155,121,163,113,16;328,165,316,166,13;316,166,317,154,13;317,154,305,152,14;305,152,292,154,15;292,154,281,152,13;281,152,268,149,16;268,149,255,152,16;255,152,242,152,13;242,152,229,152,13;229,152,215,152,14;215,152,205,152,10;205,152,194,152,13;194,152,181,152,13;181,152,165,152,16;165,152,152,152,13;152,152,139,152,13;139,152,126,152,13;99,152,83,153,16;83,153,68,153,17;68,153,55,153,13;55,153,55,163,12;55,163,65,166,13;65,166,73,168,10;73,168,86,171,16;86,171,94,171,8;94,171,102,164,10;102,164,113,163,11;113,163,126,166,13;126,166,136,163,13;136,163,148,163,12;148,163,161,163,13;161,163,165,152,15;165,152,172,158,13;172,158,182,165,17;182,165,194,166,13;194,166,205,166,13;205,166,218,163,16;218,163,228,160,13;228,160,240,159,13;240,159,254,159,16;254,159,262,169,18;262,169,271,177,17;271,177,282,178,12;282,178,292,182,14;292,182,303,188,17;303,188,314,185,14;314,185,320,177,14;320,177,327,174,10;316,166,320,177,15;292,154,293,166,13;293,166,301,172,14;301,172,292,182,19;301,172,310,174,11;310,174,316,166,14;293,166,278,166,15;278,166,270,163,11;270,163,262,169,14;240,159,242,152,9;215,152,218,163,14;182,165,181,152,14;126,152,126,166,14;99,152,92,162,12;92,162,94,171,11;73,168,76,159,12;76,159,83,153,13;55,163,54,175,13;54,175,58,185,14;58,185,57,196,12;57,196,57,208,12;57,208,60,219,14;60,219,57,231,15;57,231,57,245,14;57,245,60,258,16;60,258,57,271,16;57,271,60,284,16;60,284,60,297,15;60,297,63,310,16;63,310,57,321,17;57,321,49,331,18;63,310,74,316,17;74,316,82,311,15;82,311,81,324,14;81,324,77,336,16;77,336,63,338,16;63,338,51,343,17;51,343,52,356,14;52,356,53,369,16;53,369,54,381,13;54,381,58,393,16;58,393,56,407,16;56,407,55,419,15;55,419,56,430,12;56,430,48,439,17;48,439,56,440,11;56,440,59,447,10;59,447,66,444,18;66,444,65,436,15;65,436,56,440,17;48,439,53,449,15;53,449,61,454,13;61,454,73,452,14;83,438,81,428,12;81,428,68,429,14;68,429,56,430,15;55,419,68,417,15;68,417,68,429,14;68,417,68,404,13;68,404,68,394,12;68,394,58,393,11;68,394,67,381,14;67,381,64,368,16;64,368,61,357,14;61,357,52,356,10;61,357,61,345,12;61,345,63,338,9;61,345,73,347,14;73,347,77,336,15;61,357,73,356,13;73,356,85,356,12;85,356,95,359,13;95,359,103,369,18;103,369,109,380,17;109,380,122,382,15;122,382,130,372,18;130,372,132,359,15;132,359,124,348,19;124,348,114,351,13;114,351,113,359,9;113,359,116,365,9;114,351,103,349,13;103,349,94,340,18;94,340,87,329,18;87,329,81,324,11;82,311,91,319,17;91,319,98,328,16;98,328,104,337,15;104,337,114,342,15;114,342,126,340,14;126,340,136,345,15;136,345,141,355,15;141,355,141,368,13;141,368,135,379,17;135,379,127,390,19;127,390,113,391,15;113,391,100,385,19;100,385,91,376,18;91,376,85,365,17;85,365,85,356,9;122,382,127,390,13;103,369,91,376,19;130,372,141,368,15;124,348,136,345,15;114,342,124,348,16;98,328,87,329,12;82,311,95,309,15;95,309,106,315,17;106,315,116,320,15;116,320,127,323,14;127,323,138,328,16;138,328,148,335,17;148,335,151,346,14;151,346,155,359,17;155,359,158,371,15;158,371,157,383,15;157,383,148,392,18;148,392,139,401,18;139,401,126,403,15;126,403,113,406,16;113,406,99,405,15;99,405,88,399,17;88,399,79,389,19;79,389,73,378,17;73,378,67,381,9;85,365,72,367,15;72,367,64,368,9;100,385,97,395,13;97,395,99,405,12;127,390,136,389,10;136,389,148,392,15;155,359,141,355,18;127,323,115,328,17;115,328,104,337,20;88,399,77,405,17;77,405,77,417,12;77,417,81,428,15;81,428,92,424,15;92,424,97,414,15;97,414,99,405,11;110,438,110,424,14;110,424,112,414,12;112,414,113,406,9;92,424,100,429,13;100,429,110,424,15;110,424,120,418,16;120,418,132,419,13;132,419,143,422,14;143,422,155,425,15;155,425,167,425,14;167,425,179,425,14;179,425,188,422,12;188,422,197,413,18;197,413,206,404,18;206,404,218,404,12;218,404,218,416,14;218,416,221,428,15;221,428,217,437,13;191,435,188,422,16;155,425,159,437,16;126,403,127,390,16;126,403,135,409,15;135,409,132,419,13;155,425,151,413,16;151,413,150,401,13;150,401,148,392,11;151,413,163,412,13;163,412,175,411,13;175,411,185,405,16;185,405,196,398,18;196,398,208,398,12;208,398,223,398,15;223,398,218,404,11;197,413,185,405,20;248,421,235,420,14;235,420,229,408,18;229,408,218,404,15;223,398,235,398,14;235,398,247,398,14;247,398,258,399,12;258,399,265,407,15;248,421,246,408,15;246,408,247,398,13;150,401,160,394,17;160,394,171,390,15;171,390,183,386,16;183,386,195,383,15;195,383,207,380,15;207,380,218,377,14;218,377,230,377,12;230,377,242,377,12;242,377,254,377,12;254,377,263,377,9;263,377,275,371,18;275,371,287,371,12;287,371,299,371,12;299,371,311,371,14;311,371,316,359,17;316,359,328,359,14;275,371,275,358,13;275,358,275,343,15;275,343,278,332,14;278,332,283,321,16;283,321,289,309,18;289,309,289,297,12;289,297,289,285,14;289,285,289,274,11;289,274,289,262,12;289,262,289,250,12;289,250,292,238,15;292,238,292,226,12;292,226,292,211,15;292,211,292,199,12;292,199,304,200,13;304,200,303,188,13;324,199,312,203,16;312,203,304,200,11;304,200,304,212,12;304,212,306,224,14;306,224,304,237,15;304,237,304,249,12;304,249,304,261,12;304,261,304,273,14;304,273,304,285,12;304,285,306,296,13;306,296,307,308,17;307,308,306,320,13;306,320,307,332,13;307,332,310,344,15;310,344,310,356,14;310,356,316,359,9;299,371,294,359,17;294,359,293,346,14;293,346,295,335,13;295,335,293,323,14;293,323,293,311,12;293,311,289,309,6;295,335,307,332,15;324,323,312,318,17;312,318,306,320,8;306,296,315,287,18;315,287,326,285,15;327,250,316,251,14;316,251,304,249,14;325,212,314,212,11;314,212,304,212,10;304,237,292,238,13;304,273,289,274,18;306,296,294,300,18;294,300,289,297,8;292,182,286,193,17;286,193,292,199,12;286,193,273,193,13;273,193,264,201,17;264,201,252,206,17;252,206,240,206,12;240,206,227,206,13;227,206,215,200,18;215,200,212,188,15;212,188,205,175,20;205,175,205,166,11;292,211,279,211,13;279,211,266,212,14;266,212,253,214,15;253,214,252,206,9;292,238,278,239,17;278,239,265,239,13;265,239,252,239,15;252,239,253,227,15;253,227,253,214,13;289,262,275,261,15;275,261,264,253,19;264,253,252,251,14;252,251,252,239,12;289,274,275,274,14;275,274,262,273,14;262,273,249,272,14;249,272,245,260,16;245,260,252,251,16;275,343,269,332,17;269,332,278,332,9;269,332,270,320,13;270,320,273,308,15;273,308,275,296,14;275,296,264,295,12;264,295,258,304,15;258,304,266,311,19;266,311,270,320,13;269,332,260,324,17;260,324,251,315,18;251,315,245,305,16;245,305,239,296,15;239,296,239,287,9;239,287,241,275,14;241,275,249,272,11;136,163,140,175,16;140,175,151,175,11;151,175,164,175,13;164,175,176,175,12;176,175,188,182,19;188,182,198,188,16;198,188,212,188,14;182,165,176,175,16;140,175,126,179,18;126,179,112,180,15;112,180,113,192,15;113,192,115,204,14;115,204,115,213,9;115,213,121,220,13;121,220,131,228,18;131,228,143,229,13;143,229,155,232,15;155,232,168,232,13;168,232,171,219,16;171,219,174,207,15;174,207,171,195,15;171,195,183,191,16;183,191,188,182,14;215,200,204,206,17;204,206,192,211,17;192,211,185,219,15;185,219,171,219,14;253,227,240,227,13;240,227,227,228,14;227,228,214,231,16;214,231,200,232,15;200,232,185,232,15;185,232,185,219,13;227,206,220,216,17;220,216,227,228,19;94,171,89,183,17;89,183,78,190,18;78,190,66,189,13;66,189,58,185,12;113,192,100,193,14;100,193,89,194,12;89,194,89,183,11;60,219,72,218,15;72,218,85,217,14;85,217,96,214,14;96,214,106,210,14;106,210,115,213,12;168,232,169,243,12;169,243,156,247,17;156,247,142,248,15;142,248,143,258,11;143,258,143,268,12;143,268,154,271,14;154,271,155,259,13;155,259,165,261,12;165,261,175,255,16;154,271,166,272,13;166,272,178,273,13;178,273,186,261,20;186,261,189,249,15;189,249,197,243,14;200,232,197,243,14;197,243,209,247,16;209,247,217,253,14;217,253,228,255,13;228,255,238,249,16;238,249,252,251,16;239,287,225,287,16;225,287,211,286,15;211,286,198,286,13;198,286,182,286,18;182,286,178,273,17;217,253,214,264,14;214,264,211,277,16;211,277,211,286,11;85,217,84,229,13;84,229,83,243,15;83,243,84,254,12;84,254,82,267,15;82,267,81,280,14;81,280,81,293,15;81,293,88,303,17;88,303,95,309,13;81,293,68,294,14;68,294,60,284,18;60,258,71,256,13;71,256,84,254,15;83,243,95,243,14;95,243,108,246,16;108,246,119,246,11;119,246,129,244,12;129,244,142,248,17;142,248,140,239,11;140,239,143,229,13;143,268,129,267,19;129,267,116,268,16;116,268,103,269,16;103,269,90,270,14;90,270,81,280,19;88,303,99,299,15;99,299,111,298,13;111,298,122,296,13;122,296,134,292,16;134,292,146,293,13;146,293,148,282,13;148,282,154,271,17;182,286,169,293,20;169,293,156,292,14;156,292,146,293,13;127,323,134,314,16;134,314,142,305,17;142,305,146,293,16;148,335,154,325,16;154,325,160,315,16;160,315,171,311,15;171,311,181,318,17;181,318,194,321,18;194,321,204,320,11;204,320,216,320,12;216,320,228,320,12;228,320,241,320,13;241,320,251,315,15;160,315,154,304,17;154,304,156,292,14;116,268,117,281,16;117,281,124,285,11;124,285,134,292,17;242,377,241,364,14;241,364,239,351,15;239,351,242,339,15;242,339,241,327,13;241,327,241,320,7;204,320,204,333,13;204,333,205,346,14;205,346,209,357,15;209,357,210,369,15;210,369,207,380,14;151,346,163,347,13;163,347,174,346,14;174,346,185,344,13;185,344,194,337,16;194,337,204,333,14;174,346,174,358,12;174,358,173,371,14;173,371,176,381,13;176,381,171,390,14;196,398,192,391,11;192,391,183,386,14;254,377,249,386,14;249,386,247,398,14;435,484,435,488,4,catherbyChefDoor;435,488,445,490,12;435,488,427,495,15;144,657,144,669,12;144,669,130,670,1;130,3545,125,3533,17;125,3533,114,3541,19;114,3541,103,3544,14;125,3533,127,3521,14;125,3533,133,3528,13;133,3528,144,3533,16;144,3533,149,3544,17;149,3544,150,3553,11;150,3553,145,3558,12;145,3558,135,3555,14;135,3555,120,3555,15;120,3555,105,3555,15;105,3555,100,3560,9;100,3560,105,3566,12;144,3533,154,3528,15;154,3528,165,3529,12;165,3529,173,3525,14;165,3529,169,3539,14;169,3539,174,3546,12;279,3327,280,493,10,dwarvenMineCannonEntrance;280,493,278,485,10;279,3327,269,3330,13;279,3327,278,3339,13;278,3339,286,3347,16;286,3347,291,3342,10;291,3342,291,3331,13;286,3347,293,3348,8;293,3348,302,3349,10;302,3349,310,3349,8;278,3339,266,3339,12;266,3339,265,3350,12;265,3350,267,3361,13;267,3361,265,3372,13;265,3372,267,3378,8;267,3378,267,3380,2;267,3381,267,3387,6;267,3387,268,3397,13;265,3372,254,3370,13;254,3370,250,537,5,dwarvenMineFaladorEntrance;248,563,252,572,13;252,572,252,581,11;252,581,254,591,12;257,546,250,537,10;61,729,68,718,18;68,718,76,709,17;76,709,83,702,14;83,702,84,693,10;84,693,83,683,11;83,683,71,682,13;71,682,70,671,12;70,671,70,660,11;70,660,69,647,14;69,647,68,634,14;68,634,67,622,13;67,622,68,610,13;68,610,70,598,14;70,598,70,586,12;71,682,61,682,10;61,682,59,694,14;61,682,58,672,13;58,672,70,671,21;83,683,82,671,15;82,671,85,659,15;85,659,88,650,12;82,671,70,671,14;88,650,81,641,16;81,641,73,631,18;73,631,67,622,15;73,631,76,619,15;76,619,78,607,14;78,607,79,594,14;79,594,78,581,14;78,607,68,610,13;78,581,73,573,13;73,573,84,574,12;73,573,71,560,15;73,573,63,573,10;44,566,32,566,16;32,566,25,568,9;57,547,60,536,14;60,536,64,525,15;64,525,67,515,13;67,515,69,503,14;69,503,68,491,13;68,491,69,479,13;69,479,73,468,15;73,468,62,464,15;62,464,50,462,14;50,462,52,473,13;52,473,48,484,15;48,484,35,489,18;35,489,22,488,14;22,488,9,488,13;48,484,47,496,13;47,496,45,508,14;45,508,45,521,15;45,521,45,533,12;45,533,37,541,16;37,541,27,549,18;27,549,16,555,17;16,555,9,559,11;9,559,14,549,15;27,549,27,560,13;27,560,39,559,13;39,559,44,566,12;46,550,37,541,18;64,525,52,521,16;52,521,45,521,7;68,491,56,488,15;56,488,48,484,12;63,573,57,573,6,digsiteGate;57,573,49,566,15;49,566,44,566,5;693,493,693,502,13;693,502,692,1448,256,gnomeAgilityClimbFirstNet;692,1448,689,2395,128,gnomeAgilityClimbTower;689,2395,685,2396,64,gnomeAgilityRopeSwing;685,2396,683,506,32,gnomeAgilityClimbDownTower;683,506,687,500,11;687,500,693,493,13;208,750,100,649,1,skipTutorial;100,649,102,638,13;102,638,107,628,15;107,628,116,627,10;107,628,107,618,10;53,558,49,566,12;57,547,53,558,15;53,558,46,550,15;137,464,141,1398,1,varrockPalaceNorthwestLadder;260,642,268,646,12;268,646,277,644,19;268,646,269,658,12;69,503,74,503,5;74,503,82,502,1,varrockEastDigsiteGate;82,502,82,491,13;82,491,82,480,11;82,480,89,470,17;82,480,80,468,18;80,468,76,458,14;76,458,73,452,9;89,470,91,459,13;91,459,99,451,16;99,451,110,451,11;99,451,96,438,16;91,509,82,502,16;91,509,83,518,17;220,3522,215,691,12,wizardTowerBasement;372,456,384,460,16;368,446,372,456,14;361,476,348,474,15;361,476,358,488,15;381,475,371,469,16;371,469,372,456,14;371,469,361,476,17;347,460,357,466,16;357,466,361,476,14;357,466,348,474,17;357,466,363,461,11;363,461,372,456,14;371,469,363,461,16;370,481,361,476,14;370,481,381,475,17;370,481,371,469,13;593,746,593,755,9;593,755,597,758,5;108,595,112,601,10;112,601,114,609,10;446,662,458,662,12;446,662,437,674,21;138,617,145,607,17;145,607,148,599,11;190,592,178,595,15;108,595,106,585,12;106,585,100,580,11;532,448,538,445,9;538,445,542,446,5,mcgroubersGate;545,455,555,460,15;555,460,567,457,15;567,457,573,463,12;567,457,567,449,8;555,460,561,466,12;561,466,573,463,15;573,463,575,450,15;575,450,567,449,9;561,466,549,468,14;549,468,545,455,17;545,455,542,446,12;384,460,386,465,7;386,465,388,3300,1,dwarfTunnel;388,3300,397,3294,15;397,3294,408,3294,11;408,3294,418,3297,13;418,3297,426,3294,11;426,3294,427,455,1,dwarfTunnel;383,504,391,502,10;391,502,398,500,10,taverleySteppingStones;398,500,405,501,8;398,500,401,495,8;391,502,393,494,10;393,494,384,490,21;368,519,374,507,18;374,507,374,498,9;383,504,374,507,12;374,507,365,500,16;374,507,382,518,19;365,500,365,494,6;365,488,365,494,6;365,488,358,488,7;365,488,370,481,12;365,488,374,498,19;365,488,374,488,9;374,488,370,481,11;374,488,374,498,10;374,488,384,490,14;365,494,361,494,4,witchsHouseDoor;319,553,312,549,11;321,541,316,528,18;331,554,326,553,6,faladorWestBankDoor;326,553,319,553,7;326,553,321,541,17;331,545,326,553,13;326,553,327,560,8;327,560,328,568,9;335,561,327,560,9;312,549,305,551,9;305,551,298,549,9;275,565,275,556,11;283,570,289,572,6;273,3398,268,3397,12;160,656,169,652,13;169,652,171,644,10;171,644,178,650,13;169,652,178,650,11;178,650,186,653,11;186,653,178,662,17;186,653,193,653,7;186,653,192,641,18;192,641,193,653,13;192,641,186,637,10;192,641,198,635,12;128,686,134,677,15;127,692,128,686,7;128,686,117,680,17;138,1610,137,667,1,lummyLadderTo2FS;138,1610,138,2555,1,lummyLadderTo3FS;138,1592,138,649,1,lummyLadderTo2FN;138,1592,138,2536,1,lummyLadderTo3FN;138,1610,136,1602,10;136,1602,138,1592,12;136,1602,132,1604,6;649,766,652,753,16;652,753,659,750,10;652,753,647,742,16;637,753,643,753,6,yanilleWestGate;643,753,646,753,3;646,753,652,753,6,yanilleWestGate;652,753,643,753,9;714,499,712,494,7;714,517,706,515,10;714,517,715,524,10;703,501,714,499,13;714,499,721,490,16;714,517,714,1461,25,gnomeStrongholdBankSouthLadder;714,499,714,1443,25,gnomeStrongholdBankNorthLadder;714,1443,712,1452,10;714,1461,712,1452,10;714,1443,716,1452,10;714,1461,716,1452,10;692,515,698,517,8;698,517,706,515,10;698,517,703,528,16;692,515,692,1459,1,gnomeStrongholdSpinningWheelLadder;534,566,534,580,14;527,590,534,580,12;532,543,529,556,13;534,566,529,556,11;508,669,497,669,11;286,703,284,710,7;284,710,284,3543,1,asgarniaLadder;284,3543,280,3540,5;280,3540,279,3527,13;279,3527,279,3522,5;279,3522,292,3521,13;303,3519,314,3524,12;279,3522,279,3517,5;279,3517,292,3515,13;303,3519,293,3519,10;293,3519,292,3515,4;293,3519,292,3521,2;610,652,621,656,11;621,656,621,672,16;621,672,625,671,4;630,633,624,639,8;624,639,622,633,6;675,664,675,650,14;675,650,677,637,13;677,637,677,625,12;677,625,668,620,10;364,696,371,698,7;264,660,269,658,5;347,600,345,594,6;347,601,347,600,1,craftingGuild;292,182,285,186,8;285,186,284,185,1,kbdGate;152,551,150,553,2;150,553,150,555,2,championsGuild;284,185,281,185,3,kbdLadder;215,3299,215,3292,7;215,3292,218,3282,10;218,3282,211,3273,11;211,3273,197,3274,14;197,3274,197,3265,9;197,3265,197,3261,4;197,3261,197,3254,7;197,3254,211,3253,14;211,3253,218,3242,13;197,3254,198,3241,13;198,3241,208,3232,13;208,3232,217,3234,9;217,3234,218,3242,8;207,3215,208,3232,17;217,3234,231,3232,14;231,3232,231,3248,16;231,3232,231,3225,7;197,3274,188,3275,9;188,3275,188,3286,11;188,3286,186,3292,6;186,3292,179,3293,7;179,3293,179,3302,9;179,3302,191,3300,12;191,3300,203,3298,12;203,3298,209,3301,6;209,3301,209,3314,13;209,3314,208,3327,13;203,3315,209,3314,6;227,105,234,103,7;221,103,227,105,6;227,105,227,110,5,wildyMageBankWebs;119,644,121,646,2;206,449,209,447,3;222,447,217,447,5;218,465,216,468,3;217,457,218,464,7;218,464,218,465,1,edgeDungeonDoor;218,3282,220,3281,2,oddWall;220,3281,222,3281,2;215,3299,216,468,1,edgeDungeonLadder;325,212,331,213,6;224,110,446,3368,1,wildyMageBankLadder;224,110,227,110,3,wildyMageBankDoor;446,3368,453,3374,9;446,3368,440,3374,8;440,3374,453,3374,13;258,122,269,125,11;269,125,280,122,11;269,125,269,127,2;269,127,268,2963,1,deepWildDungeonStairs;268,2963,272,2973,10;272,2973,274,2972,2,deepWildDungeonGate1;274,2972,281,2970,7;281,2970,283,2968,2,deepWildDungeonGate2;283,2968,280,2959,9;280,2959,274,2952,9;274,2952,273,2952,1,deepWildDungeonGate3;508,669,516,666,8,brimMossGiantSwing;115,147,126,152,12;99,152,111,143,15;111,143,115,147,5;581,753,587,753,6;587,753,593,755,6";
-  var WEBWALK_GUILD = "115,658,121,646,13;115,658,124,658,9;124,658,138,649,23;124,658,137,667,22;100,649,115,658,24;107,618,116,627,18;116,627,130,625,16;130,625,132,635,14;121,646,132,635,15;132,635,145,641,19;107,618,114,609,16;108,595,120,596,13;120,596,130,608,22;117,617,130,608,22;107,618,117,617,11;144,657,145,641,17;144,657,160,656,17;166,671,178,662,21;151,678,166,671,22;134,677,151,678,18;117,680,134,677,20;114,696,117,680,19;114,696,116,711,21;116,711,130,708,17;127,692,130,708,19;114,696,127,692,17;117,680,127,692,22;141,690,151,678,22;134,677,141,690,20;127,692,141,690,16;145,641,156,642,14;156,642,160,656,18;84,574,100,580,22;99,620,107,618,10,lummyEastCowGate;156,642,171,644,17;193,653,208,653,15;208,653,217,646,16;214,631,217,646,18;214,631,220,638,13;214,631,224,632,13;224,632,233,620,21;233,620,243,610,20;243,610,259,611,17;130,625,138,617,16;150,595,157,586,16,lummyNorthCowGate;142,584,157,586,17;142,584,154,574,22;154,574,169,571,18;169,571,171,584,15;157,586,171,584,16;154,574,157,586,15;138,617,153,615,17;153,615,167,611,18;190,592,199,605,22;185,577,190,592,20;185,577,185,562,17;185,562,186,547,16;186,547,196,535,22;196,535,211,529,21;211,529,218,515,21;203,512,218,515,18;186,514,203,512,19;170,510,186,514,20;162,508,170,510,10;150,509,162,508,13;134,510,150,509,17;132,521,134,510,13;131,535,132,521,15;129,549,131,535,16;124,561,129,549,17;113,570,124,561,20;98,574,113,570,19;84,574,98,574,14;129,549,140,555,17;140,555,145,567,17;134,575,145,567,161;127,585,134,575,17;120,596,127,585,18;190,592,205,591,16;205,591,211,577,20;207,562,211,577,21;207,562,211,551,15,draynorManorSouthDoor;199,605,205,591,20;199,605,210,606,12;205,591,210,606,20;210,606,212,620,16;212,620,214,631,13;210,606,223,611,18;223,611,232,610,10;232,610,233,620,11;232,610,243,610,11;259,611,260,626,16;260,626,260,642,16;269,658,275,666,10;275,666,284,676,19;283,692,284,676,17;283,692,286,703,11;286,703,295,694,12;283,692,295,694,14;283,692,295,682,22;295,682,295,694,14;295,682,309,678,18;284,676,297,665,24;297,665,309,668,15;309,668,309,678,10;260,626,273,629,18;273,629,277,644,23;277,644,284,652,15;284,652,291,659,14;291,659,297,665,12;259,611,274,611,15;274,611,283,619,17;273,629,283,619,20;203,512,204,497,16;192,486,204,497,23;202,487,204,497,12;192,486,202,487,11;202,487,203,483,5,brassKeyDoor;191,475,192,486,12;174,478,191,475,20;158,482,174,478,20;158,482,171,490,21;171,490,184,493,16;184,493,192,486,15;176,505,184,493,20;176,505,186,514,19;191,501,204,497,17;184,493,191,501,15;186,514,191,501,18;162,508,176,505,17;161,496,162,508,19;150,509,150,502,7;131,495,134,510,18;131,495,142,487,19;142,487,143,472,16;143,472,146,457,18;132,450,146,457,21;118,455,132,450,19;116,466,118,455,13;116,466,116,474,8;131,495,131,481,14,varrockPalaceFence;131,481,131,475,6;131,475,137,464,17;129,461,137,464,11;125,470,129,461,13;125,470,131,475,11;116,483,131,481,17;109,482,116,483,8;109,482,109,467,15;109,467,110,451,17;110,451,110,438,13;109,482,109,496,14;109,496,111,506,12;111,506,119,511,13;119,511,134,510,16;119,511,120,519,9;107,525,120,519,19;104,510,119,511,18;73,452,75,442,12;91,509,99,520,19;99,520,107,525,17;118,540,129,549,20;105,541,118,540,14;89,541,105,541,16;76,541,89,541,13;72,545,76,541,8;75,528,76,541,14;75,528,83,518,18;71,560,72,545,16;71,560,83,561,13;83,561,84,574,14;83,561,90,554,14;89,541,90,554,16;105,541,109,553,16;109,553,124,561,23;140,555,152,551,12;131,535,145,539,18;145,539,152,551,13;145,539,157,533,18;157,533,163,525,14;163,525,170,518,14;170,518,170,510,12;157,533,162,545,17;152,551,162,545,11;162,545,170,554,17;155,556,170,554,17;152,551,155,556,5;170,554,173,540,17;168,529,173,540,16;163,525,168,529,9;168,529,180,522,19;180,522,186,514,14;178,533,180,522,13;173,540,178,533,12;178,533,191,526,20;191,526,201,518,18;201,518,203,512,8;218,515,219,500,16;219,500,219,486,14;219,486,221,473,15;221,473,226,459,37;217,457,226,459,9;222,447,226,459,12;217,457,222,447,11;212,462,217,457,7;212,462,212,470,8;212,470,221,473,12;209,447,222,447,13;206,440,209,447,7;191,435,206,440,20;175,436,191,435,19;159,437,175,436,19;143,437,159,437,18;128,432,143,437,20;116,441,128,432,21;110,438,116,441,9;159,437,162,450,16;162,450,177,449,18;175,436,177,449,17;186,448,191,435,18;177,449,186,448,12;186,448,198,451,15;198,451,198,463,12;184,464,198,463,15;184,464,186,448,18;174,463,177,449,17;174,463,184,464,11;162,459,174,463,16;162,459,162,450,11;150,450,162,450,14;143,437,150,450,20;222,447,232,438,13;217,437,232,438,16;206,440,217,437,14;221,473,232,474,12;232,474,234,461,15;234,461,237,446,18;234,461,240,473,18;232,474,240,473,9;239,490,240,473,18;239,490,240,504,15;240,504,242,516,14;228,515,242,516,15;218,515,228,515,10;230,488,232,474,16;219,486,230,488,13;226,530,228,515,17;211,529,226,530,16;226,530,239,536,19;239,536,241,524,14;241,524,242,516,9;239,536,239,550,14;239,550,240,566,17;240,566,240,579,13;239,593,240,579,15;225,590,239,593,17;216,586,225,590,13;211,577,216,586,14;205,591,216,586,16;225,590,225,601,11;223,611,225,601,12;239,593,241,605,14;241,605,243,610,7;274,611,279,600,16;266,593,279,600,20;254,591,266,593,14;248,563,248,546,19;248,546,250,532,18;250,532,250,518,14;242,516,250,518,10;250,518,263,512,19;263,512,276,507,18;276,507,293,505,19;293,505,302,510,14;302,510,314,515,17;250,532,266,531,17;266,531,281,527,19;281,527,286,519,13;286,519,299,517,15;299,517,314,515,17;314,515,316,528,15;293,505,306,499,19;306,499,311,489,15;311,489,316,481,13;313,466,316,481,20;306,451,313,466,22;297,440,306,451,20;262,498,263,512,15;262,498,262,482,16;262,482,269,477,12;269,477,278,485,17;278,485,291,489,17;291,489,296,477,17;269,477,276,463,21;276,463,276,452,11;279,600,291,587,17;291,587,289,572,15;289,572,289,560,12;275,556,289,560,18;271,544,275,556,16;257,546,271,544,16;257,546,257,559,13;257,559,269,561,14;269,561,275,556,11;289,560,298,549,20;286,545,298,549,16;286,545,292,533,18;292,533,299,538,12;298,549,299,538,14;298,549,307,541,17;307,541,316,528,22;307,541,321,541,14;321,541,331,545,14;326,577,328,568,11;311,578,326,577,16;297,574,311,578,18;289,572,297,574,8;312,549,321,541,17;307,541,312,549,15;312,549,314,558,11;312,563,314,558,5;321,541,329,530,19;329,530,331,545,17;316,528,329,530,15;314,515,322,502,21;322,502,331,491,20;328,474,331,491,20;321,460,328,474,21;321,460,322,448,15;331,491,340,487,13;340,487,345,487,5,northFallyTavGate;291,587,303,587,12;303,587,318,587,15;318,587,333,585,17;333,585,343,582,10;343,579,343,582,3,southFallyTavGate;274,611,289,611,15;289,611,304,610,16;304,610,318,604,20;318,604,330,596,20;330,596,345,594,15;343,582,345,594,12;330,596,333,585,14;289,611,292,598,16;291,587,292,598,11;303,587,305,599,14;304,610,305,599,12;316,596,318,587,11;316,596,318,604,10;345,594,358,594,13;330,596,331,611,16;331,611,339,622,19;339,622,353,620,16;353,620,363,609,14;353,620,355,635,17;354,648,355,635,14;344,659,354,648,21;335,662,344,659,12;335,662,335,673,11;325,678,335,673,15;318,672,325,678,13;309,678,318,672,15;318,672,323,664,13;323,664,324,653,14;324,653,335,662,20;312,657,324,653,16;309,668,312,657,14;299,654,312,657,16;297,665,299,654,13;291,659,299,654,13;284,652,299,654,17;324,639,324,653,14;314,628,324,639,21;310,616,314,628,16;310,616,318,604,20;304,610,310,616,12;283,619,293,626,17;293,626,305,630,16;305,630,314,628,11;303,640,305,630,12;299,654,303,640,18;324,639,338,643,18;338,643,348,642,11;348,642,354,648,12;348,642,355,635,14;335,636,339,622,18;324,639,335,636,14;322,625,324,639,16;314,628,322,625,11;321,616,331,611,15;321,616,322,625,10;318,604,321,616,15;310,616,321,616,11;289,611,293,626,19;358,594,359,582,13;343,582,359,582,16;343,579,356,576,13;343,579,344,565,14;356,576,365,574,11;365,574,366,566,9;356,566,366,566,10;356,566,356,576,10;344,565,356,566,13;343,553,344,565,13;343,553,346,542,14;331,545,336,548,8;335,561,336,548,14;328,568,335,561,14;346,542,359,539,16;354,551,356,566,17;354,551,359,539,17;359,539,368,532,16;368,519,368,532,15;359,509,368,519,19;346,505,359,509,17;346,505,347,495,11;345,487,347,495,10;366,566,374,555,19;367,542,374,555,20;367,542,368,532,11;345,487,348,474,16;347,460,348,474,15;343,446,347,460,18;343,446,352,437,18;352,437,367,437,15;367,437,368,446,10;368,446,383,445,16;383,445,384,460,16;381,475,384,460,18;381,475,384,490,18;383,504,384,490,15;382,518,383,504,15;380,534,382,518,18;368,532,380,534,14;368,519,382,518,17;359,509,365,500,15;365,500,374,498,11;374,498,384,490,18;374,498,383,504,15;345,487,358,488,14;383,504,393,494,20;393,494,397,480,18;393,465,397,480,19;393,465,396,454,14;396,454,397,463,10;397,463,403,467,10;403,467,407,461,12;401,459,407,461,8;401,459,412,457,13;412,457,414,472,17;404,450,412,457,15;404,450,408,438,16;409,484,414,472,17;401,495,409,484,19;401,495,405,501,10;405,501,416,498,14;416,498,427,495,14;427,495,437,500,15;437,500,448,500,11;448,500,457,489,20;457,489,466,480,18;466,466,466,480,16;466,466,480,465,15;452,464,466,466,16;441,457,452,464,18;427,455,441,457,14;431,465,441,457,12;427,455,431,465,10;431,465,431,474,9;424,486,431,474,19;424,486,427,495,14;416,498,424,486,20;445,490,448,500,13;445,490,457,489,13;451,479,466,480,16;437,474,451,479,19;431,474,437,474,6;445,490,451,479,17;480,465,492,459,18;485,456,492,459,10;480,465,485,456,14;484,443,485,456,14;484,432,484,443,11;484,422,484,432,10;484,422,489,411,16;492,459,500,456,11;500,456,501,451,6;500,456,508,457,9;508,457,520,458,13;492,459,494,446,15;484,443,494,446,13;494,446,506,446,12;506,446,508,457,15;506,446,517,448,13;517,448,520,458,13;517,448,532,448,17;532,448,532,458,10;520,458,532,458,12;480,465,488,476,19;488,476,495,487,18;495,487,501,502,21;501,502,510,515,22;510,515,522,523,20;522,523,535,530,20;535,530,549,534,18;549,534,562,541,20;562,541,564,554,15;563,571,564,554,18;504,469,508,457,16;497,478,504,469,16;495,487,497,478,11;488,476,497,478,11;504,469,509,482,18;497,478,509,482,16;495,487,509,482,19;186,637,192,626,17;192,626,202,625,11;202,625,212,620,15;202,625,214,631,18;198,635,202,625,14;174,628,186,637,21;174,617,174,628,11;167,611,174,617,13;162,629,174,628,13;156,642,162,629,19;184,606,199,605,16;184,606,185,611,6,lummyNorthPotatoGate;184,602,184,606,4,lummyNorthGarlicGate;167,611,173,608,9;173,608,184,606,13;172,604,173,608,5,lummyNorthWheatSouthGate;172,604,178,595,15,lummyNorthWheatNorthGate;97,663,100,649,17;95,650,100,649,6;88,650,95,650,7,alkharidGate;71,682,72,694,15;84,693,92,696,11;114,609,118,607,6,lummyEastChickenGate;153,615,159,616,9,lummyNorthChickensGate;562,541,577,539,17;577,539,592,535,19;592,535,609,531,21;609,531,624,527,19;624,527,640,521,22;640,521,648,520,9;647,528,648,520,9;647,528,661,527,15;646,539,647,528,12;646,539,650,549,14;650,549,658,555,14;658,555,671,549,19;671,549,682,544,16;682,544,693,539,16;693,539,703,535,15;703,528,703,535,6,gnomeTreeGate;703,528,706,515,16;703,501,706,515,17;700,493,703,501,11;693,493,700,493,11;637,550,646,539,20;626,557,637,550,18;612,563,626,557,20;608,569,612,563,10;608,569,611,580,14;611,580,613,593,15;601,595,613,593,14;613,593,616,604,14;598,603,601,595,11;587,604,598,603,12;573,607,587,604,17;562,606,573,607,12;551,607,562,606,12;549,596,551,607,13;548,584,549,596,13;548,584,554,575,15;554,575,563,571,13;563,571,578,571,15;578,571,582,574,7;578,571,589,570,12;582,574,589,570,13;589,570,590,583,14;590,583,591,593,15;587,604,591,593,15;535,596,549,596,14;527,590,535,596,10;517,585,527,590,11;502,550,512,553,10;498,537,502,550,17;493,525,498,537,17;482,515,493,525,21;472,504,482,515,21;459,504,472,504,19;448,500,459,504,15;457,489,467,496,17;467,496,472,504,13;487,502,501,502,16;472,504,487,502,17;500,523,510,515,18;493,525,500,523,9;532,543,535,530,13;557,527,562,541,19;557,511,557,527,16;557,500,557,511,11;547,489,557,500,21;541,475,547,489,20;540,464,541,475,12;532,458,540,464,14;547,489,557,478,21;115,658,116,667,10;208,653,211,665,15;211,665,213,675,12;213,675,217,684,13;215,691,217,684,9,wizardTowerDoor;148,599,150,595,6,lummyCabbageGate;132,635,143,627,19;152,619,153,615,5,lummyNorthSheepGate;143,627,152,619,17;323,713,335,712,13;335,712,346,710,13;346,710,353,700,17;353,700,364,696,11;364,696,370,686,11;370,686,371,698,12;365,710,371,698,13;354,711,365,710,12;346,710,354,711,9;365,710,376,706,15;371,698,376,706,9;376,706,387,703,14;387,703,399,701,14;399,701,410,699,13;410,699,421,698,12;421,698,430,689,18;430,689,433,683,9;433,683,437,683,4,brimhavenKaramjaGate;437,683,448,690,18;448,690,460,689,13;460,689,473,687,15;473,687,479,678,15;479,667,479,678,11;469,659,479,667,18;467,647,469,659,14;458,662,469,659,14;437,674,437,683,9;479,667,488,673,15;488,673,497,669,9;497,658,497,669,11;486,652,497,658,19;473,687,480,694,14;476,704,480,694,14;468,713,476,704,25;464,725,468,713,20;464,725,464,737,12;464,737,464,749,12;464,749,465,760,12;463,771,465,760,13;462,783,463,771,13;458,796,462,783,17;457,810,458,796,17;446,818,457,810,19;443,829,446,818,14;443,829,447,840,15;434,815,446,818,15;421,815,434,815,13;407,815,421,815,14;394,815,407,815,13;380,816,394,815,15;371,825,380,816,18;371,825,365,815,16;365,815,380,816,16;380,816,378,803,15;378,803,380,791,14;380,791,382,779,14;382,779,384,766,15;384,766,396,766,16;396,766,407,769,14;407,769,417,763,16;417,763,420,751,15;420,751,431,746,16;431,746,439,736,18;439,736,450,735,12;450,735,455,728,8;455,728,464,725,9;448,850,448,861,13;448,861,435,863,15;435,863,421,863,14;421,863,408,862,14;408,862,396,863,13;396,863,383,860,16;383,860,383,850,10;383,850,396,851,20,shiloVillageEntrance;396,851,403,852,8;403,852,406,843,12;406,843,406,831,12;406,831,414,830,9;414,830,424,826,18;406,831,395,828,14;110,438,96,438,14;96,438,83,438,15;83,438,75,442,18;61,729,63,739,1,shantayPass;613,593,622,590,12;587,604,593,613,15;593,613,600,620,14;600,620,600,632,12;277,644,277,653,13;277,653,277,649,4,gerrantHouseDoor;600,632,609,640,17;609,640,610,652,12;610,652,610,664,12;610,664,608,677,15;608,677,595,681,17;595,681,589,691,16;589,691,585,702,15;585,702,585,715,15;585,715,594,710,14;594,710,596,698,14;596,698,589,691,14;595,681,600,692,16;600,692,596,698,10;600,692,611,694,13;611,694,621,693,11;621,693,616,682,16;616,682,608,677,15;585,715,591,726,17;591,726,601,731,15;601,731,612,731,11;612,731,625,730,14;625,730,633,729,11;591,726,581,734,18;581,734,581,746,12;581,746,587,753,9;581,746,593,746,12;593,746,602,748,11;602,748,614,746,14;614,746,626,749,15;626,749,637,753,15;637,753,637,761,8;637,761,624,764,18;624,764,612,767,15;612,767,599,767,13;599,767,587,767,12;587,767,581,753,15;581,753,581,746,7;581,746,567,746,14;567,746,556,748,13;556,748,542,748,14;542,748,534,755,15;659,750,666,740,17;666,740,667,728,13;667,728,654,728,13;654,728,642,731,15;642,731,647,742,16;567,746,568,734,13;568,734,581,734,13;568,734,569,721,14;569,721,577,711,18;577,711,575,698,15;575,698,585,702,14;575,698,563,695,15;563,695,552,701,17;552,701,539,703,15;563,695,571,686,17;571,686,568,674,21;568,674,565,661,16;565,661,565,648,13;565,648,570,636,17;570,636,571,624,13;571,624,581,627,15;581,627,591,631,14;591,631,600,632,10;591,631,589,644,15;589,644,589,652,8;589,652,598,655,12;598,655,610,652,12;589,652,575,651,17;575,651,565,648,13;562,606,560,595,13;560,595,573,593,15;573,593,582,597,13;582,597,591,593,13;560,595,549,596,12;527,590,529,602,12;529,602,527,615,15;527,615,536,616,10;536,616,546,616,12;546,616,551,607,14;527,590,514,593,13;514,593,505,584,18;505,584,499,573,17;499,573,508,566,16;508,566,512,553,13;508,566,513,577,16;513,577,517,585,8;472,504,472,517,15;472,517,477,527,15;477,527,485,536,17;485,536,498,537,14;495,487,482,488,14;482,488,471,487,12;471,487,466,480,16;471,487,467,496,19;471,487,457,489,16;506,446,496,435,21;496,435,494,446,13;496,435,484,432,15;489,411,491,399,14;609,531,609,517,14;609,517,609,504,15;609,504,610,492,15;592,535,586,524,15;586,524,586,523,4,fishingGuildEntrance;586,517,598,517,14;598,517,599,504,16;599,504,587,503,17;587,503,586,517,15;586,517,586,523,6;610,492,608,478,16;608,478,607,466,13;607,466,604,455,14;604,455,615,457,13;615,457,622,466,16;622,466,634,466,12;634,466,636,453,15;636,453,647,451,13;647,451,651,439,16;647,451,653,462,17;653,462,650,473,14;650,473,646,483,14;646,483,648,492,11;648,492,644,503,15;644,503,645,514,12;645,514,648,520,9;661,527,664,515,15;664,515,666,503,14;666,503,668,492,13;668,492,670,480,14;670,480,668,467,15;668,467,668,456,13;703,528,715,524,16;715,524,728,522,15;728,522,732,512,14;732,512,733,498,19;733,498,736,487,14;736,487,734,474,15;734,474,733,461,16;733,461,723,453,18;723,453,718,442,16;718,442,705,438,17;705,438,691,439,15;691,439,678,441,15;678,441,675,453,15;675,453,675,465,12;675,465,677,475,12;677,475,688,479,15;688,479,698,479,10;698,479,700,493,16;698,479,703,467,17;703,467,704,457,13;700,493,712,494,13;712,494,721,490,13;721,490,724,479,14;724,479,734,474,15;609,640,614,633,12;614,633,622,633,8;659,654,660,661,7;660,661,660,670,9;660,670,648,669,12;648,669,635,671,13;635,671,625,671,10;659,654,666,655,7;666,655,675,664,12;675,664,679,675,11;679,675,685,684,15;685,684,694,693,18;694,693,699,703,15;699,703,707,710,15;707,710,714,716,13;699,703,705,692,17;705,692,711,687,11;685,684,691,677,13;691,677,703,673,18;703,673,711,662,19;711,662,709,650,14;709,650,710,637,14;710,637,710,624,13;710,624,707,612,15;707,612,709,599,15;709,599,706,587,15;706,587,695,593,17;695,593,682,598,18;682,598,669,602,17;669,602,656,608,19;656,608,645,617,20;645,617,635,625,18;635,625,630,633,9;707,612,693,611,15;693,611,680,615,17;680,615,668,620,13;668,620,654,623,14;654,623,645,617,15;709,580,696,580,15;696,580,683,577,16;683,577,669,578,15;669,578,657,576,14;657,576,644,575,14;644,575,630,576,15;630,576,627,589,18;627,589,624,601,15;624,601,634,604,13;634,604,644,602,12;644,602,654,599,13;654,599,663,590,18;663,590,669,578,18;644,575,641,588,16;644,602,641,588,21;557,478,569,478,12;569,478,580,472,17;580,472,588,464,16;588,464,590,451,15;590,451,583,440,18;583,440,572,437,16;572,437,558,436,15;558,436,546,437,13;546,437,537,436,10;537,436,532,448,17;418,570,408,569,10;408,569,402,560,15;402,560,401,548,15;401,548,402,536,13;402,536,414,536,12;414,536,425,537,12;425,537,433,543,14;433,543,427,547,10;427,547,416,549,17;418,570,426,566,8;426,566,434,558,16;426,566,416,560,16;416,560,402,560,18;430,689,421,681,17;421,681,408,677,17;408,677,395,681,17;395,681,389,691,16;389,691,387,703,14;465,760,453,759,13;453,759,440,759,17;440,759,429,759,13;429,759,417,763,16;417,763,422,775,17;422,775,422,787,14;422,787,419,798,14;419,798,406,800,15;406,800,407,815,16;419,798,431,800,14;431,800,443,796,16;443,796,450,787,16;450,787,462,783,16;450,787,437,781,19;437,781,432,772,14;432,772,422,775,15;422,775,409,778,16;409,778,397,780,14;397,780,388,789,18;388,789,382,779,16;388,789,390,799,12;390,799,398,807,16;398,807,394,815,12;398,807,406,800,15;416,549,410,553,10;416,549,407,543,15;407,543,401,548,11;63,739,71,746,15;71,746,76,757,16;76,757,80,768,15;80,768,87,778,17;87,778,94,789,18;94,789,100,797,14;100,797,104,809,16;104,809,116,806,15;116,806,128,805,13;128,805,140,806,13;140,806,152,804,14;152,804,164,805,13;164,805,175,801,15;383,850,375,840,18;375,840,364,835,16;364,835,351,831,17;351,831,346,820,16;346,820,346,810,12;347,801,355,795,14;355,795,361,785,16;361,785,364,776,12;364,776,364,769,9;364,769,352,771,14;352,771,341,777,17;341,777,340,788,12;340,788,339,798,13;339,798,347,801,11;346,810,338,812,10;338,812,338,825,13;338,825,338,838,13;338,838,341,851,16;341,851,347,859,14;347,859,356,865,15;356,865,368,863,14;368,863,375,865,9;375,865,383,860,13;364,835,360,846,15;360,846,349,852,17;349,852,347,859,9;343,881,356,882,14;356,882,367,882,11;367,882,377,882,10;377,882,389,881,13;389,881,401,881,12;401,881,413,876,17;413,876,425,876,14;425,876,437,879,15;437,879,449,879,12;449,879,460,877,13;460,877,468,885,16;468,885,467,897,13;467,897,458,905,17;458,905,444,906,15;444,906,432,905,13;432,905,419,903,15;419,903,406,903,13;406,903,393,904,14;393,904,381,904,12;381,904,368,903,14;368,903,355,901,15;355,901,343,902,13;343,902,341,890,14;341,890,343,881,11;341,890,352,891,12;352,891,363,892,12;363,892,377,892,14;377,892,390,894,15;390,894,401,891,14;401,891,412,894,14;412,894,425,893,14;425,893,436,892,12;436,892,448,891,13;448,891,460,892,13;460,892,468,885,15;437,879,436,892,14;412,894,419,903,16;436,892,432,905,17;401,891,401,881,10;377,892,381,904,16;377,882,377,892,10;352,891,356,882,13;363,892,355,901,17;443,829,448,829,5;649,766,639,772,16;639,772,630,770,11;630,770,621,778,17;621,778,620,790,13;620,790,620,801,13;620,801,621,812,12;621,812,626,824,17;626,824,637,828,15;637,828,648,833,16;648,833,659,833,13;659,833,661,844,13;661,844,664,853,12;664,853,655,861,17;655,861,648,863,9;648,863,635,863,13;635,863,625,863,10;625,863,613,863,12;613,863,601,863,12;601,863,590,862,12;590,862,576,860,16;576,860,577,848,13;577,848,583,838,16;583,838,583,826,12;583,826,589,817,15;589,817,601,818,13;601,818,612,812,17;612,812,621,812,9;626,824,615,828,15;615,828,604,831,14;604,831,594,833,12;594,833,583,838,16;594,833,594,843,10;594,843,597,853,13;597,853,601,863,14;597,853,604,844,16;604,844,613,842,11;613,842,621,835,15;621,835,630,837,11;630,837,637,828,16;659,833,649,840,17;649,840,639,846,16;639,846,630,851,14;630,851,619,852,12;619,852,609,853,11;609,853,601,863,18;630,837,639,846,18;613,842,619,852,16;621,835,615,828,13;604,831,601,818,16;620,790,608,787,15;608,787,596,780,19;596,780,584,776,16;621,778,609,778,16;609,778,596,780,15;691,716,678,718,15;678,718,675,706,15;675,706,673,693,15;673,693,683,698,15;683,698,686,709,14;686,709,691,716,12;678,718,670,718,8;670,718,670,706,20;670,706,670,697,9;670,697,668,687,12;668,687,658,686,11;658,686,664,683,17;664,683,666,676,15;666,676,670,682,16;670,682,670,674,8;670,674,657,673,14;657,673,644,675,15;644,675,633,675,15;670,718,658,718,12;658,718,646,712,22;646,712,633,708,21;633,708,630,699,18;630,699,631,688,12;631,688,627,691,13;627,691,627,703,16;627,703,626,710,8;626,710,630,716,14;630,716,638,718,12;638,718,649,717,12;649,717,634,714,20;616,682,623,675,14;623,675,635,679,16;635,679,644,680,14;644,680,656,679,17;639,683,633,684,15;633,684,643,685,11;653,685,662,689,13;653,685,643,685,18;656,679,639,683,25;662,689,668,692,9;668,692,665,701,12;665,701,656,706,14;656,706,663,706,7;663,706,666,712,13;666,712,661,712,15;661,712,655,710,22;655,710,641,708,16;635,679,625,684,23;625,684,625,697,17;625,697,626,710,14;595,681,584,677,15;584,677,577,669,15;577,669,568,674,14;589,570,591,557,17;591,557,600,549,17;600,549,606,540,15;606,540,609,531,12;577,539,584,549,17;584,549,591,557,15;535,530,538,518,15;538,518,539,506,13;539,506,540,495,12;540,495,547,489,13;540,495,529,491,15;529,491,517,485,18;517,485,509,482,11;232,438,242,431,17;242,431,248,421,16;248,421,258,417,14;258,417,254,428,15;254,428,254,439,11;254,439,257,449,13;257,449,257,455,6;257,455,257,468,13;257,468,257,478,10;257,478,262,482,9;254,428,264,422,16;264,422,274,415,17;274,415,282,409,14;282,409,293,411,13;293,411,305,411,14;305,411,316,412,12;316,412,326,411,11;326,411,328,423,14;328,423,319,432,18;319,432,307,437,17;307,437,297,440,13;297,440,299,428,14;299,428,294,421,12;294,421,293,411,15;294,421,283,425,15;283,425,274,429,13;274,429,263,435,17;263,435,265,447,14;265,447,276,452,16;276,452,286,449,13;286,449,294,453,12;294,453,299,464,16;299,464,296,477,16;258,417,265,407,17;265,407,274,400,16;274,400,285,397,14;285,397,297,395,14;297,395,307,391,14;307,391,318,392,12;318,392,327,384,17;327,384,327,372,12;327,372,328,359,14;328,359,328,347,12;328,347,329,334,14;329,334,324,323,16;324,323,327,310,16;327,310,327,297,13;327,297,326,285,15;326,285,329,273,15;329,273,326,262,14;326,262,327,250,13;327,250,326,237,14;326,237,326,225,14;326,225,325,212,13;325,212,324,199,13;324,199,328,187,16;328,187,327,174,14;327,174,328,165,10;328,165,328,152,13;328,152,331,144,8;331,144,331,140,4,icePlateauGate;331,140,331,128,12;331,128,323,118,18;323,118,311,119,13;311,119,308,129,13;308,129,306,139,12;306,139,318,139,12;318,139,319,128,12;319,128,323,123,9;323,123,331,128,13;306,139,298,139,8;298,139,298,123,16,wildyAgilityGate;298,139,286,139,14;286,139,273,139,13;273,139,259,139,14;259,139,248,132,18;248,132,248,124,8;248,124,240,115,17;240,115,234,103,13;234,103,221,103,13;221,103,214,109,9;214,109,205,118,18;205,118,196,122,13;196,122,186,119,13;186,119,183,107,15;183,107,174,101,15;174,101,164,101,10;164,101,150,101,16;150,101,135,101,15;135,101,122,101,13;122,101,109,101,13;109,101,96,101,15;96,101,83,106,18;83,106,70,112,19;70,112,59,117,16;59,117,59,127,10;59,127,59,141,14;59,141,69,140,11;69,140,81,138,14;81,138,95,138,14;95,138,108,135,16;108,135,111,141,6;111,141,111,143,2,deepWildyGate;111,141,123,138,12;123,138,133,138,10;133,138,147,138,16;147,138,160,138,13;160,138,170,138,10;170,138,183,138,15;183,138,194,138,13;194,138,205,138,13;205,138,209,133,9;194,138,198,129,13;198,129,196,122,9;214,109,201,108,22;201,108,191,102,16;191,102,183,107,13;234,103,245,107,11;245,107,258,110,13;258,110,268,115,11;268,115,280,122,13;280,122,282,128,6;282,128,286,139,11;268,115,258,122,12;258,122,248,124,10;164,101,163,113,15;163,113,162,125,13;162,125,160,138,15;147,138,147,125,15;147,125,147,114,11;147,114,150,101,16;135,101,130,109,13;130,109,118,116,25;118,116,121,126,13;121,126,123,138,14;95,138,94,125,14;94,125,93,113,13;93,113,96,101,15;59,127,71,126,13;71,126,84,123,16;84,123,94,125,12;94,125,105,121,15;105,121,118,116,18;118,116,126,123,15;126,123,134,126,11;134,126,147,125,14;147,125,155,121,12;155,121,163,113,16;328,165,316,166,13;316,166,317,154,13;317,154,305,152,14;305,152,292,154,15;292,154,281,152,13;281,152,268,149,16;268,149,255,152,16;255,152,242,152,13;242,152,229,152,13;229,152,215,152,14;215,152,205,152,10;205,152,194,152,13;194,152,181,152,13;181,152,165,152,16;165,152,152,152,13;152,152,139,152,13;139,152,126,152,13;99,152,83,153,16;83,153,68,153,17;68,153,55,153,13;55,153,55,163,12;55,163,65,166,13;65,166,73,168,10;73,168,86,171,16;86,171,94,171,8;94,171,102,164,10;102,164,113,163,11;113,163,126,166,13;126,166,136,163,13;136,163,148,163,12;148,163,161,163,13;161,163,165,152,15;165,152,172,158,13;172,158,182,165,17;182,165,194,166,13;194,166,205,166,13;205,166,218,163,16;218,163,228,160,13;228,160,240,159,13;240,159,254,159,16;254,159,262,169,18;262,169,271,177,17;271,177,282,178,12;282,178,292,182,14;292,182,303,188,17;303,188,314,185,14;314,185,320,177,14;320,177,327,174,10;316,166,320,177,15;292,154,293,166,13;293,166,301,172,14;301,172,292,182,19;301,172,310,174,11;310,174,316,166,14;293,166,278,166,15;278,166,270,163,11;270,163,262,169,14;240,159,242,152,9;215,152,218,163,14;182,165,181,152,14;126,152,126,166,14;99,152,92,162,12;92,162,94,171,11;73,168,76,159,12;76,159,83,153,13;55,163,54,175,13;54,175,58,185,14;58,185,57,196,12;57,196,57,208,12;57,208,60,219,14;60,219,57,231,15;57,231,57,245,14;57,245,60,258,16;60,258,57,271,16;57,271,60,284,16;60,284,60,297,15;60,297,63,310,16;63,310,57,321,17;57,321,49,331,18;63,310,74,316,17;74,316,82,311,15;82,311,81,324,14;81,324,77,336,16;77,336,63,338,16;63,338,51,343,17;51,343,52,356,14;52,356,53,369,16;53,369,54,381,13;54,381,58,393,16;58,393,56,407,16;56,407,55,419,15;55,419,56,430,12;56,430,48,439,17;48,439,56,440,11;56,440,59,447,10;59,447,66,444,18;66,444,65,436,15;65,436,56,440,17;48,439,53,449,15;53,449,61,454,13;61,454,73,452,14;83,438,81,428,12;81,428,68,429,14;68,429,56,430,15;55,419,68,417,15;68,417,68,429,14;68,417,68,404,13;68,404,68,394,12;68,394,58,393,11;68,394,67,381,14;67,381,64,368,16;64,368,61,357,14;61,357,52,356,10;61,357,61,345,12;61,345,63,338,9;61,345,73,347,14;73,347,77,336,15;61,357,73,356,13;73,356,85,356,12;85,356,95,359,13;95,359,103,369,18;103,369,109,380,17;109,380,122,382,15;122,382,130,372,18;130,372,132,359,15;132,359,124,348,19;124,348,114,351,13;114,351,113,359,9;113,359,116,365,9;114,351,103,349,13;103,349,94,340,18;94,340,87,329,18;87,329,81,324,11;82,311,91,319,17;91,319,98,328,16;98,328,104,337,15;104,337,114,342,15;114,342,126,340,14;126,340,136,345,15;136,345,141,355,15;141,355,141,368,13;141,368,135,379,17;135,379,127,390,19;127,390,113,391,15;113,391,100,385,19;100,385,91,376,18;91,376,85,365,17;85,365,85,356,9;122,382,127,390,13;103,369,91,376,19;130,372,141,368,15;124,348,136,345,15;114,342,124,348,16;98,328,87,329,12;82,311,95,309,15;95,309,106,315,17;106,315,116,320,15;116,320,127,323,14;127,323,138,328,16;138,328,148,335,17;148,335,151,346,14;151,346,155,359,17;155,359,158,371,15;158,371,157,383,15;157,383,148,392,18;148,392,139,401,18;139,401,126,403,15;126,403,113,406,16;113,406,99,405,15;99,405,88,399,17;88,399,79,389,19;79,389,73,378,17;73,378,67,381,9;85,365,72,367,15;72,367,64,368,9;100,385,97,395,13;97,395,99,405,12;127,390,136,389,10;136,389,148,392,15;155,359,141,355,18;127,323,115,328,17;115,328,104,337,20;88,399,77,405,17;77,405,77,417,12;77,417,81,428,15;81,428,92,424,15;92,424,97,414,15;97,414,99,405,11;110,438,110,424,14;110,424,112,414,12;112,414,113,406,9;92,424,100,429,13;100,429,110,424,15;110,424,120,418,16;120,418,132,419,13;132,419,143,422,14;143,422,155,425,15;155,425,167,425,14;167,425,179,425,14;179,425,188,422,12;188,422,197,413,18;197,413,206,404,18;206,404,218,404,12;218,404,218,416,14;218,416,221,428,15;221,428,217,437,13;191,435,188,422,16;155,425,159,437,16;126,403,127,390,16;126,403,135,409,15;135,409,132,419,13;155,425,151,413,16;151,413,150,401,13;150,401,148,392,11;151,413,163,412,13;163,412,175,411,13;175,411,185,405,16;185,405,196,398,18;196,398,208,398,12;208,398,223,398,15;223,398,218,404,11;197,413,185,405,20;248,421,235,420,14;235,420,229,408,18;229,408,218,404,15;223,398,235,398,14;235,398,247,398,14;247,398,258,399,12;258,399,265,407,15;248,421,246,408,15;246,408,247,398,13;150,401,160,394,17;160,394,171,390,15;171,390,183,386,16;183,386,195,383,15;195,383,207,380,15;207,380,218,377,14;218,377,230,377,12;230,377,242,377,12;242,377,254,377,12;254,377,263,377,9;263,377,275,371,18;275,371,287,371,12;287,371,299,371,12;299,371,311,371,14;311,371,316,359,17;316,359,328,359,14;275,371,275,358,13;275,358,275,343,15;275,343,278,332,14;278,332,283,321,16;283,321,289,309,18;289,309,289,297,12;289,297,289,285,14;289,285,289,274,11;289,274,289,262,12;289,262,289,250,12;289,250,292,238,15;292,238,292,226,12;292,226,292,211,15;292,211,292,199,12;292,199,304,200,13;304,200,303,188,13;324,199,312,203,16;312,203,304,200,11;304,200,304,212,12;304,212,306,224,14;306,224,304,237,15;304,237,304,249,12;304,249,304,261,12;304,261,304,273,14;304,273,304,285,12;304,285,306,296,13;306,296,307,308,17;307,308,306,320,13;306,320,307,332,13;307,332,310,344,15;310,344,310,356,14;310,356,316,359,9;299,371,294,359,17;294,359,293,346,14;293,346,295,335,13;295,335,293,323,14;293,323,293,311,12;293,311,289,309,6;295,335,307,332,15;324,323,312,318,17;312,318,306,320,8;306,296,315,287,18;315,287,326,285,15;327,250,316,251,14;316,251,304,249,14;325,212,314,212,11;314,212,304,212,10;304,237,292,238,13;304,273,289,274,18;306,296,294,300,18;294,300,289,297,8;292,182,286,193,17;286,193,292,199,12;286,193,273,193,13;273,193,264,201,17;264,201,252,206,17;252,206,240,206,12;240,206,227,206,13;227,206,215,200,18;215,200,212,188,15;212,188,205,175,20;205,175,205,166,11;292,211,279,211,13;279,211,266,212,14;266,212,253,214,15;253,214,252,206,9;292,238,278,239,17;278,239,265,239,13;265,239,252,239,15;252,239,253,227,15;253,227,253,214,13;289,262,275,261,15;275,261,264,253,19;264,253,252,251,14;252,251,252,239,12;289,274,275,274,14;275,274,262,273,14;262,273,249,272,14;249,272,245,260,16;245,260,252,251,16;275,343,269,332,17;269,332,278,332,9;269,332,270,320,13;270,320,273,308,15;273,308,275,296,14;275,296,264,295,12;264,295,258,304,15;258,304,266,311,19;266,311,270,320,13;269,332,260,324,17;260,324,251,315,18;251,315,245,305,16;245,305,239,296,15;239,296,239,287,9;239,287,241,275,14;241,275,249,272,11;136,163,140,175,16;140,175,151,175,11;151,175,164,175,13;164,175,176,175,12;176,175,188,182,19;188,182,198,188,16;198,188,212,188,14;182,165,176,175,16;140,175,126,179,18;126,179,112,180,15;112,180,113,192,15;113,192,115,204,14;115,204,115,213,9;115,213,121,220,13;121,220,131,228,18;131,228,143,229,13;143,229,155,232,15;155,232,168,232,13;168,232,171,219,16;171,219,174,207,15;174,207,171,195,15;171,195,183,191,16;183,191,188,182,14;215,200,204,206,17;204,206,192,211,17;192,211,185,219,15;185,219,171,219,14;253,227,240,227,13;240,227,227,228,14;227,228,214,231,16;214,231,200,232,15;200,232,185,232,15;185,232,185,219,13;227,206,220,216,17;220,216,227,228,19;94,171,89,183,17;89,183,78,190,18;78,190,66,189,13;66,189,58,185,12;113,192,100,193,14;100,193,89,194,12;89,194,89,183,11;60,219,72,218,15;72,218,85,217,14;85,217,96,214,14;96,214,106,210,14;106,210,115,213,12;168,232,169,243,12;169,243,156,247,17;156,247,142,248,15;142,248,143,258,11;143,258,143,268,12;143,268,154,271,14;154,271,155,259,13;155,259,165,261,12;165,261,175,255,16;154,271,166,272,13;166,272,178,273,13;178,273,186,261,20;186,261,189,249,15;189,249,197,243,14;200,232,197,243,14;197,243,209,247,16;209,247,217,253,14;217,253,228,255,13;228,255,238,249,16;238,249,252,251,16;239,287,225,287,16;225,287,211,286,15;211,286,198,286,13;198,286,182,286,18;182,286,178,273,17;217,253,214,264,14;214,264,211,277,16;211,277,211,286,11;85,217,84,229,13;84,229,83,243,15;83,243,84,254,12;84,254,82,267,15;82,267,81,280,14;81,280,81,293,15;81,293,88,303,17;88,303,95,309,13;81,293,68,294,14;68,294,60,284,18;60,258,71,256,13;71,256,84,254,15;83,243,95,243,14;95,243,108,246,16;108,246,119,246,11;119,246,129,244,12;129,244,142,248,17;142,248,140,239,11;140,239,143,229,13;143,268,129,267,19;129,267,116,268,16;116,268,103,269,16;103,269,90,270,14;90,270,81,280,19;88,303,99,299,15;99,299,111,298,13;111,298,122,296,13;122,296,134,292,16;134,292,146,293,13;146,293,148,282,13;148,282,154,271,17;182,286,169,293,20;169,293,156,292,14;156,292,146,293,13;127,323,134,314,16;134,314,142,305,17;142,305,146,293,16;148,335,154,325,16;154,325,160,315,16;160,315,171,311,15;171,311,181,318,17;181,318,194,321,18;194,321,204,320,11;204,320,216,320,12;216,320,228,320,12;228,320,241,320,13;241,320,251,315,15;160,315,154,304,17;154,304,156,292,14;116,268,117,281,16;117,281,124,285,11;124,285,134,292,17;242,377,241,364,14;241,364,239,351,15;239,351,242,339,15;242,339,241,327,13;241,327,241,320,7;204,320,204,333,13;204,333,205,346,14;205,346,209,357,15;209,357,210,369,15;210,369,207,380,14;151,346,163,347,13;163,347,174,346,14;174,346,185,344,13;185,344,194,337,16;194,337,204,333,14;174,346,174,358,12;174,358,173,371,14;173,371,176,381,13;176,381,171,390,14;196,398,192,391,11;192,391,183,386,14;254,377,249,386,14;249,386,247,398,14;435,484,435,488,4,catherbyChefDoor;435,488,445,490,12;435,488,427,495,15;144,657,144,669,12;144,669,130,670,1;130,3545,125,3533,17;125,3533,114,3541,19;114,3541,103,3544,14;125,3533,127,3521,14;125,3533,133,3528,13;133,3528,144,3533,16;144,3533,149,3544,17;149,3544,150,3553,11;150,3553,145,3558,12;145,3558,135,3555,14;135,3555,120,3555,15;120,3555,105,3555,15;105,3555,100,3560,9;100,3560,105,3566,12;144,3533,154,3528,15;154,3528,165,3529,12;165,3529,173,3525,14;165,3529,169,3539,14;169,3539,174,3546,12;279,3327,280,493,10,dwarvenMineCannonEntrance;280,493,278,485,10;279,3327,269,3330,13;279,3327,278,3339,13;278,3339,286,3347,16;286,3347,291,3342,10;291,3342,291,3331,13;286,3347,293,3348,8;293,3348,302,3349,10;302,3349,310,3349,8;278,3339,266,3339,12;266,3339,265,3350,12;265,3350,267,3361,13;267,3361,265,3372,13;265,3372,267,3378,8;267,3378,267,3380,2;267,3380,267,3381,15,miningGuildDoor;267,3381,267,3387,6;267,3387,268,3397,13;265,3372,254,3370,13;254,3370,250,537,5,dwarvenMineFaladorEntrance;248,563,252,572,13;252,572,252,581,11;252,581,254,591,12;257,546,250,537,10;61,729,68,718,18;68,718,76,709,17;76,709,83,702,14;83,702,84,693,10;84,693,83,683,11;83,683,71,682,13;71,682,70,671,12;70,671,70,660,11;70,660,69,647,14;69,647,68,634,14;68,634,67,622,13;67,622,68,610,13;68,610,70,598,14;70,598,70,586,12;71,682,61,682,10;61,682,59,694,14;61,682,58,672,13;58,672,70,671,21;83,683,82,671,15;82,671,85,659,15;85,659,88,650,12;82,671,70,671,14;88,650,81,641,16;81,641,73,631,18;73,631,67,622,15;73,631,76,619,15;76,619,78,607,14;78,607,79,594,14;79,594,78,581,14;78,607,68,610,13;78,581,73,573,13;73,573,84,574,12;73,573,71,560,15;73,573,63,573,10;44,566,32,566,16;32,566,25,568,9;57,547,60,536,14;60,536,64,525,15;64,525,67,515,13;67,515,69,503,14;69,503,68,491,13;68,491,69,479,13;69,479,73,468,15;73,468,62,464,15;62,464,50,462,14;50,462,52,473,13;52,473,48,484,15;48,484,35,489,18;35,489,22,488,14;22,488,9,488,13;48,484,47,496,13;47,496,45,508,14;45,508,45,521,15;45,521,45,533,12;45,533,37,541,16;37,541,27,549,18;27,549,16,555,17;16,555,9,559,11;9,559,14,549,15;27,549,27,560,13;27,560,39,559,13;39,559,44,566,12;46,550,37,541,18;64,525,52,521,16;52,521,45,521,7;68,491,56,488,15;56,488,48,484,12;63,573,57,573,6,digsiteGate;57,573,49,566,15;49,566,44,566,5;693,493,693,502,13;693,502,692,1448,256,gnomeAgilityClimbFirstNet;692,1448,689,2395,128,gnomeAgilityClimbTower;689,2395,685,2396,64,gnomeAgilityRopeSwing;685,2396,683,506,32,gnomeAgilityClimbDownTower;683,506,687,500,11;687,500,693,493,13;208,750,100,649,1,skipTutorial;100,649,102,638,13;102,638,107,628,15;107,628,116,627,10;107,628,107,618,10;53,558,49,566,12;57,547,53,558,15;53,558,46,550,15;137,464,141,1398,1,varrockPalaceNorthwestLadder;260,642,268,646,12;268,646,277,644,19;268,646,269,658,12;69,503,74,503,5;74,503,82,502,1,varrockEastDigsiteGate;82,502,82,491,13;82,491,82,480,11;82,480,89,470,17;82,480,80,468,18;80,468,76,458,14;76,458,73,452,9;89,470,91,459,13;91,459,99,451,16;99,451,110,451,11;99,451,96,438,16;91,509,82,502,16;91,509,83,518,17;220,3522,215,691,12,wizardTowerBasement;372,456,384,460,16;368,446,372,456,14;361,476,348,474,15;361,476,358,488,15;381,475,371,469,16;371,469,372,456,14;371,469,361,476,17;347,460,357,466,16;357,466,361,476,14;357,466,348,474,17;357,466,363,461,11;363,461,372,456,14;371,469,363,461,16;370,481,361,476,14;370,481,381,475,17;370,481,371,469,13;593,746,593,755,9;593,755,597,758,5;108,595,112,601,10;112,601,114,609,10;446,662,458,662,12;446,662,437,674,21;138,617,145,607,17;145,607,148,599,11;190,592,178,595,15;108,595,106,585,12;106,585,100,580,11;532,448,538,445,9;538,445,542,446,5,mcgroubersGate;545,455,555,460,15;555,460,567,457,15;567,457,573,463,12;567,457,567,449,8;555,460,561,466,12;561,466,573,463,15;573,463,575,450,15;575,450,567,449,9;561,466,549,468,14;549,468,545,455,17;545,455,542,446,12;384,460,386,465,7;386,465,388,3300,1,dwarfTunnel;388,3300,397,3294,15;397,3294,408,3294,11;408,3294,418,3297,13;418,3297,426,3294,11;426,3294,427,455,1,dwarfTunnel;383,504,391,502,10;391,502,398,500,10,taverleySteppingStones;398,500,405,501,8;398,500,401,495,8;391,502,393,494,10;393,494,384,490,21;368,519,374,507,18;374,507,374,498,9;383,504,374,507,12;374,507,365,500,16;374,507,382,518,19;365,500,365,494,6;365,488,365,494,6;365,488,358,488,7;365,488,370,481,12;365,488,374,498,19;365,488,374,488,9;374,488,370,481,11;374,488,374,498,10;374,488,384,490,14;365,494,361,494,4,witchsHouseDoor;319,553,312,549,11;321,541,316,528,18;331,554,326,553,6,faladorWestBankDoor;326,553,319,553,7;326,553,321,541,17;331,545,326,553,13;326,553,327,560,8;327,560,328,568,9;335,561,327,560,9;312,549,305,551,9;305,551,298,549,9;275,565,275,556,11;283,570,289,572,6;275,565,273,3398,1,miningGuildLadder;273,3398,268,3397,12;160,656,169,652,13;169,652,171,644,10;171,644,178,650,13;169,652,178,650,11;178,650,186,653,11;186,653,178,662,17;186,653,193,653,7;186,653,192,641,18;192,641,193,653,13;192,641,186,637,10;192,641,198,635,12;128,686,134,677,15;127,692,128,686,7;128,686,117,680,17;138,1610,137,667,1,lummyLadderTo2FS;138,1610,138,2555,1,lummyLadderTo3FS;138,1592,138,649,1,lummyLadderTo2FN;138,1592,138,2536,1,lummyLadderTo3FN;138,1610,136,1602,10;136,1602,138,1592,12;136,1602,132,1604,6;649,766,652,753,16;652,753,659,750,10;652,753,647,742,16;637,753,643,753,6,yanilleWestGate;643,753,646,753,3;646,753,652,753,6,yanilleWestGate;652,753,643,753,9;714,499,712,494,7;714,517,706,515,10;714,517,715,524,10;703,501,714,499,13;714,499,721,490,16;714,517,714,1461,25,gnomeStrongholdBankSouthLadder;714,499,714,1443,25,gnomeStrongholdBankNorthLadder;714,1443,712,1452,10;714,1461,712,1452,10;714,1443,716,1452,10;714,1461,716,1452,10;692,515,698,517,8;698,517,706,515,10;698,517,703,528,16;692,515,692,1459,1,gnomeStrongholdSpinningWheelLadder;534,566,534,580,14;527,590,534,580,12;532,543,529,556,13;534,566,529,556,11;508,669,497,669,11;286,703,284,710,7;284,710,284,3543,1,asgarniaLadder;284,3543,280,3540,5;280,3540,279,3527,13;279,3527,279,3522,5;279,3522,292,3521,13;303,3519,314,3524,12;279,3522,279,3517,5;279,3517,292,3515,13;303,3519,293,3519,10;293,3519,292,3515,4;293,3519,292,3521,2;610,652,621,656,11;621,656,621,672,16;621,672,625,671,4;630,633,624,639,8;624,639,622,633,6;675,664,675,650,14;675,650,677,637,13;677,637,677,625,12;677,625,668,620,10;364,696,371,698,7;264,660,269,658,5;347,600,345,594,6;347,601,347,600,1,craftingGuild;292,182,285,186,8;285,186,284,185,1,kbdGate;152,551,150,553,2;150,553,150,555,2,championsGuild;284,185,281,185,3,kbdLadder;215,3299,215,3292,7;215,3292,218,3282,10;218,3282,211,3273,11;211,3273,197,3274,14;197,3274,197,3265,9;197,3265,197,3261,4;197,3261,197,3254,7;197,3254,211,3253,14;211,3253,218,3242,13;197,3254,198,3241,13;198,3241,208,3232,13;208,3232,217,3234,9;217,3234,218,3242,8;207,3215,208,3232,17;217,3234,231,3232,14;231,3232,231,3248,16;231,3232,231,3225,7;197,3274,188,3275,9;188,3275,188,3286,11;188,3286,186,3292,6;186,3292,179,3293,7;179,3293,179,3302,9;179,3302,191,3300,12;191,3300,203,3298,12;203,3298,209,3301,6;209,3301,209,3314,13;209,3314,208,3327,13;203,3315,209,3314,6;227,105,234,103,7;221,103,227,105,6;227,105,227,110,5,wildyMageBankWebs;119,644,121,646,2;206,449,209,447,3;222,447,217,447,5;218,465,216,468,3;217,457,218,464,7;218,464,218,465,1,edgeDungeonDoor;218,3282,220,3281,2,oddWall;220,3281,222,3281,2;215,3299,216,468,1,edgeDungeonLadder;325,212,331,213,6;224,110,446,3368,1,wildyMageBankLadder;224,110,227,110,3,wildyMageBankDoor;446,3368,453,3374,9;446,3368,440,3374,8;440,3374,453,3374,13;258,122,269,125,11;269,125,280,122,11;269,125,269,127,2;269,127,268,2963,1,deepWildDungeonStairs;268,2963,272,2973,10;272,2973,274,2972,2,deepWildDungeonGate1;274,2972,281,2970,7;281,2970,283,2968,2,deepWildDungeonGate2;283,2968,280,2959,9;280,2959,274,2952,9;274,2952,273,2952,1,deepWildDungeonGate3;508,669,516,666,8,brimMossGiantSwing;115,147,126,152,12;99,152,111,143,15;111,143,115,147,5;581,753,587,753,6;587,753,593,755,6";
+  var WEBWALK_DEFAULT = "115,658,121,646,13;115,658,124,658,9;124,658,138,649,23;124,658,137,667,22;100,649,115,658,24;107,618,116,627,18;116,627,130,625,16;130,625,132,635,14;121,646,132,635,15;132,635,145,641,19;107,618,114,609,16;108,595,120,596,13;120,596,130,608,22;117,617,130,608,22;107,618,117,617,11;144,657,145,641,17;144,657,160,656,17;166,671,178,662,21;151,678,166,671,22;134,677,151,678,18;117,680,134,677,20;114,696,117,680,19;114,696,116,711,21;116,711,130,708,17;127,692,130,708,19;114,696,127,692,17;117,680,127,692,22;141,690,151,678,22;134,677,141,690,20;127,692,141,690,16;145,641,156,642,14;156,642,160,656,18;84,574,100,580,22;99,620,107,618,10,lummyEastCowGate;156,642,171,644,17;193,653,208,653,15;208,653,217,646,16;214,631,217,646,18;214,631,220,638,13;214,631,224,632,13;224,632,233,620,21;233,620,243,610,20;243,610,259,611,17;130,625,138,617,16;150,595,157,586,16,lummyNorthCowGate;142,584,157,586,17;142,584,154,574,22;154,574,169,571,18;169,571,171,584,15;157,586,171,584,16;154,574,157,586,15;138,617,153,615,17;153,615,167,611,18;190,592,199,605,22;185,577,190,592,20;185,577,185,562,17;185,562,186,547,16;186,547,196,535,22;196,535,211,529,21;211,529,218,515,21;203,512,218,515,18;186,514,203,512,19;170,510,186,514,20;162,508,170,510,10;150,509,162,508,13;134,510,150,509,17;132,521,134,510,13;131,535,132,521,15;129,549,131,535,16;124,561,129,549,17;113,570,124,561,20;98,574,113,570,19;84,574,98,574,14;129,549,140,555,17;140,555,145,567,17;134,575,145,567,161;127,585,134,575,17;120,596,127,585,18;190,592,205,591,16;205,591,211,577,20;207,562,211,577,21;207,562,211,551,15,draynorManorSouthDoor;199,605,205,591,20;199,605,210,606,12;205,591,210,606,20;210,606,212,620,16;212,620,214,631,13;210,606,223,611,18;223,611,232,610,10;232,610,233,620,11;232,610,243,610,11;259,611,260,626,16;260,626,260,642,16;269,658,275,666,10;275,666,284,676,19;283,692,284,676,17;283,692,286,703,11;286,703,295,694,12;283,692,295,694,14;283,692,295,682,22;295,682,295,694,14;295,682,309,678,18;284,676,297,665,24;297,665,309,668,15;309,668,309,678,10;260,626,273,629,18;273,629,277,644,23;277,644,284,652,15;284,652,291,659,14;291,659,297,665,12;259,611,274,611,15;274,611,283,619,17;273,629,283,619,20;203,512,204,497,16;192,486,204,497,23;202,487,204,497,12;192,486,202,487,11;202,487,203,483,5,brassKeyDoor;191,475,192,486,12;174,478,191,475,20;158,482,174,478,20;158,482,171,490,21;171,490,184,493,16;184,493,192,486,15;176,505,184,493,20;176,505,186,514,19;191,501,204,497,17;184,493,191,501,15;186,514,191,501,18;162,508,176,505,17;161,496,162,508,19;150,509,150,502,7;131,495,134,510,18;131,495,142,487,19;142,487,143,472,16;143,472,146,457,18;132,450,146,457,21;118,455,132,450,19;116,466,118,455,13;116,466,116,474,8;131,495,131,481,14,varrockPalaceFence;131,481,131,475,6;131,475,137,464,17;129,461,137,464,11;125,470,129,461,13;125,470,131,475,11;116,483,131,481,17;109,482,116,483,8;109,482,109,467,15;109,467,110,451,17;110,451,110,438,13;109,482,109,496,14;109,496,111,506,12;111,506,119,511,13;119,511,134,510,16;119,511,120,519,9;107,525,120,519,19;104,510,119,511,18;91,509,104,510,14,varrockEastBankDoor;73,452,75,442,12;91,509,99,520,19;99,520,107,525,17;118,540,129,549,20;105,541,118,540,14;89,541,105,541,16;76,541,89,541,13;72,545,76,541,8;75,528,76,541,14;75,528,83,518,18;71,560,72,545,16;71,560,83,561,13;83,561,84,574,14;83,561,90,554,14;89,541,90,554,16;105,541,109,553,16;109,553,124,561,23;140,555,152,551,12;131,535,145,539,18;145,539,152,551,13;145,539,157,533,18;157,533,163,525,14;163,525,170,518,14;170,518,170,510,12;157,533,162,545,17;152,551,162,545,11;162,545,170,554,17;155,556,170,554,17;152,551,155,556,5;170,554,173,540,17;168,529,173,540,16;163,525,168,529,9;168,529,180,522,19;180,522,186,514,14;178,533,180,522,13;173,540,178,533,12;178,533,191,526,20;191,526,201,518,18;201,518,203,512,8;218,515,219,500,16;219,500,219,486,14;;212,462,212,470,8;217,447,212,470,10;209,447,222,447,13;206,440,209,447,7;191,435,206,440,20;175,436,191,435,19;159,437,175,436,19;143,437,159,437,18;128,432,143,437,20;116,441,128,432,21;110,438,116,441,9;159,437,162,450,16;162,450,177,449,18;175,436,177,449,17;186,448,191,435,18;177,449,186,448,12;186,448,198,451,15;198,451,198,463,12;184,464,198,463,15;184,464,186,448,18;174,463,177,449,17;174,463,184,464,11;162,459,174,463,16;162,459,162,450,11;150,450,162,450,14;143,437,150,450,20;222,447,232,438,13;217,437,232,438,16;206,440,217,437,14;232,474,234,461,15;234,461,237,446,18;234,461,240,473,18;232,474,240,473,9;239,490,240,473,18;239,490,240,504,15;240,504,242,516,14;228,515,242,516,15;218,515,228,515,10;230,488,232,474,16;219,486,230,488,13;219,486,221,470,17;221,470,218,460,11;218,460,217,447,15;226,530,228,515,17;211,529,226,530,16;226,530,239,536,19;239,536,241,524,14;241,524,242,516,9;239,536,239,550,14;239,550,240,566,17;240,566,240,579,13;239,593,240,579,15;225,590,239,593,17;216,586,225,590,13;211,577,216,586,14;205,591,216,586,16;225,590,225,601,11;223,611,225,601,12;239,593,241,605,14;241,605,243,610,7;274,611,279,600,16;266,593,279,600,20;254,591,266,593,14;248,563,248,546,19;248,546,250,532,18;250,532,250,518,14;242,516,250,518,10;250,518,263,512,19;263,512,276,507,18;276,507,293,505,19;293,505,302,510,14;302,510,314,515,17;250,532,266,531,17;266,531,281,527,19;281,527,286,519,13;286,519,299,517,15;299,517,314,515,17;314,515,316,528,15;293,505,306,499,19;306,499,311,489,15;311,489,316,481,13;313,466,316,481,20;306,451,313,466,22;297,440,306,451,20;262,498,263,512,15;262,498,262,482,16;262,482,269,477,12;269,477,278,485,17;278,485,291,489,17;291,489,296,477,17;269,477,276,463,21;276,463,276,452,11;279,600,291,587,17;291,587,289,572,15;289,572,289,560,12;275,556,289,560,18;271,544,275,556,16;257,546,271,544,16;257,546,257,559,13;257,559,269,561,14;269,561,275,556,11;289,560,298,549,20;286,545,298,549,16;286,545,292,533,18;292,533,299,538,12;298,549,299,538,14;298,549,307,541,17;307,541,316,528,22;307,541,321,541,14;321,541,331,545,14;326,577,328,568,11;311,578,326,577,16;297,574,311,578,18;289,572,297,574,8;312,549,321,541,17;307,541,312,549,15;312,549,314,558,11;312,563,314,558,5;321,541,329,530,19;329,530,331,545,17;316,528,329,530,15;314,515,322,502,21;322,502,331,491,20;328,474,331,491,20;321,460,328,474,21;321,460,322,448,15;331,491,340,487,13;340,487,345,487,5,northFallyTavGate;291,587,303,587,12;303,587,318,587,15;318,587,333,585,17;333,585,343,582,10;343,579,343,582,3,southFallyTavGate;274,611,289,611,15;289,611,304,610,16;304,610,318,604,20;318,604,330,596,20;330,596,345,594,15;343,582,345,594,12;330,596,333,585,14;289,611,292,598,16;291,587,292,598,11;303,587,305,599,14;304,610,305,599,12;316,596,318,587,11;316,596,318,604,10;345,594,358,594,13;330,596,331,611,16;331,611,339,622,19;339,622,353,620,16;353,620,363,609,14;353,620,355,635,17;354,648,355,635,14;344,659,354,648,21;335,662,344,659,12;335,662,335,673,11;325,678,335,673,15;318,672,325,678,13;309,678,318,672,15;318,672,323,664,13;323,664,324,653,14;324,653,335,662,20;312,657,324,653,16;309,668,312,657,14;299,654,312,657,16;297,665,299,654,13;291,659,299,654,13;284,652,299,654,17;324,639,324,653,14;314,628,324,639,21;310,616,314,628,16;310,616,318,604,20;304,610,310,616,12;283,619,293,626,17;293,626,305,630,16;305,630,314,628,11;303,640,305,630,12;299,654,303,640,18;324,639,338,643,18;338,643,348,642,11;348,642,354,648,12;348,642,355,635,14;335,636,339,622,18;324,639,335,636,14;322,625,324,639,16;314,628,322,625,11;321,616,331,611,15;321,616,322,625,10;318,604,321,616,15;310,616,321,616,11;289,611,293,626,19;358,594,359,582,13;343,582,359,582,16;343,579,356,576,13;343,579,344,565,14;356,576,365,574,11;365,574,366,566,9;356,566,366,566,10;356,566,356,576,10;344,565,356,566,13;343,553,344,565,13;343,553,346,542,14;331,545,336,548,8;335,561,336,548,14;328,568,335,561,14;346,542,359,539,16;354,551,356,566,17;354,551,359,539,17;359,539,368,532,16;368,519,368,532,15;359,509,368,519,19;346,505,359,509,17;346,505,347,495,11;345,487,347,495,10;366,566,374,555,19;367,542,374,555,20;367,542,368,532,11;345,487,348,474,16;347,460,348,474,15;343,446,347,460,18;343,446,352,437,18;352,437,367,437,15;367,437,368,446,10;368,446,383,445,16;383,445,384,460,16;381,475,384,460,18;381,475,384,490,18;383,504,384,490,15;382,518,383,504,15;380,534,382,518,18;368,532,380,534,14;368,519,382,518,17;359,509,365,500,15;365,500,374,498,11;374,498,384,490,18;374,498,383,504,15;345,487,358,488,14;383,504,393,494,20;393,494,397,480,18;393,465,397,480,19;393,465,396,454,14;396,454,397,463,10;397,463,403,467,10;403,467,407,461,12;401,459,407,461,8;401,459,412,457,13;412,457,414,472,17;404,450,412,457,15;404,450,408,438,16;409,484,414,472,17;401,495,409,484,19;401,495,405,501,10;405,501,416,498,14;416,498,427,495,14;427,495,437,500,15;437,500,448,500,11;448,500,457,489,20;457,489,466,480,18;466,466,466,480,16;466,466,480,465,15;452,464,466,466,16;441,457,452,464,18;427,455,441,457,14;431,465,441,457,12;427,455,431,465,10;431,465,431,474,9;424,486,431,474,19;424,486,427,495,14;416,498,424,486,20;445,490,448,500,13;445,490,457,489,13;451,479,466,480,16;437,474,451,479,19;431,474,437,474,6;445,490,451,479,17;480,465,492,459,18;485,456,492,459,10;480,465,485,456,14;484,443,485,456,14;484,432,484,443,11;484,422,484,432,10;484,422,489,411,16;492,459,500,456,11;500,456,501,451,6;500,456,508,457,9;508,457,520,458,13;492,459,494,446,15;484,443,494,446,13;494,446,506,446,12;506,446,508,457,15;506,446,517,448,13;517,448,520,458,13;517,448,532,448,17;532,448,532,458,10;520,458,532,458,12;480,465,488,476,19;488,476,495,487,18;495,487,501,502,21;501,502,510,515,22;510,515,522,523,20;522,523,535,530,20;535,530,549,534,18;549,534,562,541,20;562,541,564,554,15;563,571,564,554,18;504,469,508,457,16;497,478,504,469,16;495,487,497,478,11;488,476,497,478,11;504,469,509,482,18;497,478,509,482,16;495,487,509,482,19;186,637,192,626,17;192,626,202,625,11;202,625,212,620,15;202,625,214,631,18;198,635,202,625,14;174,628,186,637,21;174,617,174,628,11;167,611,174,617,13;162,629,174,628,13;156,642,162,629,19;184,606,199,605,16;184,606,185,611,6,lummyNorthPotatoGate;184,602,184,606,4,lummyNorthGarlicGate;167,611,173,608,9;173,608,184,606,13;172,604,173,608,5,lummyNorthWheatSouthGate;172,604,178,595,15,lummyNorthWheatNorthGate;97,663,100,649,17;95,650,100,649,6;88,650,95,650,7,alkharidGate;71,682,72,694,15;84,693,92,696,11;114,609,118,607,6,lummyEastChickenGate;153,615,159,616,9,lummyNorthChickensGate;562,541,577,539,17;577,539,592,535,19;592,535,609,531,21;609,531,624,527,19;624,527,640,521,22;640,521,648,520,9;647,528,648,520,9;647,528,661,527,15;646,539,647,528,12;646,539,650,549,14;650,549,658,555,14;658,555,671,549,19;671,549,682,544,16;682,544,693,539,16;693,539,703,535,15;703,528,703,535,6,gnomeTreeGate;703,528,706,515,16;703,501,706,515,17;700,493,703,501,11;693,493,700,493,11;637,550,646,539,20;626,557,637,550,18;612,563,626,557,20;608,569,612,563,10;608,569,611,580,14;611,580,613,593,15;601,595,613,593,14;613,593,616,604,14;598,603,601,595,11;587,604,598,603,12;573,607,587,604,17;562,606,573,607,12;551,607,562,606,12;549,596,551,607,13;548,584,549,596,13;548,584,554,575,15;554,575,563,571,13;563,571,578,571,15;578,571,582,574,7;578,571,589,570,12;582,574,589,570,13;589,570,590,583,14;590,583,591,593,15;587,604,591,593,15;535,596,549,596,14;527,590,535,596,10;517,585,527,590,11;502,550,512,553,10;498,537,502,550,17;493,525,498,537,17;482,515,493,525,21;472,504,482,515,21;459,504,472,504,19;448,500,459,504,15;457,489,467,496,17;467,496,472,504,13;487,502,501,502,16;472,504,487,502,17;500,523,510,515,18;493,525,500,523,9;532,543,535,530,13;557,527,562,541,19;557,511,557,527,16;557,500,557,511,11;547,489,557,500,21;541,475,547,489,20;540,464,541,475,12;532,458,540,464,14;547,489,557,478,21;115,658,116,667,10;208,653,211,665,15;211,665,213,675,12;213,675,217,684,13;215,691,217,684,9,wizardTowerDoor;148,599,150,595,6,lummyCabbageGate;132,635,143,627,19;152,619,153,615,5,lummyNorthSheepGate;143,627,152,619,17;323,713,335,712,13;335,712,346,710,13;346,710,353,700,17;353,700,364,696,11;364,696,370,686,11;370,686,371,698,12;365,710,371,698,13;354,711,365,710,12;346,710,354,711,9;365,710,376,706,15;371,698,376,706,9;376,706,387,703,14;387,703,399,701,14;399,701,410,699,13;410,699,421,698,12;421,698,430,689,18;430,689,433,683,9;433,683,437,683,4,brimhavenKaramjaGate;437,683,448,690,18;448,690,460,689,13;460,689,473,687,15;473,687,479,678,15;479,667,479,678,11;469,659,479,667,18;467,647,469,659,14;458,662,469,659,14;437,674,437,683,9;479,667,488,673,15;488,673,497,669,9;497,658,497,669,11;486,652,497,658,19;473,687,480,694,14;476,704,480,694,14;468,713,476,704,25;464,725,468,713,20;464,725,464,737,12;464,737,464,749,12;464,749,465,760,12;463,771,465,760,13;462,783,463,771,13;458,796,462,783,17;457,810,458,796,17;446,818,457,810,19;443,829,446,818,14;443,829,447,840,15;434,815,446,818,15;421,815,434,815,13;407,815,421,815,14;394,815,407,815,13;380,816,394,815,15;371,825,380,816,18;371,825,365,815,16;365,815,380,816,16;380,816,378,803,15;378,803,380,791,14;380,791,382,779,14;382,779,384,766,15;384,766,396,766,16;396,766,407,769,14;407,769,417,763,16;417,763,420,751,15;420,751,431,746,16;431,746,439,736,18;439,736,450,735,12;450,735,455,728,8;455,728,464,725,9;448,850,448,861,13;448,861,435,863,15;435,863,421,863,14;421,863,408,862,14;408,862,396,863,13;396,863,383,860,16;383,860,383,850,10;383,850,396,851,20,shiloVillageEntrance;396,851,403,852,8;403,852,406,843,12;406,843,406,831,12;406,831,414,830,9;414,830,424,826,18;406,831,395,828,14;110,438,96,438,14;96,438,83,438,15;83,438,75,442,18;61,729,63,739,1,shantayPass;613,593,622,590,12;587,604,593,613,15;593,613,600,620,14;600,620,600,632,12;277,644,277,653,13;277,653,277,649,4,gerrantHouseDoor;600,632,609,640,17;609,640,610,652,12;610,652,610,664,12;610,664,608,677,15;608,677,595,681,17;595,681,589,691,16;589,691,585,702,15;585,702,585,715,15;585,715,594,710,14;594,710,596,698,14;596,698,589,691,14;595,681,600,692,16;600,692,596,698,10;600,692,611,694,13;611,694,621,693,11;621,693,616,682,16;616,682,608,677,15;585,715,591,726,17;591,726,601,731,15;601,731,612,731,11;612,731,625,730,14;625,730,633,729,11;591,726,581,734,18;581,734,581,746,12;581,746,587,753,9;581,746,593,746,12;593,746,602,748,11;602,748,614,746,14;614,746,626,749,15;626,749,637,753,15;637,753,637,761,8;637,761,624,764,18;624,764,612,767,15;612,767,599,767,13;599,767,587,767,12;587,767,581,753,15;581,753,581,746,7;581,746,567,746,14;567,746,556,748,13;556,748,542,748,14;542,748,534,755,15;659,750,666,740,17;666,740,667,728,13;667,728,654,728,13;654,728,642,731,15;642,731,647,742,16;567,746,568,734,13;568,734,581,734,13;568,734,569,721,14;569,721,577,711,18;577,711,575,698,15;575,698,585,702,14;575,698,563,695,15;563,695,552,701,17;552,701,539,703,15;563,695,571,686,17;571,686,568,674,21;568,674,565,661,16;565,661,565,648,13;565,648,570,636,17;570,636,571,624,13;571,624,581,627,15;581,627,591,631,14;591,631,600,632,10;591,631,589,644,15;589,644,589,652,8;589,652,598,655,12;598,655,610,652,12;589,652,575,651,17;575,651,565,648,13;562,606,560,595,13;560,595,573,593,15;573,593,582,597,13;582,597,591,593,13;560,595,549,596,12;527,590,529,602,12;529,602,527,615,15;527,615,536,616,10;536,616,546,616,12;546,616,551,607,14;527,590,514,593,13;514,593,505,584,18;505,584,499,573,17;499,573,508,566,16;508,566,512,553,13;508,566,513,577,16;513,577,517,585,8;472,504,472,517,15;472,517,477,527,15;477,527,485,536,17;485,536,498,537,14;495,487,482,488,14;482,488,471,487,12;471,487,466,480,16;471,487,467,496,19;471,487,457,489,16;506,446,496,435,21;496,435,494,446,13;496,435,484,432,15;489,411,491,399,14;609,531,609,517,14;609,517,609,504,15;609,504,610,492,15;592,535,586,524,15;586,524,586,523,4,fishingGuildEntrance;586,517,598,517,14;598,517,599,504,16;599,504,587,503,17;587,503,586,517,15;586,517,586,523,6;610,492,608,478,16;608,478,607,466,13;607,466,604,455,14;604,455,615,457,13;615,457,622,466,16;622,466,634,466,12;634,466,636,453,15;636,453,647,451,13;647,451,651,439,16;647,451,653,462,17;653,462,650,473,14;650,473,646,483,14;646,483,648,492,11;648,492,644,503,15;644,503,645,514,12;645,514,648,520,9;661,527,664,515,15;664,515,666,503,14;666,503,668,492,13;668,492,670,480,14;670,480,668,467,15;668,467,668,456,13;703,528,715,524,16;715,524,728,522,15;728,522,732,512,14;732,512,733,498,19;733,498,736,487,14;736,487,734,474,15;734,474,733,461,16;733,461,723,453,18;723,453,718,442,16;718,442,705,438,17;705,438,691,439,15;691,439,678,441,15;678,441,675,453,15;675,453,675,465,12;675,465,677,475,12;677,475,688,479,15;688,479,698,479,10;698,479,700,493,16;698,479,703,467,17;703,467,704,457,13;700,493,712,494,13;712,494,721,490,13;721,490,724,479,14;724,479,734,474,15;609,640,614,633,12;614,633,622,633,8;659,654,660,661,7;660,661,660,670,9;660,670,648,669,12;648,669,635,671,13;635,671,625,671,10;659,654,666,655,7;666,655,675,664,12;675,664,679,675,11;679,675,685,684,15;685,684,694,693,18;694,693,699,703,15;699,703,707,710,15;707,710,714,716,13;699,703,705,692,17;705,692,711,687,11;685,684,691,677,13;691,677,703,673,18;703,673,711,662,19;711,662,709,650,14;709,650,710,637,14;710,637,710,624,13;710,624,707,612,15;707,612,709,599,15;709,599,706,587,15;706,587,695,593,17;695,593,682,598,18;682,598,669,602,17;669,602,656,608,19;656,608,645,617,20;645,617,635,625,18;635,625,630,633,9;707,612,693,611,15;693,611,680,615,17;680,615,668,620,13;668,620,654,623,14;654,623,645,617,15;709,580,696,580,15;696,580,683,577,16;683,577,669,578,15;669,578,657,576,14;657,576,644,575,14;644,575,630,576,15;630,576,627,589,18;627,589,624,601,15;624,601,634,604,13;634,604,644,602,12;644,602,654,599,13;654,599,663,590,18;663,590,669,578,18;644,575,641,588,16;644,602,641,588,21;557,478,569,478,12;569,478,580,472,17;580,472,588,464,16;588,464,590,451,15;590,451,583,440,18;583,440,572,437,16;572,437,558,436,15;558,436,546,437,13;546,437,537,436,10;537,436,532,448,17;418,570,408,569,10;408,569,402,560,15;402,560,401,548,15;401,548,402,536,13;402,536,414,536,12;414,536,425,537,12;425,537,433,543,14;433,543,427,547,10;427,547,416,549,17;418,570,426,566,8;426,566,434,558,16;426,566,416,560,16;416,560,402,560,18;430,689,421,681,17;421,681,408,677,17;408,677,395,681,17;395,681,389,691,16;389,691,387,703,14;465,760,453,759,13;453,759,440,759,17;440,759,429,759,13;429,759,417,763,16;417,763,422,775,17;422,775,422,787,14;422,787,419,798,14;419,798,406,800,15;406,800,407,815,16;419,798,431,800,14;431,800,443,796,16;443,796,450,787,16;450,787,462,783,16;450,787,437,781,19;437,781,432,772,14;432,772,422,775,15;422,775,409,778,16;409,778,397,780,14;397,780,388,789,18;388,789,382,779,16;388,789,390,799,12;390,799,398,807,16;398,807,394,815,12;398,807,406,800,15;416,549,410,553,10;416,549,407,543,15;407,543,401,548,11;63,739,71,746,15;71,746,76,757,16;76,757,80,768,15;80,768,87,778,17;87,778,94,789,18;94,789,100,797,14;100,797,104,809,16;104,809,116,806,15;116,806,128,805,13;128,805,140,806,13;140,806,152,804,14;152,804,164,805,13;164,805,175,801,15;383,850,375,840,18;375,840,364,835,16;364,835,351,831,17;351,831,346,820,16;346,820,346,810,12;347,801,355,795,14;355,795,361,785,16;361,785,364,776,12;364,776,364,769,9;364,769,352,771,14;352,771,341,777,17;341,777,340,788,12;340,788,339,798,13;339,798,347,801,11;346,810,338,812,10;338,812,338,825,13;338,825,338,838,13;338,838,341,851,16;341,851,347,859,14;347,859,356,865,15;356,865,368,863,14;368,863,375,865,9;375,865,383,860,13;364,835,360,846,15;360,846,349,852,17;349,852,347,859,9;343,881,356,882,14;356,882,367,882,11;367,882,377,882,10;377,882,389,881,13;389,881,401,881,12;401,881,413,876,17;413,876,425,876,14;425,876,437,879,15;437,879,449,879,12;449,879,460,877,13;460,877,468,885,16;468,885,467,897,13;467,897,458,905,17;458,905,444,906,15;444,906,432,905,13;432,905,419,903,15;419,903,406,903,13;406,903,393,904,14;393,904,381,904,12;381,904,368,903,14;368,903,355,901,15;355,901,343,902,13;343,902,341,890,14;341,890,343,881,11;341,890,352,891,12;352,891,363,892,12;363,892,377,892,14;377,892,390,894,15;390,894,401,891,14;401,891,412,894,14;412,894,425,893,14;425,893,436,892,12;436,892,448,891,13;448,891,460,892,13;460,892,468,885,15;437,879,436,892,14;412,894,419,903,16;436,892,432,905,17;401,891,401,881,10;377,892,381,904,16;377,882,377,892,10;352,891,356,882,13;363,892,355,901,17;443,829,448,829,5;649,766,639,772,16;639,772,630,770,11;630,770,621,778,17;621,778,620,790,13;620,790,620,801,13;620,801,621,812,12;621,812,626,824,17;626,824,637,828,15;637,828,648,833,16;648,833,659,833,13;659,833,661,844,13;661,844,664,853,12;664,853,655,861,17;655,861,648,863,9;648,863,635,863,13;635,863,625,863,10;625,863,613,863,12;613,863,601,863,12;601,863,590,862,12;590,862,576,860,16;576,860,577,848,13;577,848,583,838,16;583,838,583,826,12;583,826,589,817,15;589,817,601,818,13;601,818,612,812,17;612,812,621,812,9;626,824,615,828,15;615,828,604,831,14;604,831,594,833,12;594,833,583,838,16;594,833,594,843,10;594,843,597,853,13;597,853,601,863,14;597,853,604,844,16;604,844,613,842,11;613,842,621,835,15;621,835,630,837,11;630,837,637,828,16;659,833,649,840,17;649,840,639,846,16;639,846,630,851,14;630,851,619,852,12;619,852,609,853,11;609,853,601,863,18;630,837,639,846,18;613,842,619,852,16;621,835,615,828,13;604,831,601,818,16;620,790,608,787,15;608,787,596,780,19;596,780,584,776,16;621,778,609,778,16;609,778,596,780,15;691,716,678,718,15;678,718,675,706,15;675,706,673,693,15;673,693,683,698,15;683,698,686,709,14;686,709,691,716,12;678,718,670,718,8;670,718,670,706,20;670,706,670,697,9;670,697,668,687,12;668,687,658,686,11;658,686,664,683,17;664,683,666,676,15;666,676,670,682,16;670,682,670,674,8;670,674,657,673,14;657,673,644,675,15;644,675,633,675,15;670,718,658,718,12;658,718,646,712,22;646,712,633,708,21;633,708,630,699,18;630,699,631,688,12;631,688,627,691,13;627,691,627,703,16;627,703,626,710,8;626,710,630,716,14;630,716,638,718,12;638,718,649,717,12;649,717,634,714,20;616,682,623,675,14;623,675,635,679,16;635,679,644,680,14;644,680,656,679,17;639,683,633,684,15;633,684,643,685,11;653,685,662,689,13;653,685,643,685,18;656,679,639,683,25;662,689,668,692,9;668,692,665,701,12;665,701,656,706,14;656,706,663,706,7;663,706,666,712,13;666,712,661,712,15;661,712,655,710,22;655,710,641,708,16;635,679,625,684,23;625,684,625,697,17;625,697,626,710,14;595,681,584,677,15;584,677,577,669,15;577,669,568,674,14;589,570,591,557,17;591,557,600,549,17;600,549,606,540,15;606,540,609,531,12;577,539,584,549,17;584,549,591,557,15;535,530,538,518,15;538,518,539,506,13;539,506,540,495,12;540,495,547,489,13;540,495,529,491,15;529,491,517,485,18;517,485,509,482,11;232,438,242,431,17;242,431,248,421,16;248,421,258,417,14;258,417,254,428,15;254,428,254,439,11;254,439,257,449,13;257,449,257,455,6;257,455,257,468,13;257,468,257,478,10;257,478,262,482,9;254,428,264,422,16;264,422,274,415,17;274,415,282,409,14;282,409,293,411,13;293,411,305,411,14;305,411,316,412,12;316,412,326,411,11;326,411,328,423,14;328,423,319,432,18;319,432,307,437,17;307,437,297,440,13;297,440,299,428,14;299,428,294,421,12;294,421,293,411,15;294,421,283,425,15;283,425,274,429,13;274,429,263,435,17;263,435,265,447,14;265,447,276,452,16;276,452,286,449,13;286,449,294,453,12;294,453,299,464,16;299,464,296,477,16;258,417,265,407,17;265,407,274,400,16;274,400,285,397,14;285,397,297,395,14;297,395,307,391,14;307,391,318,392,12;318,392,327,384,17;327,384,327,372,12;327,372,328,359,14;328,359,328,347,12;328,347,329,334,14;329,334,324,323,16;324,323,327,310,16;327,310,327,297,13;327,297,326,285,15;326,285,329,273,15;329,273,326,262,14;326,262,327,250,13;327,250,326,237,14;326,237,326,225,14;326,225,325,212,13;325,212,324,199,13;324,199,328,187,16;328,187,327,174,14;327,174,328,165,10;328,165,328,152,13;328,152,331,144,8;331,144,331,140,4,icePlateauGate;331,140,331,128,12;331,128,323,118,18;323,118,311,119,13;311,119,308,129,13;308,129,306,139,12;306,139,318,139,12;318,139,319,128,12;319,128,323,123,9;323,123,331,128,13;306,139,298,139,8;298,139,298,123,16,wildyAgilityGate;298,139,286,139,14;286,139,273,139,13;273,139,259,139,14;259,139,248,132,18;248,132,248,124,8;248,124,240,115,17;240,115,234,103,13;234,103,221,103,13;221,103,214,109,9;214,109,205,118,18;205,118,196,122,13;196,122,186,119,13;186,119,183,107,15;183,107,174,101,15;174,101,164,101,10;164,101,150,101,16;150,101,135,101,15;135,101,122,101,13;122,101,109,101,13;109,101,96,101,15;96,101,83,106,18;83,106,70,112,19;70,112,59,117,16;59,117,59,127,10;59,127,59,141,14;59,141,69,140,11;69,140,81,138,14;81,138,95,138,14;95,138,108,135,16;108,135,111,141,6;111,141,111,143,2,deepWildyGate;111,141,123,138,12;123,138,133,138,10;133,138,147,138,16;147,138,160,138,13;160,138,170,138,10;170,138,183,138,15;183,138,194,138,13;194,138,205,138,13;205,138,209,133,9;194,138,198,129,13;198,129,196,122,9;214,109,201,108,22;201,108,191,102,16;191,102,183,107,13;234,103,245,107,11;245,107,258,110,13;258,110,268,115,11;268,115,280,122,13;280,122,282,128,6;282,128,286,139,11;268,115,258,122,12;258,122,248,124,10;164,101,163,113,15;163,113,162,125,13;162,125,160,138,15;147,138,147,125,15;147,125,147,114,11;147,114,150,101,16;135,101,130,109,13;130,109,118,116,25;118,116,121,126,13;121,126,123,138,14;95,138,94,125,14;94,125,93,113,13;93,113,96,101,15;59,127,71,126,13;71,126,84,123,16;84,123,94,125,12;94,125,105,121,15;105,121,118,116,18;118,116,126,123,15;126,123,134,126,11;134,126,147,125,14;147,125,155,121,12;155,121,163,113,16;328,165,316,166,13;316,166,317,154,13;317,154,305,152,14;305,152,292,154,15;292,154,281,152,13;281,152,268,149,16;268,149,255,152,16;255,152,242,152,13;242,152,229,152,13;229,152,215,152,14;215,152,205,152,10;205,152,194,152,13;194,152,181,152,13;181,152,165,152,16;165,152,152,152,13;152,152,139,152,13;139,152,126,152,13;99,152,83,153,16;83,153,68,153,17;68,153,55,153,13;55,153,55,163,12;55,163,65,166,13;65,166,73,168,10;73,168,86,171,16;86,171,94,171,8;94,171,102,164,10;102,164,113,163,11;113,163,126,166,13;126,166,136,163,13;136,163,148,163,12;148,163,161,163,13;161,163,165,152,15;165,152,172,158,13;172,158,182,165,17;182,165,194,166,13;194,166,205,166,13;205,166,218,163,16;218,163,228,160,13;228,160,240,159,13;240,159,254,159,16;254,159,262,169,18;262,169,271,177,17;271,177,282,178,12;282,178,292,182,14;292,182,303,188,17;303,188,314,185,14;314,185,320,177,14;320,177,327,174,10;316,166,320,177,15;292,154,293,166,13;293,166,301,172,14;301,172,292,182,19;301,172,310,174,11;310,174,316,166,14;293,166,278,166,15;278,166,270,163,11;270,163,262,169,14;240,159,242,152,9;215,152,218,163,14;182,165,181,152,14;126,152,126,166,14;99,152,92,162,12;92,162,94,171,11;73,168,76,159,12;76,159,83,153,13;55,163,54,175,13;54,175,58,185,14;58,185,57,196,12;57,196,57,208,12;57,208,60,219,14;60,219,57,231,15;57,231,57,245,14;57,245,60,258,16;60,258,57,271,16;57,271,60,284,16;60,284,60,297,15;60,297,63,310,16;63,310,57,321,17;57,321,49,331,18;63,310,74,316,17;74,316,82,311,15;82,311,81,324,14;81,324,77,336,16;77,336,63,338,16;63,338,51,343,17;51,343,52,356,14;52,356,53,369,16;53,369,54,381,13;54,381,58,393,16;58,393,56,407,16;56,407,55,419,15;55,419,56,430,12;56,430,48,439,17;48,439,56,440,11;56,440,59,447,10;59,447,66,444,18;66,444,65,436,15;65,436,56,440,17;48,439,53,449,15;53,449,61,454,13;61,454,73,452,14;83,438,81,428,12;81,428,68,429,14;68,429,56,430,15;55,419,68,417,15;68,417,68,429,14;68,417,68,404,13;68,404,68,394,12;68,394,58,393,11;68,394,67,381,14;67,381,64,368,16;64,368,61,357,14;61,357,52,356,10;61,357,61,345,12;61,345,63,338,9;61,345,73,347,14;73,347,77,336,15;61,357,73,356,13;73,356,85,356,12;85,356,95,359,13;95,359,103,369,18;103,369,109,380,17;109,380,122,382,15;122,382,130,372,18;130,372,132,359,15;132,359,124,348,19;124,348,114,351,13;114,351,113,359,9;113,359,116,365,9;114,351,103,349,13;103,349,94,340,18;94,340,87,329,18;87,329,81,324,11;82,311,91,319,17;91,319,98,328,16;98,328,104,337,15;104,337,114,342,15;114,342,126,340,14;126,340,136,345,15;136,345,141,355,15;141,355,141,368,13;141,368,135,379,17;135,379,127,390,19;127,390,113,391,15;113,391,100,385,19;100,385,91,376,18;91,376,85,365,17;85,365,85,356,9;122,382,127,390,13;103,369,91,376,19;130,372,141,368,15;124,348,136,345,15;114,342,124,348,16;98,328,87,329,12;82,311,95,309,15;95,309,106,315,17;106,315,116,320,15;116,320,127,323,14;127,323,138,328,16;138,328,148,335,17;148,335,151,346,14;151,346,155,359,17;155,359,158,371,15;158,371,157,383,15;157,383,148,392,18;148,392,139,401,18;139,401,126,403,15;126,403,113,406,16;113,406,99,405,15;99,405,88,399,17;88,399,79,389,19;79,389,73,378,17;73,378,67,381,9;85,365,72,367,15;72,367,64,368,9;100,385,97,395,13;97,395,99,405,12;127,390,136,389,10;136,389,148,392,15;155,359,141,355,18;127,323,115,328,17;115,328,104,337,20;88,399,77,405,17;77,405,77,417,12;77,417,81,428,15;81,428,92,424,15;92,424,97,414,15;97,414,99,405,11;110,438,110,424,14;110,424,112,414,12;112,414,113,406,9;92,424,100,429,13;100,429,110,424,15;110,424,120,418,16;120,418,132,419,13;132,419,143,422,14;143,422,155,425,15;155,425,167,425,14;167,425,179,425,14;179,425,188,422,12;188,422,197,413,18;197,413,206,404,18;206,404,218,404,12;218,404,218,416,14;218,416,221,428,15;221,428,217,437,13;191,435,188,422,16;155,425,159,437,16;126,403,127,390,16;126,403,135,409,15;135,409,132,419,13;155,425,151,413,16;151,413,150,401,13;150,401,148,392,11;151,413,163,412,13;163,412,175,411,13;175,411,185,405,16;185,405,196,398,18;196,398,208,398,12;208,398,223,398,15;223,398,218,404,11;197,413,185,405,20;248,421,235,420,14;235,420,229,408,18;229,408,218,404,15;223,398,235,398,14;235,398,247,398,14;247,398,258,399,12;258,399,265,407,15;248,421,246,408,15;246,408,247,398,13;150,401,160,394,17;160,394,171,390,15;171,390,183,386,16;183,386,195,383,15;195,383,207,380,15;207,380,218,377,14;218,377,230,377,12;230,377,242,377,12;242,377,254,377,12;254,377,263,377,9;263,377,275,371,18;275,371,287,371,12;287,371,299,371,12;299,371,311,371,14;311,371,316,359,17;316,359,328,359,14;275,371,275,358,13;275,358,275,343,15;275,343,278,332,14;278,332,283,321,16;283,321,289,309,18;289,309,289,297,12;289,297,289,285,14;289,285,289,274,11;289,274,289,262,12;289,262,289,250,12;289,250,292,238,15;292,238,292,226,12;292,226,292,211,15;292,211,292,199,12;292,199,304,200,13;304,200,303,188,13;324,199,312,203,16;312,203,304,200,11;304,200,304,212,12;304,212,306,224,14;306,224,304,237,15;304,237,304,249,12;304,249,304,261,12;304,261,304,273,14;304,273,304,285,12;304,285,306,296,13;306,296,307,308,17;307,308,306,320,13;306,320,307,332,13;307,332,310,344,15;310,344,310,356,14;310,356,316,359,9;299,371,294,359,17;294,359,293,346,14;293,346,295,335,13;295,335,293,323,14;293,323,293,311,12;293,311,289,309,6;295,335,307,332,15;324,323,312,318,17;312,318,306,320,8;306,296,315,287,18;315,287,326,285,15;327,250,316,251,14;316,251,304,249,14;325,212,314,212,11;314,212,304,212,10;304,237,292,238,13;304,273,289,274,18;306,296,294,300,18;294,300,289,297,8;292,182,286,193,17;286,193,292,199,12;286,193,273,193,13;273,193,264,201,17;264,201,252,206,17;252,206,240,206,12;240,206,227,206,13;227,206,215,200,18;215,200,212,188,15;212,188,205,175,20;205,175,205,166,11;292,211,279,211,13;279,211,266,212,14;266,212,253,214,15;253,214,252,206,9;292,238,278,239,17;278,239,265,239,13;265,239,252,239,15;252,239,253,227,15;253,227,253,214,13;289,262,275,261,15;275,261,264,253,19;264,253,252,251,14;252,251,252,239,12;289,274,275,274,14;275,274,262,273,14;262,273,249,272,14;249,272,245,260,16;245,260,252,251,16;275,343,269,332,17;269,332,278,332,9;269,332,270,320,13;270,320,273,308,15;273,308,275,296,14;275,296,264,295,12;264,295,258,304,15;258,304,266,311,19;266,311,270,320,13;269,332,260,324,17;260,324,251,315,18;251,315,245,305,16;245,305,239,296,15;239,296,239,287,9;239,287,241,275,14;241,275,249,272,11;136,163,140,175,16;140,175,151,175,11;151,175,164,175,13;164,175,176,175,12;176,175,188,182,19;188,182,198,188,16;198,188,212,188,14;182,165,176,175,16;140,175,126,179,18;126,179,112,180,15;112,180,113,192,15;113,192,115,204,14;115,204,115,213,9;115,213,121,220,13;121,220,131,228,18;131,228,143,229,13;143,229,155,232,15;155,232,168,232,13;168,232,171,219,16;171,219,174,207,15;174,207,171,195,15;171,195,183,191,16;183,191,188,182,14;215,200,204,206,17;204,206,192,211,17;192,211,185,219,15;185,219,171,219,14;253,227,240,227,13;240,227,227,228,14;227,228,214,231,16;214,231,200,232,15;200,232,185,232,15;185,232,185,219,13;227,206,220,216,17;220,216,227,228,19;94,171,89,183,17;89,183,78,190,18;78,190,66,189,13;66,189,58,185,12;113,192,100,193,14;100,193,89,194,12;89,194,89,183,11;60,219,72,218,15;72,218,85,217,14;85,217,96,214,14;96,214,106,210,14;106,210,115,213,12;168,232,169,243,12;169,243,156,247,17;156,247,142,248,15;142,248,143,258,11;143,258,143,268,12;143,268,154,271,14;154,271,155,259,13;155,259,165,261,12;165,261,175,255,16;154,271,166,272,13;166,272,178,273,13;178,273,186,261,20;186,261,189,249,15;189,249,197,243,14;200,232,197,243,14;197,243,209,247,16;209,247,217,253,14;217,253,228,255,13;228,255,238,249,16;238,249,252,251,16;239,287,225,287,16;225,287,211,286,15;211,286,198,286,13;198,286,182,286,18;182,286,178,273,17;217,253,214,264,14;214,264,211,277,16;211,277,211,286,11;85,217,84,229,13;84,229,83,243,15;83,243,84,254,12;84,254,82,267,15;82,267,81,280,14;81,280,81,293,15;81,293,88,303,17;88,303,95,309,13;81,293,68,294,14;68,294,60,284,18;60,258,71,256,13;71,256,84,254,15;83,243,95,243,14;95,243,108,246,16;108,246,119,246,11;119,246,129,244,12;129,244,142,248,17;142,248,140,239,11;140,239,143,229,13;143,268,129,267,19;129,267,116,268,16;116,268,103,269,16;103,269,90,270,14;90,270,81,280,19;88,303,99,299,15;99,299,111,298,13;111,298,122,296,13;122,296,134,292,16;134,292,146,293,13;146,293,148,282,13;148,282,154,271,17;182,286,169,293,20;169,293,156,292,14;156,292,146,293,13;127,323,134,314,16;134,314,142,305,17;142,305,146,293,16;148,335,154,325,16;154,325,160,315,16;160,315,171,311,15;171,311,181,318,17;181,318,194,321,18;194,321,204,320,11;204,320,216,320,12;216,320,228,320,12;228,320,241,320,13;241,320,251,315,15;160,315,154,304,17;154,304,156,292,14;116,268,117,281,16;117,281,124,285,11;124,285,134,292,17;242,377,241,364,14;241,364,239,351,15;239,351,242,339,15;242,339,241,327,13;241,327,241,320,7;204,320,204,333,13;204,333,205,346,14;205,346,209,357,15;209,357,210,369,15;210,369,207,380,14;151,346,163,347,13;163,347,174,346,14;174,346,185,344,13;185,344,194,337,16;194,337,204,333,14;174,346,174,358,12;174,358,173,371,14;173,371,176,381,13;176,381,171,390,14;196,398,192,391,11;192,391,183,386,14;254,377,249,386,14;249,386,247,398,14;435,484,435,488,4,catherbyChefDoor;435,488,445,490,12;435,488,427,495,15;144,657,144,669,12;144,669,130,670,1;130,3545,125,3533,17;125,3533,114,3541,19;114,3541,103,3544,14;125,3533,127,3521,14;125,3533,133,3528,13;133,3528,144,3533,16;144,3533,149,3544,17;149,3544,150,3553,11;150,3553,145,3558,12;145,3558,135,3555,14;135,3555,120,3555,15;120,3555,105,3555,15;105,3555,100,3560,9;100,3560,105,3566,12;144,3533,154,3528,15;154,3528,165,3529,12;165,3529,173,3525,14;165,3529,169,3539,14;169,3539,174,3546,12;279,3327,280,493,10,dwarvenMineCannonEntrance;280,493,278,485,10;279,3327,269,3330,13;279,3327,278,3339,13;278,3339,286,3347,16;286,3347,291,3342,10;291,3342,291,3331,13;286,3347,293,3348,8;293,3348,302,3349,10;302,3349,310,3349,8;278,3339,266,3339,12;266,3339,265,3350,12;265,3350,267,3361,13;267,3361,265,3372,13;265,3372,267,3378,8;267,3378,267,3380,2;267,3381,267,3387,6;267,3387,268,3397,13;265,3372,254,3370,13;254,3370,250,537,5,dwarvenMineFaladorEntrance;248,563,252,572,13;252,572,252,581,11;252,581,254,591,12;257,546,250,537,10;61,729,68,718,18;68,718,76,709,17;76,709,83,702,14;83,702,84,693,10;84,693,83,683,11;83,683,71,682,13;71,682,70,671,12;70,671,70,660,11;70,660,69,647,14;69,647,68,634,14;68,634,67,622,13;67,622,68,610,13;68,610,70,598,14;70,598,70,586,12;71,682,61,682,10;61,682,59,694,14;61,682,58,672,13;58,672,70,671,21;83,683,82,671,15;82,671,85,659,15;85,659,88,650,12;82,671,70,671,14;88,650,81,641,16;81,641,73,631,18;73,631,67,622,15;73,631,76,619,15;76,619,78,607,14;78,607,79,594,14;79,594,78,581,14;78,607,68,610,13;78,581,73,573,13;73,573,84,574,12;73,573,71,560,15;73,573,63,573,10;44,566,32,566,16;32,566,25,568,9;57,547,60,536,14;60,536,64,525,15;64,525,67,515,13;67,515,69,503,14;69,503,68,491,13;68,491,69,479,13;69,479,73,468,15;73,468,62,464,15;62,464,50,462,14;50,462,52,473,13;52,473,48,484,15;48,484,35,489,18;35,489,22,488,14;22,488,9,488,13;48,484,47,496,13;47,496,45,508,14;45,508,45,521,15;45,521,45,533,12;45,533,37,541,16;37,541,27,549,18;27,549,16,555,17;16,555,9,559,11;9,559,14,549,15;27,549,27,560,13;27,560,39,559,13;39,559,44,566,12;46,550,37,541,18;64,525,52,521,16;52,521,45,521,7;68,491,56,488,15;56,488,48,484,12;63,573,57,573,6,digsiteGate;57,573,49,566,15;49,566,44,566,5;693,493,693,502,13;693,502,692,1448,256,gnomeAgilityClimbFirstNet;692,1448,689,2395,128,gnomeAgilityClimbTower;689,2395,685,2396,64,gnomeAgilityRopeSwing;685,2396,683,506,32,gnomeAgilityClimbDownTower;683,506,687,500,11;687,500,693,493,13;208,750,100,649,1,skipTutorial;100,649,102,638,13;102,638,107,628,15;107,628,116,627,10;107,628,107,618,10;53,558,49,566,12;57,547,53,558,15;53,558,46,550,15;137,464,141,1398,1,varrockPalaceNorthwestLadder;260,642,268,646,12;268,646,277,644,19;268,646,269,658,12;69,503,74,503,5;74,503,82,502,1,varrockEastDigsiteGate;82,502,82,491,13;82,491,82,480,11;82,480,89,470,17;82,480,80,468,18;80,468,76,458,14;76,458,73,452,9;89,470,91,459,13;91,459,99,451,16;99,451,110,451,11;99,451,96,438,16;91,509,82,502,16;91,509,83,518,17;220,3522,215,691,12,wizardTowerBasement;372,456,384,460,16;368,446,372,456,14;361,476,348,474,15;361,476,358,488,15;381,475,371,469,16;371,469,372,456,14;371,469,361,476,17;347,460,357,466,16;357,466,361,476,14;357,466,348,474,17;357,466,363,461,11;363,461,372,456,14;371,469,363,461,16;370,481,361,476,14;370,481,381,475,17;370,481,371,469,13;593,746,593,755,9;593,755,597,758,5;108,595,112,601,10;112,601,114,609,10;446,662,458,662,12;446,662,437,674,21;138,617,145,607,17;145,607,148,599,11;190,592,178,595,15;108,595,106,585,12;106,585,100,580,11;532,448,538,445,9;538,445,542,446,5,mcgroubersGate;545,455,555,460,15;555,460,567,457,15;567,457,573,463,12;567,457,567,449,8;555,460,561,466,12;561,466,573,463,15;573,463,575,450,15;575,450,567,449,9;561,466,549,468,14;549,468,545,455,17;545,455,542,446,12;384,460,386,465,7;386,465,388,3300,1,dwarfTunnel;388,3300,397,3294,15;397,3294,408,3294,11;408,3294,418,3297,13;418,3297,426,3294,11;426,3294,427,455,1,dwarfTunnel;383,504,391,502,10;391,502,398,500,10,taverleySteppingStones;398,500,405,501,8;398,500,401,495,8;391,502,393,494,10;393,494,384,490,21;368,519,374,507,18;374,507,374,498,9;383,504,374,507,12;374,507,365,500,16;374,507,382,518,19;365,500,365,494,6;365,488,365,494,6;365,488,358,488,7;365,488,370,481,12;365,488,374,498,19;365,488,374,488,9;374,488,370,481,11;374,488,374,498,10;374,488,384,490,14;365,494,361,494,4,witchsHouseDoor;319,553,312,549,11;321,541,316,528,18;331,554,326,553,6,faladorWestBankDoor;326,553,319,553,7;326,553,321,541,17;331,545,326,553,13;326,553,327,560,8;327,560,328,568,9;335,561,327,560,9;312,549,305,551,9;305,551,298,549,9;275,565,275,556,11;283,570,289,572,6;273,3398,268,3397,12;160,656,169,652,13;169,652,171,644,10;171,644,178,650,13;169,652,178,650,11;178,650,186,653,11;186,653,178,662,17;186,653,193,653,7;186,653,192,641,18;192,641,193,653,13;192,641,186,637,10;192,641,198,635,12;128,686,134,677,15;127,692,128,686,7;128,686,117,680,17;138,1610,137,667,1,lummyLadderTo2FS;138,1610,138,2555,1,lummyLadderTo3FS;138,1592,138,649,1,lummyLadderTo2FN;138,1592,138,2536,1,lummyLadderTo3FN;138,1610,136,1602,10;136,1602,138,1592,12;136,1602,132,1604,6;649,766,652,753,16;652,753,659,750,10;652,753,647,742,16;637,753,643,753,6,yanilleWestGate;643,753,646,753,3;646,753,652,753,6,yanilleWestGate;652,753,643,753,9;714,499,712,494,7;714,517,706,515,10;714,517,715,524,10;703,501,714,499,13;714,499,721,490,16;714,517,714,1461,25,gnomeStrongholdBankSouthLadder;714,499,714,1443,25,gnomeStrongholdBankNorthLadder;714,1443,712,1452,10;714,1461,712,1452,10;714,1443,716,1452,10;714,1461,716,1452,10;692,515,698,517,8;698,517,706,515,10;698,517,703,528,16;692,515,692,1459,1,gnomeStrongholdSpinningWheelLadder;534,566,534,580,14;527,590,534,580,12;532,543,529,556,13;534,566,529,556,11;508,669,497,669,11;286,703,284,710,7;284,710,284,3543,1,asgarniaLadder;284,3543,280,3540,5;280,3540,279,3527,13;279,3527,279,3522,5;279,3522,292,3521,13;303,3519,314,3524,12;279,3522,279,3517,5;279,3517,292,3515,13;303,3519,293,3519,10;293,3519,292,3515,4;293,3519,292,3521,2;610,652,621,656,11;621,656,621,672,16;621,672,625,671,4;630,633,624,639,8;624,639,622,633,6;675,664,675,650,14;675,650,677,637,13;677,637,677,625,12;677,625,668,620,10;364,696,371,698,7;264,660,269,658,5;347,600,345,594,6;347,601,347,600,1,craftingGuild;292,182,285,186,8;285,186,284,185,1,kbdGate;152,551,150,553,2;150,553,150,555,2,championsGuild;284,185,281,185,3,kbdLadder;215,3299,215,3292,7;215,3292,218,3282,10;218,3282,211,3273,11;211,3273,197,3274,14;197,3274,197,3265,9;197,3265,197,3261,4;197,3261,197,3254,7;197,3254,211,3253,14;211,3253,218,3242,13;197,3254,198,3241,13;198,3241,208,3232,13;208,3232,217,3234,9;217,3234,218,3242,8;207,3215,208,3232,17;217,3234,231,3232,14;231,3232,231,3248,16;231,3232,231,3225,7;197,3274,188,3275,9;188,3275,188,3286,11;188,3286,186,3292,6;186,3292,179,3293,7;179,3293,179,3302,9;179,3302,191,3300,12;191,3300,203,3298,12;203,3298,209,3301,6;209,3301,209,3314,13;209,3314,208,3327,13;203,3315,209,3314,6;227,105,234,103,7;221,103,227,105,6;227,105,227,110,5,wildyMageBankWebs;119,644,121,646,2;206,449,209,447,3;222,447,217,447,5;218,465,216,468,3;218,464,218,465,1,edgeDungeonDoor;216,468,215,3299,-1,edgeDungeonLadder;217,447,216,468,22;218,3282,220,3281,2,oddWall;220,3281,222,3281,2;215,3299,216,468,1,edgeDungeonLadder;325,212,331,213,6;224,110,446,3368,1,wildyMageBankLadder;224,110,227,110,3,wildyMageBankDoor;446,3368,453,3374,9;446,3368,440,3374,8;440,3374,453,3374,13;258,122,269,125,11;269,125,280,122,11;269,125,269,127,2;269,127,268,2963,1,deepWildDungeonStairs;268,2963,272,2973,10;272,2973,274,2972,2,deepWildDungeonGate1;274,2972,281,2970,7;281,2970,283,2968,2,deepWildDungeonGate2;283,2968,280,2959,9;280,2959,274,2952,9;274,2952,273,2952,1,deepWildDungeonGate3;508,669,516,666,8,brimMossGiantSwing;115,147,126,152,12;99,152,111,143,15;111,143,115,147,5;581,753,587,753,6;587,753,593,755,6";
+  var WEBWALK_GUILD = "115,658,121,646,13;115,658,124,658,9;124,658,138,649,23;124,658,137,667,22;100,649,115,658,24;107,618,116,627,18;116,627,130,625,16;130,625,132,635,14;121,646,132,635,15;132,635,145,641,19;107,618,114,609,16;108,595,120,596,13;120,596,130,608,22;117,617,130,608,22;107,618,117,617,11;144,657,145,641,17;144,657,160,656,17;166,671,178,662,21;151,678,166,671,22;134,677,151,678,18;117,680,134,677,20;114,696,117,680,19;114,696,116,711,21;116,711,130,708,17;127,692,130,708,19;114,696,127,692,17;117,680,127,692,22;141,690,151,678,22;134,677,141,690,20;127,692,141,690,16;145,641,156,642,14;156,642,160,656,18;84,574,100,580,22;99,620,107,618,10,lummyEastCowGate;156,642,171,644,17;193,653,208,653,15;208,653,217,646,16;214,631,217,646,18;214,631,220,638,13;214,631,224,632,13;224,632,233,620,21;233,620,243,610,20;243,610,259,611,17;130,625,138,617,16;150,595,157,586,16,lummyNorthCowGate;142,584,157,586,17;142,584,154,574,22;154,574,169,571,18;169,571,171,584,15;157,586,171,584,16;154,574,157,586,15;138,617,153,615,17;153,615,167,611,18;190,592,199,605,22;185,577,190,592,20;185,577,185,562,17;185,562,186,547,16;186,547,196,535,22;196,535,211,529,21;211,529,218,515,21;203,512,218,515,18;186,514,203,512,19;170,510,186,514,20;162,508,170,510,10;150,509,162,508,13;134,510,150,509,17;132,521,134,510,13;131,535,132,521,15;129,549,131,535,16;124,561,129,549,17;113,570,124,561,20;98,574,113,570,19;84,574,98,574,14;129,549,140,555,17;140,555,145,567,17;134,575,145,567,161;127,585,134,575,17;120,596,127,585,18;190,592,205,591,16;205,591,211,577,20;207,562,211,577,21;207,562,211,551,15,draynorManorSouthDoor;199,605,205,591,20;199,605,210,606,12;205,591,210,606,20;210,606,212,620,16;212,620,214,631,13;210,606,223,611,18;223,611,232,610,10;232,610,233,620,11;232,610,243,610,11;259,611,260,626,16;260,626,260,642,16;269,658,275,666,10;275,666,284,676,19;283,692,284,676,17;283,692,286,703,11;286,703,295,694,12;283,692,295,694,14;283,692,295,682,22;295,682,295,694,14;295,682,309,678,18;284,676,297,665,24;297,665,309,668,15;309,668,309,678,10;260,626,273,629,18;273,629,277,644,23;277,644,284,652,15;284,652,291,659,14;291,659,297,665,12;259,611,274,611,15;274,611,283,619,17;273,629,283,619,20;203,512,204,497,16;192,486,204,497,23;202,487,204,497,12;192,486,202,487,11;202,487,203,483,5,brassKeyDoor;191,475,192,486,12;174,478,191,475,20;158,482,174,478,20;158,482,171,490,21;171,490,184,493,16;184,493,192,486,15;176,505,184,493,20;176,505,186,514,19;191,501,204,497,17;184,493,191,501,15;186,514,191,501,18;162,508,176,505,17;161,496,162,508,19;150,509,150,502,7;131,495,134,510,18;131,495,142,487,19;142,487,143,472,16;143,472,146,457,18;132,450,146,457,21;118,455,132,450,19;116,466,118,455,13;116,466,116,474,8;131,495,131,481,14,varrockPalaceFence;131,481,131,475,6;131,475,137,464,17;129,461,137,464,11;125,470,129,461,13;125,470,131,475,11;116,483,131,481,17;109,482,116,483,8;109,482,109,467,15;109,467,110,451,17;110,451,110,438,13;109,482,109,496,14;109,496,111,506,12;111,506,119,511,13;119,511,134,510,16;119,511,120,519,9;107,525,120,519,19;104,510,119,511,18;91,509,104,510,14,varrockEastBankDoor;73,452,75,442,12;91,509,99,520,19;99,520,107,525,17;118,540,129,549,20;105,541,118,540,14;89,541,105,541,16;76,541,89,541,13;72,545,76,541,8;75,528,76,541,14;75,528,83,518,18;71,560,72,545,16;71,560,83,561,13;83,561,84,574,14;83,561,90,554,14;89,541,90,554,16;105,541,109,553,16;109,553,124,561,23;140,555,152,551,12;131,535,145,539,18;145,539,152,551,13;145,539,157,533,18;157,533,163,525,14;163,525,170,518,14;170,518,170,510,12;157,533,162,545,17;152,551,162,545,11;162,545,170,554,17;155,556,170,554,17;152,551,155,556,5;170,554,173,540,17;168,529,173,540,16;163,525,168,529,9;168,529,180,522,19;180,522,186,514,14;178,533,180,522,13;173,540,178,533,12;178,533,191,526,20;191,526,201,518,18;201,518,203,512,8;218,515,219,500,16;219,500,219,486,14;;212,462,212,470,8;217,447,212,470,10;209,447,222,447,13;206,440,209,447,7;191,435,206,440,20;175,436,191,435,19;159,437,175,436,19;143,437,159,437,18;128,432,143,437,20;116,441,128,432,21;110,438,116,441,9;159,437,162,450,16;162,450,177,449,18;175,436,177,449,17;186,448,191,435,18;177,449,186,448,12;186,448,198,451,15;198,451,198,463,12;184,464,198,463,15;184,464,186,448,18;174,463,177,449,17;174,463,184,464,11;162,459,174,463,16;162,459,162,450,11;150,450,162,450,14;143,437,150,450,20;222,447,232,438,13;217,437,232,438,16;206,440,217,437,14;232,474,234,461,15;234,461,237,446,18;234,461,240,473,18;232,474,240,473,9;239,490,240,473,18;239,490,240,504,15;240,504,242,516,14;228,515,242,516,15;218,515,228,515,10;230,488,232,474,16;219,486,230,488,13;219,486,221,470,17;221,470,218,460,11;218,460,217,447,15;226,530,228,515,17;211,529,226,530,16;226,530,239,536,19;239,536,241,524,14;241,524,242,516,9;239,536,239,550,14;239,550,240,566,17;240,566,240,579,13;239,593,240,579,15;225,590,239,593,17;216,586,225,590,13;211,577,216,586,14;205,591,216,586,16;225,590,225,601,11;223,611,225,601,12;239,593,241,605,14;241,605,243,610,7;274,611,279,600,16;266,593,279,600,20;254,591,266,593,14;248,563,248,546,19;248,546,250,532,18;250,532,250,518,14;242,516,250,518,10;250,518,263,512,19;263,512,276,507,18;276,507,293,505,19;293,505,302,510,14;302,510,314,515,17;250,532,266,531,17;266,531,281,527,19;281,527,286,519,13;286,519,299,517,15;299,517,314,515,17;314,515,316,528,15;293,505,306,499,19;306,499,311,489,15;311,489,316,481,13;313,466,316,481,20;306,451,313,466,22;297,440,306,451,20;262,498,263,512,15;262,498,262,482,16;262,482,269,477,12;269,477,278,485,17;278,485,291,489,17;291,489,296,477,17;269,477,276,463,21;276,463,276,452,11;279,600,291,587,17;291,587,289,572,15;289,572,289,560,12;275,556,289,560,18;271,544,275,556,16;257,546,271,544,16;257,546,257,559,13;257,559,269,561,14;269,561,275,556,11;289,560,298,549,20;286,545,298,549,16;286,545,292,533,18;292,533,299,538,12;298,549,299,538,14;298,549,307,541,17;307,541,316,528,22;307,541,321,541,14;321,541,331,545,14;326,577,328,568,11;311,578,326,577,16;297,574,311,578,18;289,572,297,574,8;312,549,321,541,17;307,541,312,549,15;312,549,314,558,11;312,563,314,558,5;321,541,329,530,19;329,530,331,545,17;316,528,329,530,15;314,515,322,502,21;322,502,331,491,20;328,474,331,491,20;321,460,328,474,21;321,460,322,448,15;331,491,340,487,13;340,487,345,487,5,northFallyTavGate;291,587,303,587,12;303,587,318,587,15;318,587,333,585,17;333,585,343,582,10;343,579,343,582,3,southFallyTavGate;274,611,289,611,15;289,611,304,610,16;304,610,318,604,20;318,604,330,596,20;330,596,345,594,15;343,582,345,594,12;330,596,333,585,14;289,611,292,598,16;291,587,292,598,11;303,587,305,599,14;304,610,305,599,12;316,596,318,587,11;316,596,318,604,10;345,594,358,594,13;330,596,331,611,16;331,611,339,622,19;339,622,353,620,16;353,620,363,609,14;353,620,355,635,17;354,648,355,635,14;344,659,354,648,21;335,662,344,659,12;335,662,335,673,11;325,678,335,673,15;318,672,325,678,13;309,678,318,672,15;318,672,323,664,13;323,664,324,653,14;324,653,335,662,20;312,657,324,653,16;309,668,312,657,14;299,654,312,657,16;297,665,299,654,13;291,659,299,654,13;284,652,299,654,17;324,639,324,653,14;314,628,324,639,21;310,616,314,628,16;310,616,318,604,20;304,610,310,616,12;283,619,293,626,17;293,626,305,630,16;305,630,314,628,11;303,640,305,630,12;299,654,303,640,18;324,639,338,643,18;338,643,348,642,11;348,642,354,648,12;348,642,355,635,14;335,636,339,622,18;324,639,335,636,14;322,625,324,639,16;314,628,322,625,11;321,616,331,611,15;321,616,322,625,10;318,604,321,616,15;310,616,321,616,11;289,611,293,626,19;358,594,359,582,13;343,582,359,582,16;343,579,356,576,13;343,579,344,565,14;356,576,365,574,11;365,574,366,566,9;356,566,366,566,10;356,566,356,576,10;344,565,356,566,13;343,553,344,565,13;343,553,346,542,14;331,545,336,548,8;335,561,336,548,14;328,568,335,561,14;346,542,359,539,16;354,551,356,566,17;354,551,359,539,17;359,539,368,532,16;368,519,368,532,15;359,509,368,519,19;346,505,359,509,17;346,505,347,495,11;345,487,347,495,10;366,566,374,555,19;367,542,374,555,20;367,542,368,532,11;345,487,348,474,16;347,460,348,474,15;343,446,347,460,18;343,446,352,437,18;352,437,367,437,15;367,437,368,446,10;368,446,383,445,16;383,445,384,460,16;381,475,384,460,18;381,475,384,490,18;383,504,384,490,15;382,518,383,504,15;380,534,382,518,18;368,532,380,534,14;368,519,382,518,17;359,509,365,500,15;365,500,374,498,11;374,498,384,490,18;374,498,383,504,15;345,487,358,488,14;383,504,393,494,20;393,494,397,480,18;393,465,397,480,19;393,465,396,454,14;396,454,397,463,10;397,463,403,467,10;403,467,407,461,12;401,459,407,461,8;401,459,412,457,13;412,457,414,472,17;404,450,412,457,15;404,450,408,438,16;409,484,414,472,17;401,495,409,484,19;401,495,405,501,10;405,501,416,498,14;416,498,427,495,14;427,495,437,500,15;437,500,448,500,11;448,500,457,489,20;457,489,466,480,18;466,466,466,480,16;466,466,480,465,15;452,464,466,466,16;441,457,452,464,18;427,455,441,457,14;431,465,441,457,12;427,455,431,465,10;431,465,431,474,9;424,486,431,474,19;424,486,427,495,14;416,498,424,486,20;445,490,448,500,13;445,490,457,489,13;451,479,466,480,16;437,474,451,479,19;431,474,437,474,6;445,490,451,479,17;480,465,492,459,18;485,456,492,459,10;480,465,485,456,14;484,443,485,456,14;484,432,484,443,11;484,422,484,432,10;484,422,489,411,16;492,459,500,456,11;500,456,501,451,6;500,456,508,457,9;508,457,520,458,13;492,459,494,446,15;484,443,494,446,13;494,446,506,446,12;506,446,508,457,15;506,446,517,448,13;517,448,520,458,13;517,448,532,448,17;532,448,532,458,10;520,458,532,458,12;480,465,488,476,19;488,476,495,487,18;495,487,501,502,21;501,502,510,515,22;510,515,522,523,20;522,523,535,530,20;535,530,549,534,18;549,534,562,541,20;562,541,564,554,15;563,571,564,554,18;504,469,508,457,16;497,478,504,469,16;495,487,497,478,11;488,476,497,478,11;504,469,509,482,18;497,478,509,482,16;495,487,509,482,19;186,637,192,626,17;192,626,202,625,11;202,625,212,620,15;202,625,214,631,18;198,635,202,625,14;174,628,186,637,21;174,617,174,628,11;167,611,174,617,13;162,629,174,628,13;156,642,162,629,19;184,606,199,605,16;184,606,185,611,6,lummyNorthPotatoGate;184,602,184,606,4,lummyNorthGarlicGate;167,611,173,608,9;173,608,184,606,13;172,604,173,608,5,lummyNorthWheatSouthGate;172,604,178,595,15,lummyNorthWheatNorthGate;97,663,100,649,17;95,650,100,649,6;88,650,95,650,7,alkharidGate;71,682,72,694,15;84,693,92,696,11;114,609,118,607,6,lummyEastChickenGate;153,615,159,616,9,lummyNorthChickensGate;562,541,577,539,17;577,539,592,535,19;592,535,609,531,21;609,531,624,527,19;624,527,640,521,22;640,521,648,520,9;647,528,648,520,9;647,528,661,527,15;646,539,647,528,12;646,539,650,549,14;650,549,658,555,14;658,555,671,549,19;671,549,682,544,16;682,544,693,539,16;693,539,703,535,15;703,528,703,535,6,gnomeTreeGate;703,528,706,515,16;703,501,706,515,17;700,493,703,501,11;693,493,700,493,11;637,550,646,539,20;626,557,637,550,18;612,563,626,557,20;608,569,612,563,10;608,569,611,580,14;611,580,613,593,15;601,595,613,593,14;613,593,616,604,14;598,603,601,595,11;587,604,598,603,12;573,607,587,604,17;562,606,573,607,12;551,607,562,606,12;549,596,551,607,13;548,584,549,596,13;548,584,554,575,15;554,575,563,571,13;563,571,578,571,15;578,571,582,574,7;578,571,589,570,12;582,574,589,570,13;589,570,590,583,14;590,583,591,593,15;587,604,591,593,15;535,596,549,596,14;527,590,535,596,10;517,585,527,590,11;502,550,512,553,10;498,537,502,550,17;493,525,498,537,17;482,515,493,525,21;472,504,482,515,21;459,504,472,504,19;448,500,459,504,15;457,489,467,496,17;467,496,472,504,13;487,502,501,502,16;472,504,487,502,17;500,523,510,515,18;493,525,500,523,9;532,543,535,530,13;557,527,562,541,19;557,511,557,527,16;557,500,557,511,11;547,489,557,500,21;541,475,547,489,20;540,464,541,475,12;532,458,540,464,14;547,489,557,478,21;115,658,116,667,10;208,653,211,665,15;211,665,213,675,12;213,675,217,684,13;215,691,217,684,9,wizardTowerDoor;148,599,150,595,6,lummyCabbageGate;132,635,143,627,19;152,619,153,615,5,lummyNorthSheepGate;143,627,152,619,17;323,713,335,712,13;335,712,346,710,13;346,710,353,700,17;353,700,364,696,11;364,696,370,686,11;370,686,371,698,12;365,710,371,698,13;354,711,365,710,12;346,710,354,711,9;365,710,376,706,15;371,698,376,706,9;376,706,387,703,14;387,703,399,701,14;399,701,410,699,13;410,699,421,698,12;421,698,430,689,18;430,689,433,683,9;433,683,437,683,4,brimhavenKaramjaGate;437,683,448,690,18;448,690,460,689,13;460,689,473,687,15;473,687,479,678,15;479,667,479,678,11;469,659,479,667,18;467,647,469,659,14;458,662,469,659,14;437,674,437,683,9;479,667,488,673,15;488,673,497,669,9;497,658,497,669,11;486,652,497,658,19;473,687,480,694,14;476,704,480,694,14;468,713,476,704,25;464,725,468,713,20;464,725,464,737,12;464,737,464,749,12;464,749,465,760,12;463,771,465,760,13;462,783,463,771,13;458,796,462,783,17;457,810,458,796,17;446,818,457,810,19;443,829,446,818,14;443,829,447,840,15;434,815,446,818,15;421,815,434,815,13;407,815,421,815,14;394,815,407,815,13;380,816,394,815,15;371,825,380,816,18;371,825,365,815,16;365,815,380,816,16;380,816,378,803,15;378,803,380,791,14;380,791,382,779,14;382,779,384,766,15;384,766,396,766,16;396,766,407,769,14;407,769,417,763,16;417,763,420,751,15;420,751,431,746,16;431,746,439,736,18;439,736,450,735,12;450,735,455,728,8;455,728,464,725,9;448,850,448,861,13;448,861,435,863,15;435,863,421,863,14;421,863,408,862,14;408,862,396,863,13;396,863,383,860,16;383,860,383,850,10;383,850,396,851,20,shiloVillageEntrance;396,851,403,852,8;403,852,406,843,12;406,843,406,831,12;406,831,414,830,9;414,830,424,826,18;406,831,395,828,14;110,438,96,438,14;96,438,83,438,15;83,438,75,442,18;61,729,63,739,1,shantayPass;613,593,622,590,12;587,604,593,613,15;593,613,600,620,14;600,620,600,632,12;277,644,277,653,13;277,653,277,649,4,gerrantHouseDoor;600,632,609,640,17;609,640,610,652,12;610,652,610,664,12;610,664,608,677,15;608,677,595,681,17;595,681,589,691,16;589,691,585,702,15;585,702,585,715,15;585,715,594,710,14;594,710,596,698,14;596,698,589,691,14;595,681,600,692,16;600,692,596,698,10;600,692,611,694,13;611,694,621,693,11;621,693,616,682,16;616,682,608,677,15;585,715,591,726,17;591,726,601,731,15;601,731,612,731,11;612,731,625,730,14;625,730,633,729,11;591,726,581,734,18;581,734,581,746,12;581,746,587,753,9;581,746,593,746,12;593,746,602,748,11;602,748,614,746,14;614,746,626,749,15;626,749,637,753,15;637,753,637,761,8;637,761,624,764,18;624,764,612,767,15;612,767,599,767,13;599,767,587,767,12;587,767,581,753,15;581,753,581,746,7;581,746,567,746,14;567,746,556,748,13;556,748,542,748,14;542,748,534,755,15;659,750,666,740,17;666,740,667,728,13;667,728,654,728,13;654,728,642,731,15;642,731,647,742,16;567,746,568,734,13;568,734,581,734,13;568,734,569,721,14;569,721,577,711,18;577,711,575,698,15;575,698,585,702,14;575,698,563,695,15;563,695,552,701,17;552,701,539,703,15;563,695,571,686,17;571,686,568,674,21;568,674,565,661,16;565,661,565,648,13;565,648,570,636,17;570,636,571,624,13;571,624,581,627,15;581,627,591,631,14;591,631,600,632,10;591,631,589,644,15;589,644,589,652,8;589,652,598,655,12;598,655,610,652,12;589,652,575,651,17;575,651,565,648,13;562,606,560,595,13;560,595,573,593,15;573,593,582,597,13;582,597,591,593,13;560,595,549,596,12;527,590,529,602,12;529,602,527,615,15;527,615,536,616,10;536,616,546,616,12;546,616,551,607,14;527,590,514,593,13;514,593,505,584,18;505,584,499,573,17;499,573,508,566,16;508,566,512,553,13;508,566,513,577,16;513,577,517,585,8;472,504,472,517,15;472,517,477,527,15;477,527,485,536,17;485,536,498,537,14;495,487,482,488,14;482,488,471,487,12;471,487,466,480,16;471,487,467,496,19;471,487,457,489,16;506,446,496,435,21;496,435,494,446,13;496,435,484,432,15;489,411,491,399,14;609,531,609,517,14;609,517,609,504,15;609,504,610,492,15;592,535,586,524,15;586,524,586,523,4,fishingGuildEntrance;586,517,598,517,14;598,517,599,504,16;599,504,587,503,17;587,503,586,517,15;586,517,586,523,6;610,492,608,478,16;608,478,607,466,13;607,466,604,455,14;604,455,615,457,13;615,457,622,466,16;622,466,634,466,12;634,466,636,453,15;636,453,647,451,13;647,451,651,439,16;647,451,653,462,17;653,462,650,473,14;650,473,646,483,14;646,483,648,492,11;648,492,644,503,15;644,503,645,514,12;645,514,648,520,9;661,527,664,515,15;664,515,666,503,14;666,503,668,492,13;668,492,670,480,14;670,480,668,467,15;668,467,668,456,13;703,528,715,524,16;715,524,728,522,15;728,522,732,512,14;732,512,733,498,19;733,498,736,487,14;736,487,734,474,15;734,474,733,461,16;733,461,723,453,18;723,453,718,442,16;718,442,705,438,17;705,438,691,439,15;691,439,678,441,15;678,441,675,453,15;675,453,675,465,12;675,465,677,475,12;677,475,688,479,15;688,479,698,479,10;698,479,700,493,16;698,479,703,467,17;703,467,704,457,13;700,493,712,494,13;712,494,721,490,13;721,490,724,479,14;724,479,734,474,15;609,640,614,633,12;614,633,622,633,8;659,654,660,661,7;660,661,660,670,9;660,670,648,669,12;648,669,635,671,13;635,671,625,671,10;659,654,666,655,7;666,655,675,664,12;675,664,679,675,11;679,675,685,684,15;685,684,694,693,18;694,693,699,703,15;699,703,707,710,15;707,710,714,716,13;699,703,705,692,17;705,692,711,687,11;685,684,691,677,13;691,677,703,673,18;703,673,711,662,19;711,662,709,650,14;709,650,710,637,14;710,637,710,624,13;710,624,707,612,15;707,612,709,599,15;709,599,706,587,15;706,587,695,593,17;695,593,682,598,18;682,598,669,602,17;669,602,656,608,19;656,608,645,617,20;645,617,635,625,18;635,625,630,633,9;707,612,693,611,15;693,611,680,615,17;680,615,668,620,13;668,620,654,623,14;654,623,645,617,15;709,580,696,580,15;696,580,683,577,16;683,577,669,578,15;669,578,657,576,14;657,576,644,575,14;644,575,630,576,15;630,576,627,589,18;627,589,624,601,15;624,601,634,604,13;634,604,644,602,12;644,602,654,599,13;654,599,663,590,18;663,590,669,578,18;644,575,641,588,16;644,602,641,588,21;557,478,569,478,12;569,478,580,472,17;580,472,588,464,16;588,464,590,451,15;590,451,583,440,18;583,440,572,437,16;572,437,558,436,15;558,436,546,437,13;546,437,537,436,10;537,436,532,448,17;418,570,408,569,10;408,569,402,560,15;402,560,401,548,15;401,548,402,536,13;402,536,414,536,12;414,536,425,537,12;425,537,433,543,14;433,543,427,547,10;427,547,416,549,17;418,570,426,566,8;426,566,434,558,16;426,566,416,560,16;416,560,402,560,18;430,689,421,681,17;421,681,408,677,17;408,677,395,681,17;395,681,389,691,16;389,691,387,703,14;465,760,453,759,13;453,759,440,759,17;440,759,429,759,13;429,759,417,763,16;417,763,422,775,17;422,775,422,787,14;422,787,419,798,14;419,798,406,800,15;406,800,407,815,16;419,798,431,800,14;431,800,443,796,16;443,796,450,787,16;450,787,462,783,16;450,787,437,781,19;437,781,432,772,14;432,772,422,775,15;422,775,409,778,16;409,778,397,780,14;397,780,388,789,18;388,789,382,779,16;388,789,390,799,12;390,799,398,807,16;398,807,394,815,12;398,807,406,800,15;416,549,410,553,10;416,549,407,543,15;407,543,401,548,11;63,739,71,746,15;71,746,76,757,16;76,757,80,768,15;80,768,87,778,17;87,778,94,789,18;94,789,100,797,14;100,797,104,809,16;104,809,116,806,15;116,806,128,805,13;128,805,140,806,13;140,806,152,804,14;152,804,164,805,13;164,805,175,801,15;383,850,375,840,18;375,840,364,835,16;364,835,351,831,17;351,831,346,820,16;346,820,346,810,12;347,801,355,795,14;355,795,361,785,16;361,785,364,776,12;364,776,364,769,9;364,769,352,771,14;352,771,341,777,17;341,777,340,788,12;340,788,339,798,13;339,798,347,801,11;346,810,338,812,10;338,812,338,825,13;338,825,338,838,13;338,838,341,851,16;341,851,347,859,14;347,859,356,865,15;356,865,368,863,14;368,863,375,865,9;375,865,383,860,13;364,835,360,846,15;360,846,349,852,17;349,852,347,859,9;343,881,356,882,14;356,882,367,882,11;367,882,377,882,10;377,882,389,881,13;389,881,401,881,12;401,881,413,876,17;413,876,425,876,14;425,876,437,879,15;437,879,449,879,12;449,879,460,877,13;460,877,468,885,16;468,885,467,897,13;467,897,458,905,17;458,905,444,906,15;444,906,432,905,13;432,905,419,903,15;419,903,406,903,13;406,903,393,904,14;393,904,381,904,12;381,904,368,903,14;368,903,355,901,15;355,901,343,902,13;343,902,341,890,14;341,890,343,881,11;341,890,352,891,12;352,891,363,892,12;363,892,377,892,14;377,892,390,894,15;390,894,401,891,14;401,891,412,894,14;412,894,425,893,14;425,893,436,892,12;436,892,448,891,13;448,891,460,892,13;460,892,468,885,15;437,879,436,892,14;412,894,419,903,16;436,892,432,905,17;401,891,401,881,10;377,892,381,904,16;377,882,377,892,10;352,891,356,882,13;363,892,355,901,17;443,829,448,829,5;649,766,639,772,16;639,772,630,770,11;630,770,621,778,17;621,778,620,790,13;620,790,620,801,13;620,801,621,812,12;621,812,626,824,17;626,824,637,828,15;637,828,648,833,16;648,833,659,833,13;659,833,661,844,13;661,844,664,853,12;664,853,655,861,17;655,861,648,863,9;648,863,635,863,13;635,863,625,863,10;625,863,613,863,12;613,863,601,863,12;601,863,590,862,12;590,862,576,860,16;576,860,577,848,13;577,848,583,838,16;583,838,583,826,12;583,826,589,817,15;589,817,601,818,13;601,818,612,812,17;612,812,621,812,9;626,824,615,828,15;615,828,604,831,14;604,831,594,833,12;594,833,583,838,16;594,833,594,843,10;594,843,597,853,13;597,853,601,863,14;597,853,604,844,16;604,844,613,842,11;613,842,621,835,15;621,835,630,837,11;630,837,637,828,16;659,833,649,840,17;649,840,639,846,16;639,846,630,851,14;630,851,619,852,12;619,852,609,853,11;609,853,601,863,18;630,837,639,846,18;613,842,619,852,16;621,835,615,828,13;604,831,601,818,16;620,790,608,787,15;608,787,596,780,19;596,780,584,776,16;621,778,609,778,16;609,778,596,780,15;691,716,678,718,15;678,718,675,706,15;675,706,673,693,15;673,693,683,698,15;683,698,686,709,14;686,709,691,716,12;678,718,670,718,8;670,718,670,706,20;670,706,670,697,9;670,697,668,687,12;668,687,658,686,11;658,686,664,683,17;664,683,666,676,15;666,676,670,682,16;670,682,670,674,8;670,674,657,673,14;657,673,644,675,15;644,675,633,675,15;670,718,658,718,12;658,718,646,712,22;646,712,633,708,21;633,708,630,699,18;630,699,631,688,12;631,688,627,691,13;627,691,627,703,16;627,703,626,710,8;626,710,630,716,14;630,716,638,718,12;638,718,649,717,12;649,717,634,714,20;616,682,623,675,14;623,675,635,679,16;635,679,644,680,14;644,680,656,679,17;639,683,633,684,15;633,684,643,685,11;653,685,662,689,13;653,685,643,685,18;656,679,639,683,25;662,689,668,692,9;668,692,665,701,12;665,701,656,706,14;656,706,663,706,7;663,706,666,712,13;666,712,661,712,15;661,712,655,710,22;655,710,641,708,16;635,679,625,684,23;625,684,625,697,17;625,697,626,710,14;595,681,584,677,15;584,677,577,669,15;577,669,568,674,14;589,570,591,557,17;591,557,600,549,17;600,549,606,540,15;606,540,609,531,12;577,539,584,549,17;584,549,591,557,15;535,530,538,518,15;538,518,539,506,13;539,506,540,495,12;540,495,547,489,13;540,495,529,491,15;529,491,517,485,18;517,485,509,482,11;232,438,242,431,17;242,431,248,421,16;248,421,258,417,14;258,417,254,428,15;254,428,254,439,11;254,439,257,449,13;257,449,257,455,6;257,455,257,468,13;257,468,257,478,10;257,478,262,482,9;254,428,264,422,16;264,422,274,415,17;274,415,282,409,14;282,409,293,411,13;293,411,305,411,14;305,411,316,412,12;316,412,326,411,11;326,411,328,423,14;328,423,319,432,18;319,432,307,437,17;307,437,297,440,13;297,440,299,428,14;299,428,294,421,12;294,421,293,411,15;294,421,283,425,15;283,425,274,429,13;274,429,263,435,17;263,435,265,447,14;265,447,276,452,16;276,452,286,449,13;286,449,294,453,12;294,453,299,464,16;299,464,296,477,16;258,417,265,407,17;265,407,274,400,16;274,400,285,397,14;285,397,297,395,14;297,395,307,391,14;307,391,318,392,12;318,392,327,384,17;327,384,327,372,12;327,372,328,359,14;328,359,328,347,12;328,347,329,334,14;329,334,324,323,16;324,323,327,310,16;327,310,327,297,13;327,297,326,285,15;326,285,329,273,15;329,273,326,262,14;326,262,327,250,13;327,250,326,237,14;326,237,326,225,14;326,225,325,212,13;325,212,324,199,13;324,199,328,187,16;328,187,327,174,14;327,174,328,165,10;328,165,328,152,13;328,152,331,144,8;331,144,331,140,4,icePlateauGate;331,140,331,128,12;331,128,323,118,18;323,118,311,119,13;311,119,308,129,13;308,129,306,139,12;306,139,318,139,12;318,139,319,128,12;319,128,323,123,9;323,123,331,128,13;306,139,298,139,8;298,139,298,123,16,wildyAgilityGate;298,139,286,139,14;286,139,273,139,13;273,139,259,139,14;259,139,248,132,18;248,132,248,124,8;248,124,240,115,17;240,115,234,103,13;234,103,221,103,13;221,103,214,109,9;214,109,205,118,18;205,118,196,122,13;196,122,186,119,13;186,119,183,107,15;183,107,174,101,15;174,101,164,101,10;164,101,150,101,16;150,101,135,101,15;135,101,122,101,13;122,101,109,101,13;109,101,96,101,15;96,101,83,106,18;83,106,70,112,19;70,112,59,117,16;59,117,59,127,10;59,127,59,141,14;59,141,69,140,11;69,140,81,138,14;81,138,95,138,14;95,138,108,135,16;108,135,111,141,6;111,141,111,143,2,deepWildyGate;111,141,123,138,12;123,138,133,138,10;133,138,147,138,16;147,138,160,138,13;160,138,170,138,10;170,138,183,138,15;183,138,194,138,13;194,138,205,138,13;205,138,209,133,9;194,138,198,129,13;198,129,196,122,9;214,109,201,108,22;201,108,191,102,16;191,102,183,107,13;234,103,245,107,11;245,107,258,110,13;258,110,268,115,11;268,115,280,122,13;280,122,282,128,6;282,128,286,139,11;268,115,258,122,12;258,122,248,124,10;164,101,163,113,15;163,113,162,125,13;162,125,160,138,15;147,138,147,125,15;147,125,147,114,11;147,114,150,101,16;135,101,130,109,13;130,109,118,116,25;118,116,121,126,13;121,126,123,138,14;95,138,94,125,14;94,125,93,113,13;93,113,96,101,15;59,127,71,126,13;71,126,84,123,16;84,123,94,125,12;94,125,105,121,15;105,121,118,116,18;118,116,126,123,15;126,123,134,126,11;134,126,147,125,14;147,125,155,121,12;155,121,163,113,16;328,165,316,166,13;316,166,317,154,13;317,154,305,152,14;305,152,292,154,15;292,154,281,152,13;281,152,268,149,16;268,149,255,152,16;255,152,242,152,13;242,152,229,152,13;229,152,215,152,14;215,152,205,152,10;205,152,194,152,13;194,152,181,152,13;181,152,165,152,16;165,152,152,152,13;152,152,139,152,13;139,152,126,152,13;99,152,83,153,16;83,153,68,153,17;68,153,55,153,13;55,153,55,163,12;55,163,65,166,13;65,166,73,168,10;73,168,86,171,16;86,171,94,171,8;94,171,102,164,10;102,164,113,163,11;113,163,126,166,13;126,166,136,163,13;136,163,148,163,12;148,163,161,163,13;161,163,165,152,15;165,152,172,158,13;172,158,182,165,17;182,165,194,166,13;194,166,205,166,13;205,166,218,163,16;218,163,228,160,13;228,160,240,159,13;240,159,254,159,16;254,159,262,169,18;262,169,271,177,17;271,177,282,178,12;282,178,292,182,14;292,182,303,188,17;303,188,314,185,14;314,185,320,177,14;320,177,327,174,10;316,166,320,177,15;292,154,293,166,13;293,166,301,172,14;301,172,292,182,19;301,172,310,174,11;310,174,316,166,14;293,166,278,166,15;278,166,270,163,11;270,163,262,169,14;240,159,242,152,9;215,152,218,163,14;182,165,181,152,14;126,152,126,166,14;99,152,92,162,12;92,162,94,171,11;73,168,76,159,12;76,159,83,153,13;55,163,54,175,13;54,175,58,185,14;58,185,57,196,12;57,196,57,208,12;57,208,60,219,14;60,219,57,231,15;57,231,57,245,14;57,245,60,258,16;60,258,57,271,16;57,271,60,284,16;60,284,60,297,15;60,297,63,310,16;63,310,57,321,17;57,321,49,331,18;63,310,74,316,17;74,316,82,311,15;82,311,81,324,14;81,324,77,336,16;77,336,63,338,16;63,338,51,343,17;51,343,52,356,14;52,356,53,369,16;53,369,54,381,13;54,381,58,393,16;58,393,56,407,16;56,407,55,419,15;55,419,56,430,12;56,430,48,439,17;48,439,56,440,11;56,440,59,447,10;59,447,66,444,18;66,444,65,436,15;65,436,56,440,17;48,439,53,449,15;53,449,61,454,13;61,454,73,452,14;83,438,81,428,12;81,428,68,429,14;68,429,56,430,15;55,419,68,417,15;68,417,68,429,14;68,417,68,404,13;68,404,68,394,12;68,394,58,393,11;68,394,67,381,14;67,381,64,368,16;64,368,61,357,14;61,357,52,356,10;61,357,61,345,12;61,345,63,338,9;61,345,73,347,14;73,347,77,336,15;61,357,73,356,13;73,356,85,356,12;85,356,95,359,13;95,359,103,369,18;103,369,109,380,17;109,380,122,382,15;122,382,130,372,18;130,372,132,359,15;132,359,124,348,19;124,348,114,351,13;114,351,113,359,9;113,359,116,365,9;114,351,103,349,13;103,349,94,340,18;94,340,87,329,18;87,329,81,324,11;82,311,91,319,17;91,319,98,328,16;98,328,104,337,15;104,337,114,342,15;114,342,126,340,14;126,340,136,345,15;136,345,141,355,15;141,355,141,368,13;141,368,135,379,17;135,379,127,390,19;127,390,113,391,15;113,391,100,385,19;100,385,91,376,18;91,376,85,365,17;85,365,85,356,9;122,382,127,390,13;103,369,91,376,19;130,372,141,368,15;124,348,136,345,15;114,342,124,348,16;98,328,87,329,12;82,311,95,309,15;95,309,106,315,17;106,315,116,320,15;116,320,127,323,14;127,323,138,328,16;138,328,148,335,17;148,335,151,346,14;151,346,155,359,17;155,359,158,371,15;158,371,157,383,15;157,383,148,392,18;148,392,139,401,18;139,401,126,403,15;126,403,113,406,16;113,406,99,405,15;99,405,88,399,17;88,399,79,389,19;79,389,73,378,17;73,378,67,381,9;85,365,72,367,15;72,367,64,368,9;100,385,97,395,13;97,395,99,405,12;127,390,136,389,10;136,389,148,392,15;155,359,141,355,18;127,323,115,328,17;115,328,104,337,20;88,399,77,405,17;77,405,77,417,12;77,417,81,428,15;81,428,92,424,15;92,424,97,414,15;97,414,99,405,11;110,438,110,424,14;110,424,112,414,12;112,414,113,406,9;92,424,100,429,13;100,429,110,424,15;110,424,120,418,16;120,418,132,419,13;132,419,143,422,14;143,422,155,425,15;155,425,167,425,14;167,425,179,425,14;179,425,188,422,12;188,422,197,413,18;197,413,206,404,18;206,404,218,404,12;218,404,218,416,14;218,416,221,428,15;221,428,217,437,13;191,435,188,422,16;155,425,159,437,16;126,403,127,390,16;126,403,135,409,15;135,409,132,419,13;155,425,151,413,16;151,413,150,401,13;150,401,148,392,11;151,413,163,412,13;163,412,175,411,13;175,411,185,405,16;185,405,196,398,18;196,398,208,398,12;208,398,223,398,15;223,398,218,404,11;197,413,185,405,20;248,421,235,420,14;235,420,229,408,18;229,408,218,404,15;223,398,235,398,14;235,398,247,398,14;247,398,258,399,12;258,399,265,407,15;248,421,246,408,15;246,408,247,398,13;150,401,160,394,17;160,394,171,390,15;171,390,183,386,16;183,386,195,383,15;195,383,207,380,15;207,380,218,377,14;218,377,230,377,12;230,377,242,377,12;242,377,254,377,12;254,377,263,377,9;263,377,275,371,18;275,371,287,371,12;287,371,299,371,12;299,371,311,371,14;311,371,316,359,17;316,359,328,359,14;275,371,275,358,13;275,358,275,343,15;275,343,278,332,14;278,332,283,321,16;283,321,289,309,18;289,309,289,297,12;289,297,289,285,14;289,285,289,274,11;289,274,289,262,12;289,262,289,250,12;289,250,292,238,15;292,238,292,226,12;292,226,292,211,15;292,211,292,199,12;292,199,304,200,13;304,200,303,188,13;324,199,312,203,16;312,203,304,200,11;304,200,304,212,12;304,212,306,224,14;306,224,304,237,15;304,237,304,249,12;304,249,304,261,12;304,261,304,273,14;304,273,304,285,12;304,285,306,296,13;306,296,307,308,17;307,308,306,320,13;306,320,307,332,13;307,332,310,344,15;310,344,310,356,14;310,356,316,359,9;299,371,294,359,17;294,359,293,346,14;293,346,295,335,13;295,335,293,323,14;293,323,293,311,12;293,311,289,309,6;295,335,307,332,15;324,323,312,318,17;312,318,306,320,8;306,296,315,287,18;315,287,326,285,15;327,250,316,251,14;316,251,304,249,14;325,212,314,212,11;314,212,304,212,10;304,237,292,238,13;304,273,289,274,18;306,296,294,300,18;294,300,289,297,8;292,182,286,193,17;286,193,292,199,12;286,193,273,193,13;273,193,264,201,17;264,201,252,206,17;252,206,240,206,12;240,206,227,206,13;227,206,215,200,18;215,200,212,188,15;212,188,205,175,20;205,175,205,166,11;292,211,279,211,13;279,211,266,212,14;266,212,253,214,15;253,214,252,206,9;292,238,278,239,17;278,239,265,239,13;265,239,252,239,15;252,239,253,227,15;253,227,253,214,13;289,262,275,261,15;275,261,264,253,19;264,253,252,251,14;252,251,252,239,12;289,274,275,274,14;275,274,262,273,14;262,273,249,272,14;249,272,245,260,16;245,260,252,251,16;275,343,269,332,17;269,332,278,332,9;269,332,270,320,13;270,320,273,308,15;273,308,275,296,14;275,296,264,295,12;264,295,258,304,15;258,304,266,311,19;266,311,270,320,13;269,332,260,324,17;260,324,251,315,18;251,315,245,305,16;245,305,239,296,15;239,296,239,287,9;239,287,241,275,14;241,275,249,272,11;136,163,140,175,16;140,175,151,175,11;151,175,164,175,13;164,175,176,175,12;176,175,188,182,19;188,182,198,188,16;198,188,212,188,14;182,165,176,175,16;140,175,126,179,18;126,179,112,180,15;112,180,113,192,15;113,192,115,204,14;115,204,115,213,9;115,213,121,220,13;121,220,131,228,18;131,228,143,229,13;143,229,155,232,15;155,232,168,232,13;168,232,171,219,16;171,219,174,207,15;174,207,171,195,15;171,195,183,191,16;183,191,188,182,14;215,200,204,206,17;204,206,192,211,17;192,211,185,219,15;185,219,171,219,14;253,227,240,227,13;240,227,227,228,14;227,228,214,231,16;214,231,200,232,15;200,232,185,232,15;185,232,185,219,13;227,206,220,216,17;220,216,227,228,19;94,171,89,183,17;89,183,78,190,18;78,190,66,189,13;66,189,58,185,12;113,192,100,193,14;100,193,89,194,12;89,194,89,183,11;60,219,72,218,15;72,218,85,217,14;85,217,96,214,14;96,214,106,210,14;106,210,115,213,12;168,232,169,243,12;169,243,156,247,17;156,247,142,248,15;142,248,143,258,11;143,258,143,268,12;143,268,154,271,14;154,271,155,259,13;155,259,165,261,12;165,261,175,255,16;154,271,166,272,13;166,272,178,273,13;178,273,186,261,20;186,261,189,249,15;189,249,197,243,14;200,232,197,243,14;197,243,209,247,16;209,247,217,253,14;217,253,228,255,13;228,255,238,249,16;238,249,252,251,16;239,287,225,287,16;225,287,211,286,15;211,286,198,286,13;198,286,182,286,18;182,286,178,273,17;217,253,214,264,14;214,264,211,277,16;211,277,211,286,11;85,217,84,229,13;84,229,83,243,15;83,243,84,254,12;84,254,82,267,15;82,267,81,280,14;81,280,81,293,15;81,293,88,303,17;88,303,95,309,13;81,293,68,294,14;68,294,60,284,18;60,258,71,256,13;71,256,84,254,15;83,243,95,243,14;95,243,108,246,16;108,246,119,246,11;119,246,129,244,12;129,244,142,248,17;142,248,140,239,11;140,239,143,229,13;143,268,129,267,19;129,267,116,268,16;116,268,103,269,16;103,269,90,270,14;90,270,81,280,19;88,303,99,299,15;99,299,111,298,13;111,298,122,296,13;122,296,134,292,16;134,292,146,293,13;146,293,148,282,13;148,282,154,271,17;182,286,169,293,20;169,293,156,292,14;156,292,146,293,13;127,323,134,314,16;134,314,142,305,17;142,305,146,293,16;148,335,154,325,16;154,325,160,315,16;160,315,171,311,15;171,311,181,318,17;181,318,194,321,18;194,321,204,320,11;204,320,216,320,12;216,320,228,320,12;228,320,241,320,13;241,320,251,315,15;160,315,154,304,17;154,304,156,292,14;116,268,117,281,16;117,281,124,285,11;124,285,134,292,17;242,377,241,364,14;241,364,239,351,15;239,351,242,339,15;242,339,241,327,13;241,327,241,320,7;204,320,204,333,13;204,333,205,346,14;205,346,209,357,15;209,357,210,369,15;210,369,207,380,14;151,346,163,347,13;163,347,174,346,14;174,346,185,344,13;185,344,194,337,16;194,337,204,333,14;174,346,174,358,12;174,358,173,371,14;173,371,176,381,13;176,381,171,390,14;196,398,192,391,11;192,391,183,386,14;254,377,249,386,14;249,386,247,398,14;435,484,435,488,4,catherbyChefDoor;435,488,445,490,12;435,488,427,495,15;144,657,144,669,12;144,669,130,670,1;130,3545,125,3533,17;125,3533,114,3541,19;114,3541,103,3544,14;125,3533,127,3521,14;125,3533,133,3528,13;133,3528,144,3533,16;144,3533,149,3544,17;149,3544,150,3553,11;150,3553,145,3558,12;145,3558,135,3555,14;135,3555,120,3555,15;120,3555,105,3555,15;105,3555,100,3560,9;100,3560,105,3566,12;144,3533,154,3528,15;154,3528,165,3529,12;165,3529,173,3525,14;165,3529,169,3539,14;169,3539,174,3546,12;279,3327,280,493,10,dwarvenMineCannonEntrance;280,493,278,485,10;279,3327,269,3330,13;279,3327,278,3339,13;278,3339,286,3347,16;286,3347,291,3342,10;291,3342,291,3331,13;286,3347,293,3348,8;293,3348,302,3349,10;302,3349,310,3349,8;278,3339,266,3339,12;266,3339,265,3350,12;265,3350,267,3361,13;267,3361,265,3372,13;265,3372,267,3378,8;267,3378,267,3380,2;267,3380,267,3381,15,miningGuildDoor;267,3381,267,3387,6;267,3387,268,3397,13;265,3372,254,3370,13;254,3370,250,537,5,dwarvenMineFaladorEntrance;248,563,252,572,13;252,572,252,581,11;252,581,254,591,12;257,546,250,537,10;61,729,68,718,18;68,718,76,709,17;76,709,83,702,14;83,702,84,693,10;84,693,83,683,11;83,683,71,682,13;71,682,70,671,12;70,671,70,660,11;70,660,69,647,14;69,647,68,634,14;68,634,67,622,13;67,622,68,610,13;68,610,70,598,14;70,598,70,586,12;71,682,61,682,10;61,682,59,694,14;61,682,58,672,13;58,672,70,671,21;83,683,82,671,15;82,671,85,659,15;85,659,88,650,12;82,671,70,671,14;88,650,81,641,16;81,641,73,631,18;73,631,67,622,15;73,631,76,619,15;76,619,78,607,14;78,607,79,594,14;79,594,78,581,14;78,607,68,610,13;78,581,73,573,13;73,573,84,574,12;73,573,71,560,15;73,573,63,573,10;44,566,32,566,16;32,566,25,568,9;57,547,60,536,14;60,536,64,525,15;64,525,67,515,13;67,515,69,503,14;69,503,68,491,13;68,491,69,479,13;69,479,73,468,15;73,468,62,464,15;62,464,50,462,14;50,462,52,473,13;52,473,48,484,15;48,484,35,489,18;35,489,22,488,14;22,488,9,488,13;48,484,47,496,13;47,496,45,508,14;45,508,45,521,15;45,521,45,533,12;45,533,37,541,16;37,541,27,549,18;27,549,16,555,17;16,555,9,559,11;9,559,14,549,15;27,549,27,560,13;27,560,39,559,13;39,559,44,566,12;46,550,37,541,18;64,525,52,521,16;52,521,45,521,7;68,491,56,488,15;56,488,48,484,12;63,573,57,573,6,digsiteGate;57,573,49,566,15;49,566,44,566,5;693,493,693,502,13;693,502,692,1448,256,gnomeAgilityClimbFirstNet;692,1448,689,2395,128,gnomeAgilityClimbTower;689,2395,685,2396,64,gnomeAgilityRopeSwing;685,2396,683,506,32,gnomeAgilityClimbDownTower;683,506,687,500,11;687,500,693,493,13;208,750,100,649,1,skipTutorial;100,649,102,638,13;102,638,107,628,15;107,628,116,627,10;107,628,107,618,10;53,558,49,566,12;57,547,53,558,15;53,558,46,550,15;137,464,141,1398,1,varrockPalaceNorthwestLadder;260,642,268,646,12;268,646,277,644,19;268,646,269,658,12;69,503,74,503,5;74,503,82,502,1,varrockEastDigsiteGate;82,502,82,491,13;82,491,82,480,11;82,480,89,470,17;82,480,80,468,18;80,468,76,458,14;76,458,73,452,9;89,470,91,459,13;91,459,99,451,16;99,451,110,451,11;99,451,96,438,16;91,509,82,502,16;91,509,83,518,17;220,3522,215,691,12,wizardTowerBasement;372,456,384,460,16;368,446,372,456,14;361,476,348,474,15;361,476,358,488,15;381,475,371,469,16;371,469,372,456,14;371,469,361,476,17;347,460,357,466,16;357,466,361,476,14;357,466,348,474,17;357,466,363,461,11;363,461,372,456,14;371,469,363,461,16;370,481,361,476,14;370,481,381,475,17;370,481,371,469,13;593,746,593,755,9;593,755,597,758,5;108,595,112,601,10;112,601,114,609,10;446,662,458,662,12;446,662,437,674,21;138,617,145,607,17;145,607,148,599,11;190,592,178,595,15;108,595,106,585,12;106,585,100,580,11;532,448,538,445,9;538,445,542,446,5,mcgroubersGate;545,455,555,460,15;555,460,567,457,15;567,457,573,463,12;567,457,567,449,8;555,460,561,466,12;561,466,573,463,15;573,463,575,450,15;575,450,567,449,9;561,466,549,468,14;549,468,545,455,17;545,455,542,446,12;384,460,386,465,7;386,465,388,3300,1,dwarfTunnel;388,3300,397,3294,15;397,3294,408,3294,11;408,3294,418,3297,13;418,3297,426,3294,11;426,3294,427,455,1,dwarfTunnel;383,504,391,502,10;391,502,398,500,10,taverleySteppingStones;398,500,405,501,8;398,500,401,495,8;391,502,393,494,10;393,494,384,490,21;368,519,374,507,18;374,507,374,498,9;383,504,374,507,12;374,507,365,500,16;374,507,382,518,19;365,500,365,494,6;365,488,365,494,6;365,488,358,488,7;365,488,370,481,12;365,488,374,498,19;365,488,374,488,9;374,488,370,481,11;374,488,374,498,10;374,488,384,490,14;365,494,361,494,4,witchsHouseDoor;319,553,312,549,11;321,541,316,528,18;331,554,326,553,6,faladorWestBankDoor;326,553,319,553,7;326,553,321,541,17;331,545,326,553,13;326,553,327,560,8;327,560,328,568,9;335,561,327,560,9;312,549,305,551,9;305,551,298,549,9;275,565,275,556,11;283,570,289,572,6;275,565,273,3398,1,miningGuildLadder;273,3398,268,3397,12;160,656,169,652,13;169,652,171,644,10;171,644,178,650,13;169,652,178,650,11;178,650,186,653,11;186,653,178,662,17;186,653,193,653,7;186,653,192,641,18;192,641,193,653,13;192,641,186,637,10;192,641,198,635,12;128,686,134,677,15;127,692,128,686,7;128,686,117,680,17;138,1610,137,667,1,lummyLadderTo2FS;138,1610,138,2555,1,lummyLadderTo3FS;138,1592,138,649,1,lummyLadderTo2FN;138,1592,138,2536,1,lummyLadderTo3FN;138,1610,136,1602,10;136,1602,138,1592,12;136,1602,132,1604,6;649,766,652,753,16;652,753,659,750,10;652,753,647,742,16;637,753,643,753,6,yanilleWestGate;643,753,646,753,3;646,753,652,753,6,yanilleWestGate;652,753,643,753,9;714,499,712,494,7;714,517,706,515,10;714,517,715,524,10;703,501,714,499,13;714,499,721,490,16;714,517,714,1461,25,gnomeStrongholdBankSouthLadder;714,499,714,1443,25,gnomeStrongholdBankNorthLadder;714,1443,712,1452,10;714,1461,712,1452,10;714,1443,716,1452,10;714,1461,716,1452,10;692,515,698,517,8;698,517,706,515,10;698,517,703,528,16;692,515,692,1459,1,gnomeStrongholdSpinningWheelLadder;534,566,534,580,14;527,590,534,580,12;532,543,529,556,13;534,566,529,556,11;508,669,497,669,11;286,703,284,710,7;284,710,284,3543,1,asgarniaLadder;284,3543,280,3540,5;280,3540,279,3527,13;279,3527,279,3522,5;279,3522,292,3521,13;303,3519,314,3524,12;279,3522,279,3517,5;279,3517,292,3515,13;303,3519,293,3519,10;293,3519,292,3515,4;293,3519,292,3521,2;610,652,621,656,11;621,656,621,672,16;621,672,625,671,4;630,633,624,639,8;624,639,622,633,6;675,664,675,650,14;675,650,677,637,13;677,637,677,625,12;677,625,668,620,10;364,696,371,698,7;264,660,269,658,5;347,600,345,594,6;347,601,347,600,1,craftingGuild;292,182,285,186,8;285,186,284,185,1,kbdGate;152,551,150,553,2;150,553,150,555,2,championsGuild;284,185,281,185,3,kbdLadder;215,3299,215,3292,7;215,3292,218,3282,10;218,3282,211,3273,11;211,3273,197,3274,14;197,3274,197,3265,9;197,3265,197,3261,4;197,3261,197,3254,7;197,3254,211,3253,14;211,3253,218,3242,13;197,3254,198,3241,13;198,3241,208,3232,13;208,3232,217,3234,9;217,3234,218,3242,8;207,3215,208,3232,17;217,3234,231,3232,14;231,3232,231,3248,16;231,3232,231,3225,7;197,3274,188,3275,9;188,3275,188,3286,11;188,3286,186,3292,6;186,3292,179,3293,7;179,3293,179,3302,9;179,3302,191,3300,12;191,3300,203,3298,12;203,3298,209,3301,6;209,3301,209,3314,13;209,3314,208,3327,13;203,3315,209,3314,6;227,105,234,103,7;221,103,227,105,6;227,105,227,110,5,wildyMageBankWebs;119,644,121,646,2;206,449,209,447,3;222,447,217,447,5;218,465,216,468,3;218,464,218,465,1,edgeDungeonDoor;216,468,215,3299,-1,edgeDungeonLadder;217,447,216,468,22;218,3282,220,3281,2,oddWall;220,3281,222,3281,2;215,3299,216,468,1,edgeDungeonLadder;325,212,331,213,6;224,110,446,3368,1,wildyMageBankLadder;224,110,227,110,3,wildyMageBankDoor;446,3368,453,3374,9;446,3368,440,3374,8;440,3374,453,3374,13;258,122,269,125,11;269,125,280,122,11;269,125,269,127,2;269,127,268,2963,1,deepWildDungeonStairs;268,2963,272,2973,10;272,2973,274,2972,2,deepWildDungeonGate1;274,2972,281,2970,7;281,2970,283,2968,2,deepWildDungeonGate2;283,2968,280,2959,9;280,2959,274,2952,9;274,2952,273,2952,1,deepWildDungeonGate3;508,669,516,666,8,brimMossGiantSwing;115,147,126,152,12;99,152,111,143,15;111,143,115,147,5;581,753,587,753,6;587,753,593,755,6";
   var _webAdj = null, _webAdjGuild = null;
   function webwalkGraph(useGuild) {
     if (useGuild) {
@@ -3279,10 +4721,11 @@
     'fish-cage': makeResourceScript([{x:350,y:700}], 35000),
 
     // ─── Woodcutting ───
-    'wc-normal': makeResourceScript([{x:112,y:603},{x:113,y:571},{x:115,y:570}], 10000),
-    'wc-oak': makeResourceScript([{x:120,y:550}], 17000),
-    'wc-willow': makeResourceScript([{x:200,y:600}], 35000),
-    'wc-yew': makeResourceScript([{x:200,y:500}], 120000),
+    // NOTE: ScriptPanel (the LIVE UI — App.tsx imports ScriptPanel, NOT BotPanel)
+    // sends catalog id 'Woodcutting' from scripts.ts. Register the pilot under
+    // BOTH ids so the real UI path works and the explicit id stays valid.
+    'Woodcutting': makeWoodcuttingScript(null),
+    'skilling-woodcutting': makeWoodcuttingScript(null),
 
     // ─── Auto-Sleeper ───
     // Uses sleeping bag (item ID 1263) from inventory.

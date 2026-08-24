@@ -311,6 +311,7 @@ function AppContent() {
                   lootIds = cfg.lootIds.split(',').map((s: string) => parseInt(s.trim())).filter((n: number) => !isNaN(n) && n > 0);
                 }
                 const engineConfig = {
+                  ...cfg,               // v206: pass ALL script config through (mining camp/bank/rocks/power-mine)
                   npcIds: npcIds,
                   buryBones: cfg.buryBones ?? false,
                   prioritizeBones: cfg.buryBones ?? false,

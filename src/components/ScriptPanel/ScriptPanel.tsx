@@ -454,6 +454,7 @@ export interface ScriptConfig {
   gauntlets?: boolean;
   // — Woodcutting —
   treeType?: string;
+  treeTypes?: Record<string, boolean>;   // v265: multi-select
   wcBank?: boolean;
   bankDestination?: string;
   // — Magic —
@@ -495,7 +496,7 @@ const COMBAT_SPELLS = [
   'Confuse', 'Weaken', 'Curse', 'Vulnerability', 'Enfeeble',
 ];
 
-const ROCK_TYPES = ['Copper', 'Tin', 'Iron', 'Coal', 'Mithril', 'Adamantite', 'Runite'];
+const ROCK_TYPES = ['Copper', 'Tin', 'Iron', 'Coal', 'Silver', 'Gold', 'Mithril', 'Adamantite', 'Runite'];
 
 const MINING_CAMPS = [
   'Al-Kharid', 'Dwarven Mine', 'Edgeville Dungeon', 'Mining Guild',
@@ -607,11 +608,11 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
     case 'combat':
       return { npcIds: '', lootIds: '-1', eatAtHp: '', wander: '20', fightMode: 'Accurate', targetLevel: '-1', buryBones: false, prioritizeBones: false, openDoors: false, useMagic: false, combatSpell: COMBAT_SPELLS[0], useRanging: false, switchId: '81' };
     case 'mining':
-      return { rocks: { Copper: true, Tin: true, Iron: false, Coal: false, Mithril: false, Adamantite: false, Runite: false }, mineNoBank: false, campLocation: MINING_CAMPS[0], mineBankLocation: BANK_LOCATIONS[0], customCoords: false, customX: '', customY: '' };
+      return { rocks: { Copper: true, Tin: true, Iron: false, Coal: false, Silver: false, Gold: false, Mithril: false, Adamantite: false, Runite: false }, mineNoBank: false, campLocation: MINING_CAMPS[0], mineBankLocation: BANK_LOCATIONS[0], customCoords: false, customX: '', customY: '' };
     case 'cooking':
       return { foodType: FOOD_TYPES[0], dropBurnt: false, gauntlets: false };
     case 'woodcutting':
-      return { treeType: TREE_TYPES[0], wcBank: true, bankDestination: WC_BANKS[0] };
+      return { treeType: 'Normal', treeTypes: { Normal: true, Oak: false, Willow: false, Maple: false, Yew: false, Magic: false }, wcBank: true, bankDestination: 'Auto' };
     case 'magic':
       return { magicSpell: MAGIC_SPELLS[0], itemId: '118', barType: BAR_TYPES[0], jewelryType: JEWELRY_TYPES[0], talismanId: '1300' };
     case 'thieving':
@@ -714,6 +715,15 @@ function CombatConfig({ cfg, set }: CfgProps) {
     
     setNearbyNpcs(npcs);
   }, []);
+
+  // v257: live NPC list — rescan every 15s while the panel is open so NPCs that
+  // wander/spawn into view appear in the checkbox list without clicking ↻ Scan.
+  useEffect(() => {
+    if (!open) return;
+    fetchNearbyNpcs();
+    const t = setInterval(fetchNearbyNpcs, 15000);
+    return () => clearInterval(t);
+  }, [open, fetchNearbyNpcs]);
 
   // Toggle an NPC selection — also auto-update loot table with known drops
   const toggleNpc = (id: number) => {
@@ -919,13 +929,17 @@ function MiningConfig({ cfg, set }: CfgProps) {
           {MINING_CAMPS.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       </Field>
-      <CheckRow label="Don't bank (power-mine)" checked={cfg.mineNoBank ?? false} onChange={v => set({ mineNoBank: v })} />
-      {!cfg.mineNoBank && (
-        <Field label="Bank Location">
+      <CheckRow label="Don't bank (power-mine)" checked={cfg.mineNoBank ?? false} onChange={v => set({ mineNoBank: v, ...(v ? { mineBankLocation: undefined } : {}) })} />
+      {cfg.customCoords ? (
+        <Field label="Bank Location (custom mine)">
           <select style={S_SELECT} value={cfg.mineBankLocation} onChange={e => set({ mineBankLocation: e.target.value })}>
             {BANK_LOCATIONS.map(b => <option key={b} value={b}>{b}</option>)}
           </select>
         </Field>
+      ) : (
+        <div style={{ fontSize: 9, color: '#666', marginBottom: 4 }}>
+          Bank: auto-selected (closest to camp)
+        </div>
       )}
 
       <div style={S_SECTION}>Custom Coords</div>
@@ -959,20 +973,37 @@ function CookingConfig({ cfg, set }: CfgProps) {
 }
 
 function WoodcuttingConfig({ cfg, set }: CfgProps) {
+  // v265: full engine — multi-select tree types (level-gated at start),
+  // bank vs power-chop, auto or manual bank choice.
   return (
     <div style={S_PANEL}>
-      <Field label="Tree Type">
-        <select style={S_SELECT} value={cfg.treeType} onChange={e => set({ treeType: e.target.value })}>
-          {TREE_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
+      <Field label="Tree Types">
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {TREE_TYPES.map(t => (
+            <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={cfg.treeTypes?.[t] ?? (t === 'Normal')}
+                onChange={e => set({ treeTypes: { ...cfg.treeTypes, [t]: e.target.checked } })}
+              />
+              {t}
+            </label>
+          ))}
+        </div>
       </Field>
       <ToggleRow label="Bank logs" checked={cfg.wcBank ?? true} onChange={v => set({ wcBank: v })} />
       {cfg.wcBank && (
         <Field label="Bank Destination">
-          <select style={S_SELECT} value={cfg.bankDestination} onChange={e => set({ bankDestination: e.target.value })}>
+          <select style={S_SELECT} value={cfg.bankDestination ?? 'Auto'} onChange={e => set({ bankDestination: e.target.value })}>
+            <option value="Auto">Auto (nearest)</option>
             {WC_BANKS.map(b => <option key={b} value={b}>{b}</option>)}
           </select>
         </Field>
+      )}
+      {!cfg.wcBank && (
+        <div style={{ fontSize: 11, color: '#8a8f98', lineHeight: 1.5, padding: '2px 0' }}>
+          Power-chop: drops logs when inventory fills. Bring an axe (inventory or wielded) — a sleeping bag is recommended.
+        </div>
       )}
     </div>
   );
