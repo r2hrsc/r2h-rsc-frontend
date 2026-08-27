@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v300';
+  var VERSION = 'v301';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -168,6 +168,48 @@
   };
   function isFishingScript(id) {
     return FISHING_SCRIPT_IDS.indexOf(id) >= 0;
+  }
+
+  // ═══ v301: COOKING — server-verified (ItemCookingDef.xml, ObjectCooking.java) ═══
+  // batch_progression=FALSE → one item per opcode-241 click (~1.9s); burn = burntId in
+  // inventory; COOKING = stat 7. Gauntlets 700, sleeping bag 1263.
+  var COOK_FOODS = {
+    'Chicken':     { raw: 133, cooked: 132, burnt: 134, level: 1 },
+    'Shrimp':      { raw: 349, cooked: 350, burnt: 353, level: 1 },
+    'Anchovies':   { raw: 351, cooked: 352, burnt: 353, level: 1 },
+    'Sardine':     { raw: 354, cooked: 355, burnt: 360, level: 1 },
+    'Herring':     { raw: 361, cooked: 362, burnt: 365, level: 5 },
+    'Mackerel':    { raw: 552, cooked: 553, burnt: 365, level: 10 },
+    'Trout':       { raw: 358, cooked: 359, burnt: 360, level: 15 },
+    'Cod':         { raw: 550, cooked: 551, burnt: 365, level: 18 },
+    'Pike':        { raw: 363, cooked: 364, burnt: 365, level: 20 },
+    'Salmon':      { raw: 356, cooked: 357, burnt: 360, level: 25 },
+    'Tuna':        { raw: 366, cooked: 367, burnt: 368, level: 30 },
+    'Bass':        { raw: 554, cooked: 555, burnt: 368, level: 43 },
+    'Lobster':     { raw: 372, cooked: 373, burnt: 374, level: 40 },
+    'Swordfish':   { raw: 369, cooked: 370, burnt: 371, level: 45 },
+    'Shark':       { raw: 545, cooked: 546, burnt: 547, level: 80 },
+    'Sea Turtle':  { raw: 1192, cooked: 1193, burnt: 1248, level: 82 },
+    'Manta Ray':   { raw: 1190, cooked: 1191, burnt: 1247, level: 91 }
+  };
+  var COOK_SITES = {
+    // door: boundary door id/dir between stand tile and range (BoundaryLocs.json:
+    // (435,486) id=1 dir=0). The server auto-open patch only covers SCENERY gates
+    // (type!=0) — boundary doors (type 0) are skipped, so the script opens it
+    // itself via atBoundary (APOS openCookDoor parity).
+    'Catherby': { range: [432, 480], inside: [433, 481], doorIn: [435, 485], doorOut: [435, 487], bank: 'Catherby', door: { x: 435, y: 486, dir: 0 } }
+    // Geometry (live-verified): range y=480 NORTH … door y=486 … bank y=494 SOUTH.
+    // inside (433,481) = cook stand · doorIn (435,485) = door-side INSIDE approach ·
+    // doorOut (435,487) = door-side OUTSIDE (bank-side) approach.
+    // RULE: never plain-walk ACROSS the door tile blind — atBoundary it; doDoor
+    // opens + teleports the player onto/through (dir 0: not-on-door → onto door
+    // tile; on-door → one tile south = inside). Entry may need TWO clicks.
+    // Fallback: door already open → the tile is walkable → plain ckWalk passes.
+  };
+  var COOKING_SCRIPT_IDS = ['AIOCooker', 'CatherbyFishFarm', 'ChickenMunch0r', 'cooking', 'cook-meat', 'cook-fish'];
+  // ChickenMunch0r: legacy APOS script ID, now routed to v301 cooking engine
+  function isCookingScript(id) {
+    return COOKING_SCRIPT_IDS.indexOf(id) >= 0;
   }
   // Cooked/edible food only (raw food can't be eaten). From server ItemDefs.json command=Eat/Drink.
   // Excludes potions (heal 0), raw/burnt items, and non-healing drinks.
@@ -626,14 +668,21 @@
   }
 
   // ─── Use item on object at coords (cooking, smelting, smithing, spinning) ───
-  // I9 action 900: W(221,545), Z(localX), Z(localY), Z(slot)
+  // I9 action 410 → opcode 241 (772) USE_ITEM_ON_SCENERY (classes.js + Payload177Parser verified)
+  // Server ItemUseOnObject.handleObject wraps a WalkToObjectAction: the server walks
+  // the player to the object, then fires the cooking plugin. Send ONCE, then wait —
+  // a second packet mid-walk triggers player.resetAll() and cancels it.
 
   function useItemOnObject(slot, worldX, worldY) {
-    var mc = getMC();
-    if (!mc) return false;
-    var localX = worldX - (mc[F.regionX] || 0);
-    var localY = worldY - (mc[F.regionY] || 0);
-    return doAction(900, { coordX: localX, coordY: localY, bQ: slot });
+    // I9 action 410 → opcode 241 (772) USE_ITEM_ON_SCENERY (classes.js + Payload177Parser verified)
+    // Server ItemUseOnObject.handleObject wraps a WalkToObjectAction: the server walks
+    // the player to the object, then fires the cooking plugin. Send ONCE, then wait —
+    // a second packet mid-walk triggers player.resetAll() and cancels it.
+    return sendRaw(241, 772, function(stream, Z) {
+      Z(stream, worldX);
+      Z(stream, worldY);
+      Z(stream, slot);
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1088,6 +1137,9 @@
       // v265: WC APOS ids → full woodcutting (6 tree types, banking, power-chop)
       log('Woodcutting: "' + scriptId + '" → v265 full script');
       tickFn = makeWoodcuttingScript(runtimeConfig);
+    } else if (isCookingScript(scriptId)) {
+      log('Cooking: "' + scriptId + '" → v301 cooking engine');
+      tickFn = makeCookingScript(runtimeConfig);
     } else if (isFishingScript(scriptId)) {
       // v275: APOS fishing ids → fishing engine; preset the fish type per id.
       // 'CatherbyFishFarm' is INTENTIONALLY excluded (it's in COOKING_IDS —
@@ -5053,43 +5105,491 @@
       scriptState.slot++;
       return 100;
     }
-    return 1000;
+return 1000;
   }
 
-  // ═══════════════════════════════════════════════════════════════
-  // COOK/SMELT/SPIN SCRIPT (use item on object)
-  // ═══════════════════════════════════════════════════════════════
+  // ═══ v301: ckWalk — private walk for cooking (copy of walkTo2 with ck state keys) ═══
+  function ckWalk(destX, destY) {
+    var sKey = 'ckWalk_' + destX + '_' + destY;
+    var st = scriptState[sKey];
+    if (!st) st = scriptState[sKey] = { px: -9999, py: -9999, lastMove: Date.now(), mode: 'full', stride: 6, fails: 0, slide: 0 };
+    var px = getX(), py = getY();
+    if (px !== st.px || py !== st.py) {
+      st.px = px; st.py = py; st.lastMove = Date.now();
+    }
+    var mc0 = getMC();
+    if (mc0) {
+      var lx = destX - (mc0.du || 0), ly = destY - (mc0.dd || 0);
+      var plx = px - (mc0.du || 0), ply = py - (mc0.dd || 0);
+      var outRegion = lx < 1 || lx > 94 || ly < 1 || ly > 94;
+      if (outRegion && st.mode === 'full') {
+        var ddx = destX - px, ddy = destY - py;
+        var dlen = Math.max(Math.abs(ddx), Math.abs(ddy), 1);
+        var step = Math.min(60, dlen);
+        var t2x = plx + Math.round(ddx * (step / dlen));
+        var t2y = ply + Math.round(ddy * (step / dlen));
+        t2x = Math.max(4, Math.min(94, t2x));
+        t2y = Math.max(4, Math.min(94, t2y));
+        var wx = (mc0.du || 0) + t2x, wy = (mc0.dd || 0) + t2y;
+        walkTo(wx, wy);
+        log('[CKWALK] dest out-of-region — chunked via (' + wx + ',' + wy + ')');
+        return false;
+      }
+    }
+    if (st.mode === 'full') {
+      if (Date.now() - st.lastMove > 5000) {
+        st.mode = 'hop'; st.hopSince = Date.now(); st.stride = 6; st.fails = 0;
+        log('Full-route walk stalled — hop-walking (stale region?)');
+      } else {
+        walkTo(destX, destY);
+        return false;
+      }
+    } else if (Date.now() - (st.hopSince || 0) > 30000) {
+      st.mode = 'full'; st.lastMove = 0; st.hopSince = Date.now() + 30000;
+      walkTo(destX, destY);
+      return false;
+    }
+    var dx = destX - px, dy = destY - py;
+    var dist = Math.max(Math.abs(dx), Math.abs(dy));
+    if (dist <= 1) { walkTo(destX, destY); return false; }
+    if ((st.fails || 0) >= 6) {
+      st.fails = 0;
+      var nbrs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+      var bestN = null, bestND = Infinity;
+      for (var n2 = 0; n2 < nbrs.length; n2++) {
+        var nx2 = destX + nbrs[n2][0], ny2 = destY + nbrs[n2][1];
+        var nd2 = Math.abs(nx2 - px) + Math.abs(ny2 - py);
+        if (nd2 < bestND) { bestND = nd2; bestN = [nx2, ny2]; }
+      }
+      st.altDest = bestN;
+      if (bestN) {
+        log('Dest (' + destX + ',' + destY + ') unreachable — walking to neighbor (' + bestN[0] + ',' + bestN[1] + ')');
+        ckWalk(bestN[0], bestN[1]);
+        return false;
+      }
+    }
+    if (st.markX === px && st.markY === py) {
+      st.fails = (st.fails || 0) + 1;
+      if (st.fails >= 2) {
+        st.fails = 0;
+        if ((st.stride || 6) > 1) {
+          st.stride = Math.max(1, Math.floor((st.stride || 6) / 2));
+        } else {
+          st.slide = (st.slide || 0) + 1;
+        }
+      }
+    } else {
+      st.markX = px; st.markY = py;
+      st.fails = 0; st.slide = 0;
+      st.stride = Math.min(8, (st.stride || 6) + 2);
+    }
+    var stepX, stepY;
+    if ((st.slide || 0) > 0 && (st.stride || 6) === 1) {
+      var flip = (st.slide % 2 === 0);
+      if (Math.abs(dx) >= Math.abs(dy)) { stepX = px; stepY = py + (flip ? 1 : -1); }
+      else { stepX = px + (flip ? 1 : -1); stepY = py; }
+    } else {
+      var ratio = Math.min(st.stride || 6, dist) / dist;
+      stepX = px + Math.round(dx * ratio);
+      stepY = py + Math.round(dy * ratio);
+    }
+    var mc = getMC();
+    if (window.__r2h_walk && mc) {
+      window.__r2h_walk(mc, mc.bJ || 0, mc.bK || 0, stepX - (mc.du || 0), stepY - (mc.dd || 0), false);
+    } else {
+      walkTo(stepX, stepY);
+    }
+    return false;
+  }
 
-  function makeCookScript(stationLoc, itemIds) {
+  // ═══ v301: makeCookingScript — factory returning tick function ═══
+  function makeCookingScript(runtimeConfig) {
+    var cfg = runtimeConfig || {};
+    var foodName = cfg.foodType || 'Anchovies';
+    var food = COOK_FOODS[foodName];
+    if (!food) { log('Unknown foodType: ' + foodName + ' — defaulting to Anchovies'); food = COOK_FOODS['Anchovies']; foodName = 'Anchovies'; }
+    var dropBurnt = !!cfg.dropBurnt;
+    var useGauntlets = !!cfg.gauntlets;
+    var siteName = cfg.cookSite || 'Catherby';
+    var site = COOK_SITES[siteName];
+    if (!site) { log('Unknown cookSite: ' + siteName + ' — defaulting to Catherby'); site = COOK_SITES['Catherby']; siteName = 'Catherby'; }
+
     return function() {
       if (!isLoggedIn()) return 5000;
 
+      // ══ INIT ══
       if (scriptState.phase === 'init') {
-        scriptState.phase = 'cook';
+        var lvl = getStatBase(7);
+        log('Cooking v301: [' + foodName + '] @ ' + siteName + ' bank=' + site.bank + ' dropBurnt=' + dropBurnt + ' gauntlets=' + useGauntlets + ' lvl=' + lvl);
+        if (lvl < food.level) {
+          log('Need cooking level ' + food.level + ' for ' + foodName + ' — stopping');
+          stopBot();
+          return 1000;
+        }
+        scriptState.ckCooked = 0;
+        scriptState.ckBurnt = 0;
+        scriptState.ckTrips = 0;
+        scriptState.phase = 'toRange';
       }
 
+      // ══ FATIGUE / SLEEP (copy fishing pattern) ══
+      if (getIsSleeping()) {
+        if (!scriptState.sleepTyping) {
+          scriptState.sleepTyping = true;
+          var sleepWord = 'asleep';
+          for (var ci = 0; ci < sleepWord.length; ci++) window.__r2hTypeChar(sleepWord[ci]);
+          setTimeout(function() {
+            window.__r2hTypeSpecial('Enter');
+            scriptState.sleepTyping = false;
+          }, 500);
+        }
+        return 2000;
+      }
+      var fatigue = getFatigue();
+      if (fatigue >= 90) {
+        var bagSlot = getInventoryIndex(SLEEPING_BAG);
+        if (bagSlot >= 0) { log('Fatigue ' + fatigue + '% — using sleeping bag'); useItem(bagSlot); return 3000; }
+      }
+
+      // ══ TO RANGE ══
+      if (scriptState.phase === 'toRange') {
+        if (getY() < site.door.y) {
+          // ── INSIDE the house ──
+          var dCook = Math.abs(site.inside[0] - getX()) + Math.abs(site.inside[1] - getY());
+          if (dCook <= 2) { scriptState.phase = 'cook'; scriptState.ckPending = 0; scriptState.ckStall = 0; return 400; }
+          ckWalk(site.inside[0], site.inside[1]);
+          return 1500;
+        }
+        // ── OUTSIDE: get to the bank-side door approach ──
+        var dOut = Math.abs(site.doorOut[0] - getX()) + Math.abs(site.doorOut[1] - getY());
+        if (dOut <= 1) {
+          scriptState.phase = 'doorIn';
+          scriptState.ckDoorTries = 0;
+          scriptState.ckDoorT = 0;
+          return 400;
+        }
+        // v301b: if the direct path crosses the door tile and the door may be
+        // shut, route via the EAST neighbor of the door first (one extra step,
+        // never blocked), then step to doorOut. Prevents the client pathfinder
+        // from sealing us onto the door tile when the server auto-closes it.
+        ckWalk(site.doorOut[0], site.doorOut[1]);
+        return 1500;
+      }
+
+      // ══ DOOR IN — walk toward inside; on stall: ONE click then 6s SILENCE ══
+      // (server action model: each atBoundary cancels prior walks and starts a
+      // server-side WalkToObjectAction to the door — sending our own walk during
+      // it cancels it. Live-measured: click+walk every tick = frozen player.)
+      if (scriptState.phase === 'doorIn') {
+        if (getY() < site.door.y) {
+          scriptState.phase = 'toRange';   // crossed → INSIDE branch finishes
+          return 400;
+        }
+        // ── STRANDED ON THE DOOR TILE (auto-close sealed us in): doDir dir 0
+        // teleports the player to door.y-1 (INSIDE) on every successful toggle.
+        // Click every 3s (one may no-op on state-match; the next teleports) +
+        // try walking 1 tile north meanwhile.
+        if (getX() === site.door.x && getY() === site.door.y) {
+          walkTo(site.door.x, site.door.y - 1);
+          if (Date.now() - (scriptState.ckOnTileT || 0) > 3000) {
+            atBoundary(site.door.x, site.door.y, site.door.dir);
+            scriptState.ckOnTileT = Date.now();
+            scriptState.ckOnTileTries = (scriptState.ckOnTileTries || 0) + 1;
+            log('On door tile — click #' + scriptState.ckOnTileTries + ' (toggle teleports us inside)');
+          }
+          return 1200;
+        }
+        if (Date.now() < (scriptState.ckQuiet || 0)) return 1000;   // silence — server is walking us
+        ckWalk(site.inside[0], site.inside[1]);
+        if (scriptState.ckMarkX === getX() && scriptState.ckMarkY === getY()) {
+          if (Date.now() - (scriptState.ckMarkT || 0) > 3000) {
+            atBoundary(site.door.x, site.door.y, site.door.dir);
+            scriptState.ckQuiet = Date.now() + 6000;   // let the server action run
+            scriptState.ckMarkT = Date.now();
+            scriptState.ckDoorTries = (scriptState.ckDoorTries || 0) + 1;
+            log('Entry door click #' + scriptState.ckDoorTries + ' — silent 6s (server door-walk)');
+            if (scriptState.ckDoorTries > 8) {
+              log('Entry door not passable — restarting approach');
+              scriptState.phase = 'toRange';
+              scriptState.ckDoorTries = 0;
+            }
+          }
+        } else {
+          scriptState.ckMarkX = getX(); scriptState.ckMarkY = getY();
+          scriptState.ckMarkT = Date.now();
+        }
+        return 1200;
+      }
+
+      // ══ COOK (core) ══
       if (scriptState.phase === 'cook') {
-        var slot = -1;
-        for (var i = 0; i < itemIds.length; i++) {
-          slot = getInventoryIndex(itemIds[i]);
-          if (slot >= 0) break;
+        var invCount = getInventoryCount();
+        var rawN = 0, cookedN = 0, burntN = 0;
+        var rawSlot = -1, cookedSlot = -1, burntSlot = -1;
+        for (var i = 0; i < invCount; i++) {
+          var id = getInventoryId(i);
+          if (id === food.raw) { rawN++; if (rawSlot < 0) rawSlot = i; }
+          else if (id === food.cooked) { cookedN++; if (cookedSlot < 0) cookedSlot = i; }
+          else if (id === food.burnt) { burntN++; if (burntSlot < 0) burntSlot = i; }
         }
-        if (slot < 0) { log('No items to process!'); stopBot(); return 1000; }
 
-        log('Processing slot ' + slot + ' at (' + stationLoc.x + ',' + stationLoc.y + ')');
-        useItemOnObject(slot, stationLoc.x, stationLoc.y);
-        scriptState.phase = 'wait';
-        scriptState.waitStart = Date.now();
-        return 3000;
+        // 1. Completion accounting FIRST (before any drop hides the burnt item)
+        if (scriptState.ckPending) {
+          if (rawN < scriptState.ckPendingRaw) {
+            if (cookedN > scriptState.ckPendingCooked) scriptState.ckCooked++;
+            else if (burntN > scriptState.ckPendingBurnt) scriptState.ckBurnt++;
+            scriptState.ckPending = 0;
+            var total = scriptState.ckCooked + scriptState.ckBurnt;
+            if (total % 10 === 0) log('Cooked ' + scriptState.ckCooked + ' (burnt ' + scriptState.ckBurnt + ')');
+          }
+        }
+
+        // 2. Drop burnt if enabled (after accounting saw it)
+        if (dropBurnt && burntSlot >= 0) {
+          dropItem(burntSlot);
+          return 700;
+        }
+
+        // 3. No raws left → trip done
+        if (rawN === 0) {
+          log('Batch done: cooked ' + scriptState.ckCooked + ' burnt ' + scriptState.ckBurnt + ' this trip');
+          scriptState.phase = 'toBank';
+          return 600;
+        }
+
+        // 4. Stall detection
+        if (scriptState.ckPending && (Date.now() - scriptState.ckPending) > 10000) {
+          scriptState.ckStall = (scriptState.ckStall || 0) + 1;
+          if (scriptState.ckStall >= 3) {
+            log('Range unresponsive — re-approaching');
+            scriptState.phase = 'toRange';
+            return 800;
+          }
+          log('Cook stall — resending (attempt ' + scriptState.ckStall + ')');
+          scriptState.ckPending = 0;
+        }
+
+        // 5. Send cook packet
+        if (!scriptState.ckPending) {
+          var slot = getInventoryIndex(food.raw);
+          if (slot >= 0) {
+            useItemOnObject(slot, site.range[0], site.range[1]);
+            scriptState.ckPending = Date.now();
+            scriptState.ckPendingRaw = rawN;
+            scriptState.ckPendingCooked = cookedN;
+            scriptState.ckPendingBurnt = burntN;
+            scriptState.ckStall = 0;
+            return 1400;
+          }
+        }
+        return 900;
       }
 
-      if (scriptState.phase === 'wait') {
-        if (Date.now() - scriptState.waitStart > 3000) {
-          scriptState.phase = 'cook';
-          return 500;
+      // ══ TO BANK ══
+      if (scriptState.phase === 'toBank') {
+        var bankTile = BANK_REGISTRY[site.bank];
+        // ── STEP 1: still inside the house → walk OUT; click door only on stall ──
+        if (getY() < site.door.y) {
+          // ── stranded ON the door tile? doDoor toggle teleports us OUT (dir 0) ──
+          if (getX() === site.door.x && getY() === site.door.y) {
+            walkTo(site.door.x, site.door.y + 1);
+            if (Date.now() - (scriptState.ckOnOutT || 0) > 3000) {
+              atBoundary(site.door.x, site.door.y, site.door.dir);
+              scriptState.ckOnOutT = Date.now();
+              log('On door tile (exit) — clicking to teleport out');
+            }
+            return 1200;
+          }
+          if (Date.now() < (scriptState.ckQuietOut || 0)) return 1000;   // silence
+          ckWalk(site.doorOut[0], site.doorOut[1]);
+          if (scriptState.ckOutX === getX() && scriptState.ckOutY === getY()) {
+            if (Date.now() - (scriptState.ckOutT || 0) > 3000) {
+              atBoundary(site.door.x, site.door.y, site.door.dir);
+              scriptState.ckQuietOut = Date.now() + 6000;   // server door-walk window
+              scriptState.ckOutT = Date.now();
+              scriptState.ckDoorOutTries = (scriptState.ckDoorOutTries || 0) + 1;
+              log('Exit door click #' + scriptState.ckDoorOutTries + ' — silent 6s');
+              if (scriptState.ckDoorOutTries > 8) {
+                log('Exit door not passable — stopping');
+                stopBot(); return 2000;
+              }
+            }
+          } else {
+            scriptState.ckOutX = getX(); scriptState.ckOutY = getY();
+            scriptState.ckOutT = Date.now();
+          }
+          return 1200;
         }
-        return 1000;
+        // ── STEP 2: outside → bank (approach from the door, proven route) ──
+        scriptState.ckDoorOutTries = 0;
+        var chebBank = Math.max(Math.abs(bankTile[0] - getX()), Math.abs(bankTile[1] - getY()));
+        if (chebBank <= 2) {
+          scriptState.phase = 'bankTalk';
+          scriptState._ckBankerMisses = 0;
+          return 400;
+        }
+        ckWalk(bankTile[0], bankTile[1]);
+        return 1500;
       }
+
+      // ══ BANK TALK ══
+      if (scriptState.phase === 'bankTalk') {
+        var banker = findNpcs(WC_BANKER_IDS, 3);
+        if (banker.length > 0) {
+          log('Talking to banker (idx=' + banker[0].serverIndex + ')');
+          talkToNpc(banker[0].serverIndex);
+          scriptState._ckBankTimer = Date.now();
+          scriptState.phase = 'bankOption';
+          return 2000;
+        }
+        var bankTile = BANK_REGISTRY[site.bank];
+        walkTo(bankTile[0], bankTile[1]);
+        scriptState._ckBankerMisses = (scriptState._ckBankerMisses || 0) + 1;
+        if (scriptState._ckBankerMisses >= 12) {
+          log('ERROR: no banker near ' + site.bank + ' — stopping');
+          stopBot(); return 2000;
+        }
+        return 1500;
+      }
+
+      // ══ BANK OPTION ══
+      if (scriptState.phase === 'bankOption') {
+        if (isInBank()) { scriptState.phase = 'bankDeposit'; return 500; }
+        if (Date.now() - scriptState._ckBankTimer > 2000) {
+          optionAnswer(0);
+          scriptState._ckBankTimer = Date.now();
+        }
+        if (Date.now() - (scriptState._ckBankTalkStart || scriptState._ckBankTimer) > 12000) {
+          log('Bank not opening — retrying talk');
+          scriptState.phase = 'bankTalk';
+          scriptState._ckBankTalkStart = Date.now();
+        }
+        return 1500;
+      }
+
+      // ══ BANK DEPOSIT ══
+      if (scriptState.phase === 'bankDeposit') {
+        if (!isInBank()) {
+          if (Date.now() - (scriptState._ckBankTimer || 0) > 8000) {
+            log('Bank flag not set — retrying talk');
+            scriptState.phase = 'bankTalk';
+          }
+          return 1500;
+        }
+        var deposited = 0;
+        // deposit cooked
+        if (getInventoryIndex(food.cooked) >= 0) {
+          depositItem(food.cooked, 9999);
+          deposited++;
+        }
+        // deposit burnt if not dropping
+        else if (!dropBurnt && getInventoryIndex(food.burnt) >= 0) {
+          depositItem(food.burnt, 9999);
+          deposited++;
+        }
+        // sweep: deposit everything not in keep-list
+        if (deposited === 0) {
+          scriptState.ckSweepSkip = scriptState.ckSweepSkip || [];
+          for (var di = 0; di < getInventoryCount(); di++) {
+            var idLeft = getInventoryId(di);
+            var keepList = [1263, 700];
+            if (rawN > 0) keepList.push(food.raw);
+            if (idLeft > 0 && keepList.indexOf(idLeft) < 0 && scriptState.ckSweepSkip.indexOf(idLeft) < 0) {
+              scriptState.ckSweepSame = (scriptState.ckSweepSameId === idLeft) ? (scriptState.ckSweepSame || 0) + 1 : 1;
+              scriptState.ckSweepSameId = idLeft;
+              if (scriptState.ckSweepSame >= 4) {
+                log('Sweep stuck on item ' + idLeft + ' (unbankable?) — leaving it in inventory, continuing');
+                scriptState.ckSweepSkip.push(idLeft);
+                continue;
+              }
+              depositItem(idLeft, 9999);
+              deposited++;
+              break;
+            }
+          }
+        }
+        if (deposited === 0) {
+          // Everything banked — WITHDRAW NEXT (bank still open), close after.
+          scriptState.phase = 'bankWithdraw';
+          scriptState._ckWithdrawAttempts = 0;
+          return 600;
+        }
+        return 1200;
+      }
+
+      // ══ BANK WITHDRAW (bank still open) ══
+      if (scriptState.phase === 'bankWithdraw') {
+        if (!isInBank()) {
+          // Bank closed unexpectedly — if we have raws, go cook; else re-open.
+          if (getInventoryIndex(food.raw) >= 0) {
+            scriptState.phase = 'toRange';
+            return 400;
+          }
+          scriptState.phase = 'bankTalk';
+          return 800;
+        }
+        // a) gauntlets if needed (withdraw, equip AFTER leaving the bank)
+        if (useGauntlets && getInventoryIndex(700) < 0 && !isItemIdEquipped(700)) {
+          withdrawItem(700, 1);
+          return 1000;
+        }
+        // b) withdraw raw food
+        if (getInventoryIndex(food.raw) < 0) {
+          if ((scriptState._ckWithdrawAttempts || 0) >= 2) {
+            log('Bank has no raw ' + foodName + ' (id ' + food.raw + ') — stopping');
+            stopBot();
+            return 1000;
+          }
+          withdrawItem(food.raw, 30);
+          scriptState._ckWithdrawAttempts = (scriptState._ckWithdrawAttempts || 0) + 1;
+          return 1200;
+        }
+        // c) raws in inventory → equip gauntlets if needed, then close
+        scriptState.ckTrips = (scriptState.ckTrips || 0) + 1;
+        log('Withdrew raws (trip ' + scriptState.ckTrips + ') — closing bank');
+        closeBank();
+        scriptState._ckCloseTries = 1;
+        scriptState._ckCloseT = Date.now();
+        scriptState.phase = 'bankClose';
+        return 800;
+      }
+
+      // ══ BANK CLOSE ══
+      if (scriptState.phase === 'bankClose') {
+        if (!isInBank()) {
+          log('Bank closed — heading to range');
+          scriptState.phase = 'leaveEquip';
+          return 400;
+        }
+        if (Date.now() - (scriptState._ckCloseT || 0) > 1200) {
+          closeBank();
+          scriptState._ckCloseT = Date.now();
+          scriptState._ckCloseTries = (scriptState._ckCloseTries || 0) + 1;
+          if (scriptState._ckCloseTries % 4 === 0) log('Bank still open after ' + scriptState._ckCloseTries + ' close attempts');
+        }
+        if (scriptState._ckCloseTries > 12) {
+          log('Bank will not close — restarting talk cycle');
+          scriptState.phase = 'bankTalk';
+          scriptState._ckCloseTries = 0;
+        }
+        return 800;
+      }
+
+      // ══ LEAVE + EQUIP GAUNTLETS ══
+      if (scriptState.phase === 'leaveEquip') {
+        if (useGauntlets && !isItemIdEquipped(700)) {
+          var gSlot = getInventoryIndex(700);
+          if (gSlot >= 0) {
+            log('Equipping cooking gauntlets');
+            wearItem(gSlot);
+            return 1500;
+          }
+          log('Gauntlets missing — continuing without');
+        }
+        scriptState.phase = 'toRange';
+        return 400;
+      }
+
       return 1000;
     };
   }
@@ -5099,7 +5599,6 @@
   // ═══════════════════════════════════════════════════════════════
 
   // Item IDs
-  var RAW_FOOD = [345, 343, 350, 352, 355, 357, 359, 362, 364, 367, 370, 373, 349, 351, 353, 356, 358, 360, 361, 363, 365, 366, 368, 369, 371, 372, 374];
   var ORE_COPPER = 155, ORE_TIN = 156, ORE_IRON = 157, ORE_COAL = 158;
   var BAR_BRONZE = 169, BAR_IRON = 170, BAR_STEEL = 171;
   var LOG_NORMAL = 77, LOG_OAK = 183, LOG_WILLOW = 185, LOG_YEW = 187;
@@ -5110,8 +5609,6 @@
   // Spell IDs
   var SPELL_HIGH_ALCH = 30, SPELL_LOW_ALCH = 28;
   var SPELL_VARROCK_TELE = 12, SPELL_FALADOR_TELE = 18, SPELL_LUMBRIDGE_TELE = 4;
-  // Cooking range locations (Lumbridge)
-  var RANGE_LUMBRIDGE = {x: 123, y: 640};
   // Furnace location (Al Kharid)
   var FURNACE_ALKHARID = {x: 330, y: 530};
   // Anvil location (Varrock west)
@@ -5301,8 +5798,7 @@
     'K_Waterfall_FireGiants': [208], 'K_WildyFireGiants': [208],
     'K_YanilleBlueDrag': [206], 'K_YanilleChaosDruids': [270],
     'K_YanilleDruidWarriors': [125], 'K_EdgeHobsPlus': [49, 60, 48],
-    'ABC_KBDKiller': [215], 'ChickenMunch0r': [3],
-    'LimpySnapez': [0], 'Man': [11, 12, 16],
+    'ABC_KBDKiller': [215], 'LimpySnapez': [0], 'Man': [11, 12, 16],
     // Kaila PvM scripts with specific locations
     'K_Paladins': [312], 'K_Nightshade': [0],
     'K_RedSpiderEggz': [0], 'K_WineDrinker': [0],
@@ -5404,20 +5900,6 @@
       return 2000;
     },
 
-    // ─── Auto-Cooker ───
-    // Cooks raw food on a range. Player must stand near a range.
-    // Uses action 900 (use item on object) with the range coords.
-    'cook-meat': makeCookScript(RANGE_LUMBRIDGE, RAW_FOOD),
-    'cook-fish': makeCookScript(RANGE_LUMBRIDGE, RAW_FOOD),
-
-    // ─── Auto-Smelter ───
-    // Smelts ore into bars at a furnace.
-    'smith-smelt': makeCookScript(FURNACE_ALKHARID, [ORE_COPPER, ORE_TIN, ORE_IRON]),
-
-    // ─── Auto-Smither ───
-    // Smiths bars into items on an anvil.
-    'smith-anvil': makeCookScript(ANVIL_VARROCK, [BAR_BRONZE, BAR_IRON, BAR_STEEL]),
-
     // ─── Auto-Fletcher ───
     // Uses knife on logs to make bows. Cut logs must be in inventory.
     'fletch-bow': function() {
@@ -5491,10 +5973,6 @@
       }
       return 2000;
     },
-
-    // ─── Auto-Flax Spinner ───
-    // Uses flax on spinning wheel to make bow strings.
-    'craft-flax': makeCookScript(SPIN_WHEEL_SEERS, [FLAX]),
 
     // ─── Auto-Alcher ───
     // High alches items from inventory. Set the item ID in script state.

@@ -452,6 +452,7 @@ export interface ScriptConfig {
   foodType?: string;
   dropBurnt?: boolean;
   gauntlets?: boolean;
+  cookSite?: string;
   // — Woodcutting —
   treeType?: string;
   treeTypes?: Record<string, boolean>;   // v265: multi-select
@@ -625,7 +626,7 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
     case 'mining':
       return { rocks: { Copper: true, Tin: true, Iron: false, Coal: false, Silver: false, Gold: false, Mithril: false, Adamantite: false, Runite: false }, mineNoBank: false, campLocation: MINING_CAMPS[0], mineBankLocation: BANK_LOCATIONS[0], customCoords: false, customX: '', customY: '' };
     case 'cooking':
-      return { foodType: FOOD_TYPES[0], dropBurnt: false, gauntlets: false };
+      return { foodType: FOOD_TYPES[0], dropBurnt: false, gauntlets: false, cookSite: 'Catherby' };
     case 'woodcutting':
       return { treeType: 'Normal', treeTypes: { Normal: true, Oak: false, Willow: false, Maple: false, Yew: false, Magic: false }, wcBank: true, bankDestination: 'Auto' };
     case 'fishing':
@@ -981,6 +982,11 @@ function CookingConfig({ cfg, set }: CfgProps) {
       <Field label="Food Type">
         <select style={S_SELECT} value={cfg.foodType} onChange={e => set({ foodType: e.target.value })}>
           {FOOD_TYPES.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+      </Field>
+      <Field label="Site">
+        <select style={S_SELECT} value={cfg.cookSite ?? 'Catherby'} onChange={e => set({ cookSite: e.target.value })}>
+          <option value="Catherby">Catherby (banked)</option>
         </select>
       </Field>
       <CheckRow label="Drop burnt food"      checked={cfg.dropBurnt ?? false} onChange={v => set({ dropBurnt: v })} />
