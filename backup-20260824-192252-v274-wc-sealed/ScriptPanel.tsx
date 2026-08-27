@@ -452,18 +452,11 @@ export interface ScriptConfig {
   foodType?: string;
   dropBurnt?: boolean;
   gauntlets?: boolean;
-  cookSite?: string;
   // — Woodcutting —
   treeType?: string;
   treeTypes?: Record<string, boolean>;   // v265: multi-select
   wcBank?: boolean;
   bankDestination?: string;
-  // — Fishing (v275) —
-  fishType?: string;
-  fishTypes?: Record<string, boolean>;   // v280: multi-select (miner-style)
-  fishSite?: string;
-  fishBank?: boolean;
-  fishDropJunk?: boolean;
   // — Magic —
   magicSpell?: string;
   itemId?: string;
@@ -488,7 +481,7 @@ export interface ScriptConfig {
   targetPrayerLevel?: string;
 }
 
-type ConfigType = 'combat' | 'mining' | 'cooking' | 'woodcutting' | 'fishing' | 'magic' | 'thieving' | 'smithing' | 'fletching' | 'bones';
+type ConfigType = 'combat' | 'mining' | 'cooking' | 'woodcutting' | 'magic' | 'thieving' | 'smithing' | 'fletching' | 'bones';
 
 // ═══════════════════════════════════════════════════════════════
 // Option lists
@@ -525,13 +518,6 @@ const FOOD_TYPES = [
 ];
 
 const TREE_TYPES = ['Normal', 'Oak', 'Willow', 'Maple', 'Yew', 'Magic'];
-
-const FISH_TYPES_UI = [
-  'Shrimp & Anchovies', 'Sardine & Herring', 'Trout & Salmon', 'Pike',
-  'Lobster', 'Tuna & Swordfish', 'Big Net', 'Shark',
-];
-
-const FISH_SITES_UI = ['Auto (nearest)', 'Catherby Coast', 'Draynor Shore', 'Lumbridge River', 'Edgeville Shore', 'Al-Kharid Shore'];
 
 const WC_BANKS = [
   'Draynor', 'Varrock West', 'Varrock East', 'Edgeville',
@@ -598,7 +584,6 @@ const BOW_TYPES = [
 const MINING_IDS    = new Set(['AIOMiner', 'MiningGuild', 'AKMiner', 'K_HobsMiner', 'K_EdgeDungeonMine', 'K_SkelliCoal', 'CraftingGuildMining', 'EssenceMiner']);
 const COOKING_IDS   = new Set(['AIOCooker', 'CatherbyFishFarm', 'ChickenMunch0r']);
 const WC_IDS        = new Set(['Woodcutting', 'K_ArdyYewTree', 'K_GnomeMagicTree', 'K_SeersMagicTree']);
-const FISHING_IDS   = new Set(['AIOFisher', 'CatherbyLobs', 'ColeslawGuildFisher', 'K_FastBarbFisher', 'CasketFisher']);
 const MAGIC_IDS     = new Set(['AIOMagic', 'AlchWheat', 'K_TeleWines', 'K_NoBank_Superheat']);
 const THIEVING_IDS  = new Set(['AIOThiever', 'Man']);
 const SMITHING_IDS  = new Set(['SmithingVarrock', 'SmithGearSet', 'CeikPlates', 'K_FastChainLinks', 'AIOSmelter']);
@@ -610,7 +595,6 @@ function getConfigType(script: ScriptDef): ConfigType | null {
   if (MINING_IDS.has(script.id))    return 'mining';
   if (COOKING_IDS.has(script.id))   return 'cooking';
   if (WC_IDS.has(script.id))        return 'woodcutting';
-  if (FISHING_IDS.has(script.id))   return 'fishing';
   if (MAGIC_IDS.has(script.id))     return 'magic';
   if (THIEVING_IDS.has(script.id))  return 'thieving';
   if (SMITHING_IDS.has(script.id))  return 'smithing';
@@ -626,11 +610,9 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
     case 'mining':
       return { rocks: { Copper: true, Tin: true, Iron: false, Coal: false, Silver: false, Gold: false, Mithril: false, Adamantite: false, Runite: false }, mineNoBank: false, campLocation: MINING_CAMPS[0], mineBankLocation: BANK_LOCATIONS[0], customCoords: false, customX: '', customY: '' };
     case 'cooking':
-      return { foodType: FOOD_TYPES[0], dropBurnt: false, gauntlets: false, cookSite: 'Auto (nearest)' };
+      return { foodType: FOOD_TYPES[0], dropBurnt: false, gauntlets: false };
     case 'woodcutting':
       return { treeType: 'Normal', treeTypes: { Normal: true, Oak: false, Willow: false, Maple: false, Yew: false, Magic: false }, wcBank: true, bankDestination: 'Auto' };
-    case 'fishing':
-      return { fishType: 'Shrimp & Anchovies', fishTypes: { 'Shrimp & Anchovies': true, 'Sardine & Herring': false, 'Trout & Salmon': false, 'Pike': false, 'Lobster': false, 'Tuna & Swordfish': false, 'Big Net': false, 'Shark': false }, fishSite: 'Auto (nearest)', fishBank: true, fishDropJunk: true };
     case 'magic':
       return { magicSpell: MAGIC_SPELLS[0], itemId: '118', barType: BAR_TYPES[0], jewelryType: JEWELRY_TYPES[0], talismanId: '1300' };
     case 'thieving':
@@ -984,19 +966,6 @@ function CookingConfig({ cfg, set }: CfgProps) {
           {FOOD_TYPES.map(f => <option key={f} value={f}>{f}</option>)}
         </select>
       </Field>
-      <Field label="Site">
-        <select style={S_SELECT} value={cfg.cookSite ?? 'Auto (nearest)'} onChange={e => set({ cookSite: e.target.value })}>
-          <option value="Auto (nearest)">Auto (nearest)</option>
-          <option value="Catherby">Catherby</option>
-          <option value="Al-Kharid">Al-Kharid</option>
-          <option value="Varrock East">Varrock East</option>
-          <option value="Falador West">Falador West</option>
-          <option value="Yanille">Yanille</option>
-          <option value="Seers">Seers</option>
-          <option value="Ardougne">Ardougne</option>
-          <option value="Draynor">Draynor</option>
-        </select>
-      </Field>
       <CheckRow label="Drop burnt food"      checked={cfg.dropBurnt ?? false} onChange={v => set({ dropBurnt: v })} />
       <CheckRow label="Cooking gauntlets"    checked={cfg.gauntlets ?? false} onChange={v => set({ gauntlets: v })} />
     </div>
@@ -1034,56 +1003,6 @@ function WoodcuttingConfig({ cfg, set }: CfgProps) {
       {!cfg.wcBank && (
         <div style={{ fontSize: 11, color: '#8a8f98', lineHeight: 1.5, padding: '2px 0' }}>
           Power-chop: drops logs when inventory fills. Bring an axe (inventory or wielded) — a sleeping bag is recommended.
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FishingConfig({ cfg, set }: CfgProps) {
-  // v280: multi-select fish types (miner-style). Engine unions selections:
-  // level/tool/bait gate per type, live-scans all selected spot ids, deposits
-  // the union of fish. Single fishType still honored (APOS presets use it).
-  const toolHint: Record<string, string> = {
-    'Shrimp & Anchovies': 'Net 376', 'Sardine & Herring': 'Rod 377 + Bait 380',
-    'Trout & Salmon': 'Fly Rod 378 + Feathers 381', 'Pike': 'Rod 377 + Bait 380',
-    'Lobster': 'Lobster Pot 375', 'Tuna & Swordfish': 'Harpoon 379',
-    'Big Net': 'Big Net 548', 'Shark': 'Harpoon 379 (level 76)',
-  };
-  const sel = cfg.fishTypes ?? {};
-  const anyBigNet = sel['Big Net'] ?? false;
-  return (
-    <div style={S_PANEL}>
-      <Field label="Fish Types">
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {FISH_TYPES_UI.map(f => (
-            <label key={f} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={sel[f] ?? (f === 'Shrimp & Anchovies')}
-                onChange={e => set({ fishTypes: { ...sel, [f]: e.target.checked } })}
-              />
-              {f}
-            </label>
-          ))}
-        </div>
-      </Field>
-      <div style={{ fontSize: 11, color: '#8a8f98', lineHeight: 1.4, padding: '2px 0' }}>
-        Bring: {FISH_TYPES_UI.filter(f => sel[f] ?? f === 'Shrimp & Anchovies').map(f => toolHint[f]).join(' · ')}
-        {' '}(tools in inventory, not equipped)
-      </div>
-      <Field label="Location">
-        <select style={S_SELECT} value={cfg.fishSite ?? 'Auto (nearest)'} onChange={e => set({ fishSite: e.target.value })}>
-          {FISH_SITES_UI.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </Field>
-      <ToggleRow label="Bank fish" checked={cfg.fishBank ?? true} onChange={v => set({ fishBank: v })} />
-      {anyBigNet && (
-        <ToggleRow label="Drop junk (boots/gloves/seaweed/oyster)" checked={cfg.fishDropJunk ?? true} onChange={v => set({ fishDropJunk: v })} />
-      )}
-      {!cfg.fishBank && (
-        <div style={{ fontSize: 11, color: '#8a8f98', lineHeight: 1.5, padding: '2px 0' }}>
-          Power-fish: drops fish when inventory fills. Bring tools + a sleeping bag.
         </div>
       )}
     </div>
@@ -1239,7 +1158,6 @@ function ConfigPanel({ type, cfg, set }: { type: ConfigType; cfg: ScriptConfig; 
     case 'mining':      return <MiningConfig cfg={cfg} set={set} />;
     case 'cooking':     return <CookingConfig cfg={cfg} set={set} />;
     case 'woodcutting': return <WoodcuttingConfig cfg={cfg} set={set} />;
-    case 'fishing':     return <FishingConfig cfg={cfg} set={set} />;
     case 'magic':       return <MagicConfig cfg={cfg} set={set} />;
     case 'thieving':    return <ThievingConfig cfg={cfg} set={set} />;
     case 'smithing':    return <SmithingConfig cfg={cfg} set={set} />;

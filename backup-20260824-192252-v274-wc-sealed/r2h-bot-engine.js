@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v302';
+  var VERSION = 'v274';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -112,109 +112,6 @@
       ] }
   };
   var WC_BANKER_IDS = [95, 224, 268, 485, 540, 617];
-
-  // ═══ v275: FISHING — server-verified registry (Aug 24, 2026) ═══
-  // Sources: Fishing.java (515 lines, full read), ObjectFishing.xml,
-  // GameObjectDef command lists, SceneryLocs.json, Skills.java, APOS
-  // (CatherbyLobs / ColeslawGuildFisher / K_FastBarbFisher).
-  // Server facts:
-  //   - fishing_spots_depletable: FALSE on FuzzyNuts → spots NEVER deplete;
-  //     camp-and-click like APOS (no rotation/blacklist machinery needed).
-  //   - withinRange(object, 1) → must stand adjacent; walkTo(spot) lands the
-  //     pathfinder's nearest reachable tile (never water).
-  //   - batch_progression: false → one explicit click per catch attempt (~2.2s).
-  //   - Tool check is INVENTORY-ONLY (countId) — equipped does NOT count.
-  //   - Bait consumed per successful catch (bait 380 / feathers 381).
-  //   - Click index varies per spot (TRAP): cmd1=atObject, cmd2=atObject2.
-  //     e.g. spot 194: Harpoon=cmd1, Cage=cmd2 (CatherbyLobs: atObject2(409,504)).
-  //   - FISHING = stat index 10 (Skills.java). Big net junk: 16,17,622,793.
-  var FISH_TYPES = {
-    'Shrimp & Anchovies': { spotId: 193, cmd: 1, tool: 376, bait: -1, level: 1,  fish: [349, 351] },
-    'Sardine & Herring':  { spotId: 193, cmd: 2, tool: 377, bait: 380, level: 5,  fish: [361, 354] },
-    'Trout & Salmon':     { spotId: 192, cmd: 1, tool: 378, bait: 381, level: 20, fish: [356, 358] },
-    'Pike':               { spotId: 192, cmd: 2, tool: 377, bait: 380, level: 25, fish: [363] },
-    'Lobster':            { spotId: 194, cmd: 2, tool: 375, bait: -1, level: 40, fish: [372] },
-    'Tuna & Swordfish':   { spotId: 194, cmd: 1, tool: 379, bait: -1, level: 35, fish: [366, 369] },
-    'Big Net':            { spotId: 261, cmd: 1, tool: 548, bait: -1, level: 16, fish: [552, 550, 554, 549, 17, 16, 622, 793] },
-    'Shark':              { spotId: 261, cmd: 2, tool: 379, bait: -1, level: 76, fish: [545] }
-  };
-  // Never deposit/drop: tools, baits, sleeping bag
-  var FISH_KEEP_IDS = [375, 376, 377, 378, 379, 380, 381, 548, 1263];
-  var FISH_JUNK_IDS = [16, 17, 622, 793];   // gloves, boots, seaweed, oyster (APOS dropJunk)
-  // Sites = spot clusters near banks (SceneryLocs extraction). 'Catherby Coast'
-  // spans the docks AND the guild-shore platform west of the Fishing Guild —
-  // spots never deplete, so each type just camps its matching spot.
-  var FISH_SITES = {
-    'Catherby Coast': { stand: [417, 501], bank: 'Catherby',
-      spots: [ [193,418,500], [193,414,502], [194,409,504], [261,406,505], [261,402,507], [261,399,503], [261,398,505] ] },
-    'Draynor Shore':  { stand: [222, 661], bank: 'Draynor',
-      spots: [ [193,224,659], [193,224,661], [193,221,664] ] },
-    'Lumbridge River': { stand: [126, 630], bank: 'Draynor',
-      spots: [ [192,125,629], [192,125,631] ] },
-    'Edgeville Shore': { stand: [211, 502], bank: 'Edgeville',
-      spots: [ [192,208,501], [192,212,507] ] },
-    'Al-Kharid Shore': { stand: [87, 718], bank: 'Al-Kharid',
-      spots: [ [193,89,718], [193,85,719] ] }
-  };
-  // APOS script ids → fishing engine. CatherbyFishFarm is INTENTIONALLY not
-  // here — it is a fish+COOK script routed in COOKING_IDS (ScriptPanel) and
-  // stays untouched.
-  var FISHING_SCRIPT_IDS = ['AIOFisher', 'CatherbyLobs', 'ColeslawGuildFisher', 'K_FastBarbFisher', 'CasketFisher'];
-  var FISHING_APOS_PRESETS = {
-    'CatherbyLobs': 'Lobster',
-    'ColeslawGuildFisher': 'Big Net',
-    'K_FastBarbFisher': 'Trout & Salmon',
-    'CasketFisher': 'Big Net'
-  };
-  function isFishingScript(id) {
-    return FISHING_SCRIPT_IDS.indexOf(id) >= 0;
-  }
-
-  // ═══ v301: COOKING — server-verified (ItemCookingDef.xml, ObjectCooking.java) ═══
-  // batch_progression=FALSE → one item per opcode-241 click (~1.9s); burn = burntId in
-  // inventory; COOKING = stat 7. Gauntlets 700, sleeping bag 1263.
-  var COOK_FOODS = {
-    'Chicken':     { raw: 133, cooked: 132, burnt: 134, level: 1 },
-    'Shrimp':      { raw: 349, cooked: 350, burnt: 353, level: 1 },
-    'Anchovies':   { raw: 351, cooked: 352, burnt: 353, level: 1 },
-    'Sardine':     { raw: 354, cooked: 355, burnt: 360, level: 1 },
-    'Herring':     { raw: 361, cooked: 362, burnt: 365, level: 5 },
-    'Mackerel':    { raw: 552, cooked: 553, burnt: 365, level: 10 },
-    'Trout':       { raw: 358, cooked: 359, burnt: 360, level: 15 },
-    'Cod':         { raw: 550, cooked: 551, burnt: 365, level: 18 },
-    'Pike':        { raw: 363, cooked: 364, burnt: 365, level: 20 },
-    'Salmon':      { raw: 356, cooked: 357, burnt: 360, level: 25 },
-    'Tuna':        { raw: 366, cooked: 367, burnt: 368, level: 30 },
-    'Bass':        { raw: 554, cooked: 555, burnt: 368, level: 43 },
-    'Lobster':     { raw: 372, cooked: 373, burnt: 374, level: 40 },
-    'Swordfish':   { raw: 369, cooked: 370, burnt: 371, level: 45 },
-    'Shark':       { raw: 545, cooked: 546, burnt: 547, level: 80 },
-    'Sea Turtle':  { raw: 1192, cooked: 1193, burnt: 1248, level: 82 },
-    'Manta Ray':   { raw: 1190, cooked: 1191, burnt: 1247, level: 91 }
-  };
-  var COOK_SITES = {
-    // range coords = server SceneryLocs.json (GameObjectDef 11 "Range") — ground truth.
-    // inside = cook stand tile · doorOut/doorIn = door approaches · door = boundary
-    // door (BoundaryLocs.json). Sites WITHOUT a door between bank and range omit
-    // door/doorOut/doorIn → phases skip straight through (v302).
-    // Geometry (live-verified Catherby): range y=480 N … door y=486 … bank y=494 S.
-    'Catherby':    { range: [432, 480], inside: [433, 481], doorIn: [435, 485], doorOut: [435, 487], bank: 'Catherby',    door: { x: 435, y: 486, dir: 0 } },
-    'Al-Kharid':   { range: [87, 685],  inside: [87, 686],  bank: 'Al-Kharid' },   // outdoor range, no door
-    'Varrock East':{ range: [113, 521], inside: [114, 522], doorOut: [112, 522], doorIn: [114, 524], bank: 'Varrock East', door: { x: 113, y: 523, dir: 1 } },
-    'Falador West':{ range: [311, 521], inside: [311, 522], doorOut: [310, 524], doorIn: [311, 524], bank: 'Falador West', door: { x: 309, y: 525, dir: 0 } },
-    'Yanille':     { range: [629, 749], inside: [630, 750], doorOut: [630, 751], doorIn: [630, 751], bank: 'Yanille',     door: { x: 631, y: 751, dir: 0 } },
-    'Seers':       { range: [510, 505], inside: [510, 506], bank: 'Seers' },        // no door between bank & range
-    'Ardougne':    { range: [581, 578], inside: [581, 579], doorOut: [581, 580], doorIn: [581, 580], bank: 'Ardougne North', door: { x: 581, y: 580, dir: 1 } },
-    'Draynor':     { range: [275, 638], inside: [275, 639], doorOut: [276, 638], doorIn: [275, 639], bank: 'Draynor',    door: { x: 276, y: 637, dir: 0 } }
-  };
-  // ⚠ Site entries carry BEST-GUESS stand/door tiles except Catherby (fully
-  // live-verified). The engine self-corrects: adjacency scan + door stall-click
-  // loop generalizes. Verify per-site on the rig before trusting long runs.
-  var COOKING_SCRIPT_IDS = ['AIOCooker', 'CatherbyFishFarm', 'ChickenMunch0r', 'cooking', 'cook-meat', 'cook-fish'];
-  // ChickenMunch0r: legacy APOS script ID, now routed to v301 cooking engine
-  function isCookingScript(id) {
-    return COOKING_SCRIPT_IDS.indexOf(id) >= 0;
-  }
   // Cooked/edible food only (raw food can't be eaten). From server ItemDefs.json command=Eat/Drink.
   // Excludes potions (heal 0), raw/burnt items, and non-healing drinks.
   var FOOD = [18,132,138,142,179,193,210,228,249,257,258,259,261,262,263,267,268,269,
@@ -549,14 +446,6 @@
     log('[WALK] world(' + x + ',' + y + ') base(' + baseX + ',' + baseZ + ') local(' + destLocalX + ',' + destLocalZ + ') playerLocal(' + playerLocalX + ',' + playerLocalZ + ')');
     var result = walkFn(mc, playerLocalX, playerLocalZ, destLocalX, destLocalZ, false);
     log('[WALK] Dg returned: ' + result);
-    // v290: the v288/289 raw-hop fallback is REMOVED — it was built on a false
-    // premise (Dg returning undefined is NORMAL for a void method; it does not
-    // mean failure). The fallback fired on every walkTo and threw inside the
-    // tick (bad scope + unverified sendRaw contract), silently killing any
-    // walking phase — live regression: full-inventory bot froze instead of
-    // banking (shafster 02:27, Draynor). Stale-pathfinder handling belongs in
-    // position-based stall detection at the script level (as the fishing
-    // adjacent-tile walker already does), never here.
     return true;
   }
 
@@ -672,21 +561,14 @@
   }
 
   // ─── Use item on object at coords (cooking, smelting, smithing, spinning) ───
-  // I9 action 410 → opcode 241 (772) USE_ITEM_ON_SCENERY (classes.js + Payload177Parser verified)
-  // Server ItemUseOnObject.handleObject wraps a WalkToObjectAction: the server walks
-  // the player to the object, then fires the cooking plugin. Send ONCE, then wait —
-  // a second packet mid-walk triggers player.resetAll() and cancels it.
+  // I9 action 900: W(221,545), Z(localX), Z(localY), Z(slot)
 
   function useItemOnObject(slot, worldX, worldY) {
-    // I9 action 410 → opcode 241 (772) USE_ITEM_ON_SCENERY (classes.js + Payload177Parser verified)
-    // Server ItemUseOnObject.handleObject wraps a WalkToObjectAction: the server walks
-    // the player to the object, then fires the cooking plugin. Send ONCE, then wait —
-    // a second packet mid-walk triggers player.resetAll() and cancels it.
-    return sendRaw(241, 772, function(stream, Z) {
-      Z(stream, worldX);
-      Z(stream, worldY);
-      Z(stream, slot);
-    });
+    var mc = getMC();
+    if (!mc) return false;
+    var localX = worldX - (mc[F.regionX] || 0);
+    var localY = worldY - (mc[F.regionY] || 0);
+    return doAction(900, { coordX: localX, coordY: localY, bQ: slot });
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -1141,19 +1023,6 @@
       // v265: WC APOS ids → full woodcutting (6 tree types, banking, power-chop)
       log('Woodcutting: "' + scriptId + '" → v265 full script');
       tickFn = makeWoodcuttingScript(runtimeConfig);
-    } else if (isCookingScript(scriptId)) {
-      log('Cooking: "' + scriptId + '" → v301 cooking engine');
-      tickFn = makeCookingScript(runtimeConfig);
-    } else if (isFishingScript(scriptId)) {
-      // v275: APOS fishing ids → fishing engine; preset the fish type per id.
-      // 'CatherbyFishFarm' is INTENTIONALLY excluded (it's in COOKING_IDS —
-      // fish+cook script, untouched).
-      var fishPreset = FISHING_APOS_PRESETS[scriptId] || 'Shrimp & Anchovies';
-      var fishCfg = {};
-      for (var fk in runtimeConfig) fishCfg[fk] = runtimeConfig[fk];
-      if (!fishCfg.fishType) fishCfg.fishType = fishPreset;
-      log('Fishing: "' + scriptId + '" → v275 fishing (' + fishCfg.fishType + ')');
-      tickFn = makeFishingScript(fishCfg);
     } else if (combatScriptFactories[scriptId]) {
       tickFn = combatScriptFactories[scriptId](runtimeConfig);
     } else if (scripts[scriptId]) {
@@ -4279,578 +4148,6 @@
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // v280: AIO FISHER — all fishing under one script, multi-select types
-  // (miner pattern). APOS parity kept: the 4 APOS ids route here as presets.
-  // Core loop = APOS getNearestObjectById before EVERY click (spots relocate);
-  // NEVER walkTo(spot) — water tiles are unwalkable (returnSpot stall, v279);
-  // server WalkToObjectAction pulls the player into withinRange(1) per click.
-  // ═══════════════════════════════════════════════════════════════
-  function makeFishingScript(runtimeConfig) {
-    var CLICK_CADENCE = 2200;
-    var cfg = runtimeConfig || {};
-
-    // ── Type selection: fishTypes (multi, miner-style) else fishType (single) ──
-    var typeNames = [];
-    if (cfg.fishTypes) {
-      for (var tk in cfg.fishTypes) if (cfg.fishTypes[tk] && FISH_TYPES[tk]) typeNames.push(tk);
-    }
-    if (typeNames.length === 0 && cfg.fishType && FISH_TYPES[cfg.fishType]) typeNames.push(cfg.fishType);
-    if (typeNames.length === 0) typeNames.push('Shrimp & Anchovies');
-
-    // ── Level gate + tool/bait check per type; drop unusable types loudly ──
-    var toolNames = { 375: 'Lobster Pot (375)', 376: 'Net (376)', 377: 'Fishing Rod (377)',
-      378: 'Fly Rod (378)', 379: 'Harpoon (379)', 548: 'Big Net (548)' };
-    var lvl = getStatBase(10);   // FISHING = stat index 10 (Skills.java)
-    var kept = [];
-    for (var ti = 0; ti < typeNames.length; ti++) {
-      var T0 = FISH_TYPES[typeNames[ti]];
-      if (lvl < T0.level) { log('Skipping ' + typeNames[ti] + ' — need level ' + T0.level + ' (you are ' + lvl + ')'); continue; }
-      if (getInventoryIndex(T0.tool) < 0) { log('Skipping ' + typeNames[ti] + ' — no ' + (toolNames[T0.tool] || T0.tool) + ' in inventory'); continue; }
-      if (T0.bait > 0 && getInventoryIndex(T0.bait) < 0) { log('Skipping ' + typeNames[ti] + ' — no ' + (T0.bait === 381 ? 'Feathers (381)' : 'Bait (380)')); continue; }
-      kept.push({ name: typeNames[ti], T: T0 });
-    }
-    if (kept.length === 0) {
-      return function() {
-        log('FISHING ERROR: no usable fish type — checked [' + typeNames.join(',') + '] at lvl ' + lvl +
-            '. Each was skipped for level/tool/bait (see lines above). Kit tools via ::item 376/377/378/379/375/548.');
-        stopBot();
-        return 2000;
-      };
-    }
-    var typeNamesKept = kept.map(function(k) { return k.name; }).join(',');
-    var spotIds = [];
-    for (var ki = 0; ki < kept.length; ki++) {
-      if (spotIds.indexOf(kept[ki].T.spotId) < 0) spotIds.push(kept[ki].T.spotId);
-    }
-    function typeForSpot(spotId) {
-      for (var i = 0; i < kept.length; i++) {
-        if (kept[i].T.spotId === spotId) return kept[i];
-      }
-      return null;
-    }
-    // Deposit/drop ids: union of all kept types' fish + junk
-    var depositIds = [];
-    for (var ki2 = 0; ki2 < kept.length; ki2++) {
-      for (var fi = 0; fi < kept[ki2].T.fish.length; fi++) {
-        if (depositIds.indexOf(kept[ki2].T.fish[fi]) < 0) depositIds.push(kept[ki2].T.fish[fi]);
-      }
-    }
-    for (var ji0 = 0; ji0 < FISH_JUNK_IDS.length; ji0++) {
-      if (depositIds.indexOf(FISH_JUNK_IDS[ji0]) < 0) depositIds.push(FISH_JUNK_IDS[ji0]);
-    }
-
-    // ── Site: explicit choice if it has a selected spot; else nearest ──
-    var siteName = cfg.fishSite;
-    var site = (siteName && FISH_SITES[siteName] && FISH_SITES[siteName].spots.some(function(sp) { return spotIds.indexOf(sp[0]) >= 0; })) ? FISH_SITES[siteName] : null;
-    if (!site) {
-      var bestD = Infinity, bestS = null;
-      for (var sn in FISH_SITES) {
-        var s = FISH_SITES[sn];
-        var has = false;
-        for (var si = 0; si < s.spots.length; si++) {
-          if (spotIds.indexOf(s.spots[si][0]) >= 0) { has = true; break; }
-        }
-        if (!has) continue;
-        var d = Math.abs(s.stand[0] - getX()) + Math.abs(s.stand[1] - getY());
-        if (d < bestD) { bestD = d; bestS = sn; }
-      }
-      siteName = bestS;
-      site = bestS ? FISH_SITES[bestS] : null;
-    }
-    if (!site) {
-      return function() {
-        log('FISHING ERROR: no site has spots ' + spotIds.join('/') + ' for [' + typeNamesKept + ']');
-        stopBot();
-        return 2000;
-      };
-    }
-    // Registry anchors for this site matching our spot ids (last-resort clicks).
-    // v281: if filtering leaves nothing (site chosen explicitly without our
-    // spots), fall back to ALL site spots — never an empty array.
-    var anchors = site.spots.filter(function(sp) { return spotIds.indexOf(sp[0]) >= 0; });
-    if (anchors.length === 0) anchors = site.spots;
-
-    var powerMode = (cfg.fishBank === false);
-    var dropJunk = (cfg.fishDropJunk !== false) && kept.some(function(k) { return k.name === 'Big Net'; });
-
-    // v297: WALK v3 — PRIMARY full-route pathfinder; FALLBACK adaptive-stride
-    // hops ONLY after a 5s position freeze (stale region data after ::tele —
-    // measured: full-route walks silently no-op there).
-    // v296 bug fixed here: hop mode reverted to full on ANY movement — but
-    // hops themselves move 1 tile → oscillation → one tile every ~6s
-    // (user-visible: "taking steps one tile at a time"). Now: hop mode STAYS
-    // for the walk (full-route re-probed only every 30s), and hops use
-    // adaptive stride — 6-8 tile bursts when clear, halving + wall-slide
-    // when blocked. v295's always-hop also fixed (full routes primary again).
-    function walkTo2(destX, destY) {
-      var sKey = 'fsWalk_' + destX + '_' + destY;
-      var st = scriptState[sKey];
-      if (!st) st = scriptState[sKey] = { px: -9999, py: -9999, lastMove: Date.now(), mode: 'full', stride: 6, fails: 0, slide: 0 };
-      var px = getX(), py = getY();
-      if (px !== st.px || py !== st.py) {
-        st.px = px; st.py = py; st.lastMove = Date.now();
-      }
-      // v299: OUT-OF-REGION dest → the client A* can NEVER accept it (region
-      // is 96×96; dest local Y 118 was refused from the bank). Clamp an
-      // intermediate waypoint INSIDE the region along the dest direction —
-      // the pathfinder keeps routing around walls/buildings chunk-by-chunk
-      // (classic APOS minimap-chunk walk). Hops only if even the clamped
-      // dest refuses to move us (stale collision data).
-      var mc0 = getMC();
-      if (mc0) {
-        var lx = destX - (mc0.du || 0), ly = destY - (mc0.dd || 0);
-        var plx = px - (mc0.du || 0), ply = py - (mc0.dd || 0);
-        var outRegion = lx < 1 || lx > 94 || ly < 1 || ly > 94;
-        if (outRegion && st.mode === 'full') {
-          // waypoint ON THE LINE toward dest, ~60 tiles out, clamped in-region
-          // (v299 bug fixed: stepping ±60 per axis beelined off-line — live
-          // detour via (196,478) when the shore was SE. Interpolate instead.)
-          var ddx = destX - px, ddy = destY - py;
-          var dlen = Math.max(Math.abs(ddx), Math.abs(ddy), 1);
-          var step = Math.min(60, dlen);
-          var t2x = plx + Math.round(ddx * (step / dlen));
-          var t2y = ply + Math.round(ddy * (step / dlen));
-          t2x = Math.max(4, Math.min(94, t2x));
-          t2y = Math.max(4, Math.min(94, t2y));
-          var wx = (mc0.du || 0) + t2x, wy = (mc0.dd || 0) + t2y;
-          walkTo(wx, wy);
-          log('[WALK2] dest out-of-region — chunked via (' + wx + ',' + wy + ')');
-          return false;
-        }
-      }
-      if (st.mode === 'full') {
-        if (Date.now() - st.lastMove > 5000) {
-          st.mode = 'hop'; st.hopSince = Date.now(); st.stride = 6; st.fails = 0;
-          log('Full-route walk stalled — hop-walking (stale region?)');
-        } else {
-          walkTo(destX, destY);
-          return false;
-        }
-      } else if (Date.now() - (st.hopSince || 0) > 30000) {
-        // periodic probe: has the region healed? if not, hop-mode resumes on next stall
-        st.mode = 'full'; st.lastMove = 0; st.hopSince = Date.now() + 30000;
-        walkTo(destX, destY);
-        return false;
-      }
-      // ── HOP MODE: adaptive stride + wall-slide ──
-      var dx = destX - px, dy = destY - py;
-      var dist = Math.max(Math.abs(dx), Math.abs(dy));
-      if (dist <= 1) { walkTo(destX, destY); return false; }
-      // v298: dest frozen 6+ sends (water/blocked dest) — walk to a NEIGHBOR
-      // of the dest instead of beelining into it forever. Measured on rig:
-      // Edgeville stand (210,504) was RIVER → every walk refused → hop-slide
-      // oscillated in the coffin-house ("rapid unlogical clicking"). A reachable
-      // neighbor satisfies the callers (cheb<=2 bank / <=4 stand checks).
-      if ((st.fails || 0) >= 6) {
-        st.fails = 0;
-        var nbrs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
-        var bestN = null, bestND = Infinity;
-        for (var n2 = 0; n2 < nbrs.length; n2++) {
-          var nx2 = destX + nbrs[n2][0], ny2 = destY + nbrs[n2][1];
-          var nd2 = Math.abs(nx2 - px) + Math.abs(ny2 - py);
-          if (nd2 < bestND) { bestND = nd2; bestN = [nx2, ny2]; }
-        }
-        st.altDest = bestN;
-        if (bestN) {
-          log('Dest (' + destX + ',' + destY + ') unreachable — walking to neighbor (' + bestN[0] + ',' + bestN[1] + ')');
-          walkTo2(bestN[0], bestN[1]);
-          return false;
-        }
-      }
-      if (st.markX === px && st.markY === py) {
-        // no movement since last hop → obstacle
-        st.fails = (st.fails || 0) + 1;
-        if (st.fails >= 2) {
-          st.fails = 0;
-          if ((st.stride || 6) > 1) {
-            st.stride = Math.max(1, Math.floor((st.stride || 6) / 2));
-          } else {
-            st.slide = (st.slide || 0) + 1;   // stride 1 blocked → sidestep
-          }
-        }
-      } else {
-        // movement happened → grow the stride back toward 8
-        st.markX = px; st.markY = py;
-        st.fails = 0; st.slide = 0;
-        st.stride = Math.min(8, (st.stride || 6) + 2);
-      }
-      var stepX, stepY;
-      if ((st.slide || 0) > 0 && (st.stride || 6) === 1) {
-        var flip = (st.slide % 2 === 0);
-        if (Math.abs(dx) >= Math.abs(dy)) { stepX = px; stepY = py + (flip ? 1 : -1); }
-        else { stepX = px + (flip ? 1 : -1); stepY = py; }
-      } else {
-        var ratio = Math.min(st.stride || 6, dist) / dist;
-        stepX = px + Math.round(dx * ratio);
-        stepY = py + Math.round(dy * ratio);
-      }
-      var mc = getMC();
-      if (window.__r2h_walk && mc) {
-        window.__r2h_walk(mc, mc.bJ || 0, mc.bK || 0, stepX - (mc.du || 0), stepY - (mc.dd || 0), false);
-      } else {
-        walkTo(stepX, stepY);
-      }
-      return false;
-    }
-
-    function liveSpot() {
-      var found = findObjects(spotIds, 24);
-      return (found.length > 0) ? { x: found[0].worldX, y: found[0].worldY, id: found[0].id } : null;
-    }
-    function countFish() {
-      var n = 0, inv = getInventoryCount();
-      for (var i = 0; i < inv; i++) {
-        if (depositIds.indexOf(getInventoryId(i)) >= 0) n++;
-      }
-      return n;
-    }
-    function droppableSlots() {
-      var out = [], inv = getInventoryCount();
-      for (var i = 0; i < inv; i++) {
-        if (FISH_KEEP_IDS.indexOf(getInventoryId(i)) < 0) out.push(i);
-      }
-      return out;
-    }
-
-    return function() {
-      if (!isLoggedIn()) return 5000;
-
-      // ══ INIT ══
-      if (scriptState.phase === 'init') {
-        scriptState.fsSpot = { x: anchors[0][1], y: anchors[0][2], id: anchors[0][0] };
-        scriptState.fsSite = siteName;
-        scriptState.fsBankName = powerMode ? null : site.bank;
-        scriptState.fsBankTile = powerMode ? null : BANK_REGISTRY[site.bank];
-        scriptState.fsCatches = 0;
-        scriptState.fsLastCount = countFish();
-        scriptState.phase = 'toSpot';
-        log('Fishing v281: [' + typeNamesKept + '] @ ' + siteName +
-            ' mode=' + (powerMode ? 'POWER-FISH (drop)' : 'BANK → ' + site.bank) + ' lvl=' + lvl +
-            (dropJunk ? ' junk-drop ON' : ''));
-      }
-
-      // ══ FATIGUE / SLEEP ══
-      if (getIsSleeping()) {
-        if (!scriptState.sleepTyping) {
-          scriptState.sleepTyping = true;
-          var sleepWord = 'asleep';
-          for (var ci = 0; ci < sleepWord.length; ci++) window.__r2hTypeChar(sleepWord[ci]);
-          setTimeout(function() {
-            window.__r2hTypeSpecial('Enter');
-            scriptState.sleepTyping = false;
-          }, 500);
-        }
-        return 2000;
-      }
-      var fatigue = getFatigue();
-      if (fatigue >= 90) {
-        var bagSlot = getInventoryIndex(SLEEPING_BAG);
-        if (bagSlot >= 0) { log('Fatigue ' + fatigue + '% — using sleeping bag'); useItem(bagSlot); return 3000; }
-      }
-
-      var invCount = getInventoryCount();
-      var fishNow = countFish();
-      if (fishNow > (scriptState.fsLastCount || 0)) {
-        scriptState.fsCatches += fishNow - (scriptState.fsLastCount || 0);
-        if (scriptState.fsCatches % 10 === 0) log('Catches: ' + scriptState.fsCatches);
-      }
-      scriptState.fsLastCount = fishNow;
-
-      // ══ BAIT RUN-OUT: drop that type, keep the others; stop if none left ══
-      for (var bi = kept.length - 1; bi >= 0; bi--) {
-        if (kept[bi].T.bait > 0 && getInventoryIndex(kept[bi].T.bait) < 0) {
-          log(kept[bi].name + ': out of bait — type disabled (' + scriptState.fsCatches + ' catches so far)');
-          kept.splice(bi, 1);
-        }
-      }
-      if (kept.length === 0) {
-        log('All types out of bait — stopping');
-        stopBot(); return 1000;
-      }
-
-      // ══ PHASE: TO SPOT — live scan first; NEVER walkTo(spot) ══
-      if (scriptState.phase === 'toSpot') {
-        var live0 = liveSpot();
-        if (live0) {
-          scriptState.phase = 'fish';
-          scriptState.fsSpot = live0;
-          log('Live spot id ' + live0.id + ' at (' + live0.x + ',' + live0.y + ') — clicking');
-          return 400;
-        }
-        // v286: already ADJACENT to a matching anchor? Skip the stand walk
-        // entirely — go click (live: bot at (410,503) next to spot (409,504)
-        // kept walking to the stand because the scan was stale).
-        for (var aai = 0; aai < anchors.length; aai++) {
-          if (Math.max(Math.abs(anchors[aai][1] - getX()), Math.abs(anchors[aai][2] - getY())) <= 1) {
-            scriptState.fsSpot = { x: anchors[aai][1], y: anchors[aai][2], id: anchors[aai][0] };
-            scriptState.phase = 'fish';
-            log('Already adjacent to anchor (' + anchors[aai][1] + ',' + anchors[aai][2] + ') — clicking');
-            return 400;
-          }
-        }
-        var dStand = Math.abs(site.stand[0] - getX()) + Math.abs(site.stand[1] - getY());
-        if (dStand > 4) {
-          walkTo2(site.stand[0], site.stand[1]);
-          return 1500;
-        }
-        var bestA = null, bestAD = Infinity;
-        for (var ai2 = 0; ai2 < anchors.length; ai2++) {
-          var ad = Math.abs(anchors[ai2][1] - getX()) + Math.abs(anchors[ai2][2] - getY());
-          if (ad < bestAD) { bestAD = ad; bestA = anchors[ai2]; }
-        }
-        if (bestA) {
-          scriptState.fsSpot = { x: bestA[1], y: bestA[2], id: bestA[0] };
-          scriptState.phase = 'fish';
-          log('No live scan (object array can be stale) — starting anchor rotation at (' + bestA[1] + ',' + bestA[2] + ') id ' + bestA[0]);
-          return 400;
-        }
-        log('FISHING ERROR: no spot at ' + siteName);
-        stopBot();
-        return 2000;
-      }
-
-      // ══ PHASE: TO BANK ══
-      if (scriptState.phase === 'toBank') {
-        var chebBank = Math.max(Math.abs(scriptState.fsBankTile[0] - getX()), Math.abs(scriptState.fsBankTile[1] - getY()));
-        if (chebBank <= 2) {
-          scriptState.phase = 'bankTalk';
-          scriptState._wcBankerMisses = 0;
-          return 400;
-        }
-        walkTo2(scriptState.fsBankTile[0], scriptState.fsBankTile[1]);
-        return 1500;
-      }
-
-      // ══ PHASE: BANK CLOSE (v291) — verified close before walking. A single
-      // closeBank() could silently fail to clear the session; with the screen
-      // open server-side, ALL walk packets are dropped and the bot freezes at
-      // the bank (live: shafster 23:01 Catherby — deposited, never returned).
-      // Re-send close until the flag actually clears; escalate to a re-talk. ══
-      if (scriptState.phase === 'bankClose') {
-        if (!isInBank()) {
-          log('Bank closed — returning to shore');
-          scriptState.phase = 'returnSpot';
-          scriptState._fsRetX = -9999; scriptState._fsRetT = 0;
-          return 400;
-        }
-        if (Date.now() - (scriptState._fsCloseT || 0) > 1200) {
-          closeBank();
-          scriptState._fsCloseT = Date.now();
-          scriptState._fsCloseTries = (scriptState._fsCloseTries || 0) + 1;
-          if (scriptState._fsCloseTries % 4 === 0) log('Bank still open after ' + scriptState._fsCloseTries + ' close attempts');
-        }
-        if (scriptState._fsCloseTries > 12) {
-          log('Bank will not close — restarting talk cycle');
-          scriptState.phase = 'bankTalk';
-          scriptState._fsCloseTries = 0;
-        }
-        return 800;
-      }
-
-      // ══ PHASE: RETURN — hop-walk to the stand (v294: raw 6-tile hops pass
-      // doorways and dodge the client pathfinder's long-route failure) ══
-      if (scriptState.phase === 'returnSpot') {
-        if (isInBank()) { scriptState.phase = 'bankClose'; return 400; }
-        var dStand2 = Math.abs(site.stand[0] - getX()) + Math.abs(site.stand[1] - getY());
-        if (dStand2 <= 4) {
-          scriptState.phase = 'fish';
-          log('Back at shore — re-scanning for spot');
-          return 400;
-        }
-        walkTo2(site.stand[0], site.stand[1]);
-        return 1200;
-      }
-
-      // ══ BANK MACHINE (miner-proven talk→option→deposit) ══
-      if (scriptState.phase === 'bankTalk') {
-        var banker = findNpcs(WC_BANKER_IDS, 3);
-        if (banker.length > 0) {
-          log('Talking to banker (idx=' + banker[0].serverIndex + ')');
-          talkToNpc(banker[0].serverIndex);
-          scriptState._wcBankTimer = Date.now();
-          scriptState.phase = 'bankOption';
-          return 2000;
-        }
-        walkTo(scriptState.fsBankTile[0], scriptState.fsBankTile[1]);
-        scriptState._wcBankerMisses = (scriptState._wcBankerMisses || 0) + 1;
-        if (scriptState._wcBankerMisses >= 12) {
-          log('ERROR: no banker near ' + scriptState.fsBankName + ' — stopping');
-          stopBot(); return 2000;
-        }
-        return 1500;
-      }
-      if (scriptState.phase === 'bankOption') {
-        if (isInBank()) { scriptState.phase = 'bankDeposit'; return 500; }
-        if (Date.now() - scriptState._wcBankTimer > 2000) {
-          optionAnswer(0);
-          scriptState._wcBankTimer = Date.now();
-        }
-        if (Date.now() - (scriptState._wcBankTalkStart || scriptState._wcBankTimer) > 12000) {
-          log('Bank not opening — retrying talk');
-          scriptState.phase = 'bankTalk';
-          scriptState._wcBankTalkStart = Date.now();
-        }
-        return 1500;
-      }
-      if (scriptState.phase === 'bankDeposit') {
-        if (!isInBank()) {
-          if (Date.now() - (scriptState._wcBankTimer || 0) > 8000) {
-            log('Bank flag not set — retrying talk');
-            scriptState.phase = 'bankTalk';
-          }
-          return 1500;
-        }
-        var deposited = 0;
-        for (var di = 0; di < depositIds.length; di++) {
-          if (getInventoryIndex(depositIds[di]) >= 0) {
-            log('Depositing item id ' + depositIds[di] + ' x9999');
-            depositItem(depositIds[di], 9999);
-            deposited++;
-            break;   // one deposit per tick
-          }
-        }
-        if (deposited === 0) {
-          scriptState.fsSweepSkip = scriptState.fsSweepSkip || [];
-          for (var di2 = 0; di2 < getInventoryCount(); di2++) {
-            var idLeft = getInventoryId(di2);
-            if (idLeft > 0 && FISH_KEEP_IDS.indexOf(idLeft) < 0 && scriptState.fsSweepSkip.indexOf(idLeft) < 0) {
-              // v291: an unbankable leftover loops here forever (server silently
-              // rejects the deposit, item never leaves) — after 4 failed sweeps
-              // of the SAME id, name it, skip it, move on.
-              scriptState.fsSweepSame = (scriptState.fsSweepSameId === idLeft) ? (scriptState.fsSweepSame || 0) + 1 : 1;
-              scriptState.fsSweepSameId = idLeft;
-              if (scriptState.fsSweepSame >= 4) {
-                log('Sweep stuck on item ' + idLeft + ' (unbankable?) — leaving it in inventory, continuing');
-                scriptState.fsSweepSkip.push(idLeft);
-                continue;
-              }
-              log('Sweeping leftover item id ' + idLeft);
-              depositItem(idLeft, 9999);
-              deposited++;
-              break;
-            }
-          }
-        }
-        if (deposited === 0) {
-          scriptState.fsTrips = (scriptState.fsTrips || 0) + 1;
-          log('Banked (trip ' + scriptState.fsTrips + ', ' + scriptState.fsCatches + ' catches) — closing bank');
-          closeBank();
-          scriptState._fsCloseTries = 1;
-          scriptState._fsCloseT = Date.now();
-          scriptState.phase = 'bankClose';
-        }
-        return 1200;
-      }
-
-      // ══ FULL INVENTORY: junk → power-drop → bank ══
-      if (invCount >= 30) {
-        if (dropJunk) {
-          for (var ji = 0; ji < invCount; ji++) {
-            if (FISH_JUNK_IDS.indexOf(getInventoryId(ji)) >= 0) {
-              dropItem(ji);
-              return 700;
-            }
-          }
-        }
-        if (powerMode) {
-          var slots = droppableSlots();
-          if (slots.length > 0) { dropItem(slots[0]); return 700; }
-          return 600;
-        }
-        log('Inventory full — banking at ' + scriptState.fsBankName);
-        scriptState.phase = 'toBank';
-        return 800;
-      }
-
-      // ══ FISH — v285: server needs withinRange(spot,1); spots are water.
-      // Walk to an ADJACENT LAND tile, then click the spot. Land discovery is
-      // empirical: try neighbor candidates (nearest-to-player first); a water
-      // candidate produces NO movement — 2 stalled sends → next candidate.
-      // Winning tile cached per anchor; cleared when the spot relocates. ══
-      var chebSpot2 = Math.max(Math.abs(scriptState.fsSpot.x - getX()), Math.abs(scriptState.fsSpot.y - getY()));
-      if (chebSpot2 > 1) {
-        var akey = scriptState.fsSpot.x + ',' + scriptState.fsSpot.y;
-        scriptState.fsAdjCache = scriptState.fsAdjCache || {};
-        var adjT = scriptState.fsAdjCache[akey];
-        if (!adjT) {
-          var cands = [[0,-1],[0,1],[-1,0],[1,0],[-1,-1],[1,-1],[-1,1],[1,1]];
-          cands.sort(function(a, b) {
-            var da = Math.abs(scriptState.fsSpot.x + a[0] - getX()) + Math.abs(scriptState.fsSpot.y + a[1] - getY());
-            var db = Math.abs(scriptState.fsSpot.x + b[0] - getX()) + Math.abs(scriptState.fsSpot.y + b[1] - getY());
-            return da - db;
-          });
-          var ci4 = (scriptState.fsAdjTry || 0) % cands.length;
-          adjT = { x: scriptState.fsSpot.x + cands[ci4][0], y: scriptState.fsSpot.y + cands[ci4][1] };
-        }
-        var bx4 = getX(), by4 = getY();
-        walkTo(adjT.x, adjT.y);
-        // stall detection between ticks
-        if (scriptState.fsAdjSentX === bx4 && scriptState.fsAdjSentY === by4 && scriptState.fsAdjSentX !== undefined) {
-          scriptState.fsAdjStall = (scriptState.fsAdjStall || 0) + 1;
-          if (scriptState.fsAdjStall >= 2) {
-            delete scriptState.fsAdjCache[akey];          // this tile is dead (water/unreachable)
-            scriptState.fsAdjTry = (scriptState.fsAdjTry || 0) + 1;
-            scriptState.fsAdjStall = 0;
-            scriptState.fsAdjFail = (scriptState.fsAdjFail || 0) + 1;
-            log('Adjacent tile (' + adjT.x + ',' + adjT.y + ') unreachable — trying next');
-            // v287: all neighbors failing = wrong bank / spot mid-river —
-            // escalate to the NEXT ANCHOR instead of looping one spot forever
-            if (scriptState.fsAdjFail >= 4 && anchors.length > 1) {
-              var ci5 = -1;
-              for (var rai2 = 0; rai2 < anchors.length; rai2++) {
-                if (anchors[rai2][1] === scriptState.fsSpot.x && anchors[rai2][2] === scriptState.fsSpot.y) { ci5 = rai2; break; }
-              }
-              var nextA2 = anchors[(ci5 + 1) % anchors.length];
-              scriptState.fsSpot = { x: nextA2[1], y: nextA2[2], id: nextA2[0] };
-              scriptState.fsAdjFail = 0;
-              scriptState.fsAdjTry = 0;
-              log('All adjacents failed — switching anchor to (' + nextA2[1] + ',' + nextA2[2] + ')');
-            }
-          }
-        } else {
-          scriptState.fsAdjStall = 0;
-          scriptState.fsAdjSentX = bx4; scriptState.fsAdjSentY = by4;
-          if (!scriptState.fsAdjCache[akey]) scriptState.fsAdjCache[akey] = adjT;  // moving = land
-        }
-        return 1200;
-      }
-      var live = liveSpot();
-      if (live) {
-        scriptState.fsSpot = live;
-        scriptState.fsAnchorTries = 0;
-      } else {
-        // STALE-ARRAY MODE: rotate anchors on a dry streak
-        scriptState.fsAnchorTries = (scriptState.fsAnchorTries || 0) + 1;
-        var TRIES_PER_ANCHOR = 3;
-        if (scriptState.fsAnchorTries > TRIES_PER_ANCHOR && typeof scriptState.fsFishAtAnchorStart === 'number') {
-          var gained = fishNow - scriptState.fsFishAtAnchorStart;
-          if (gained <= 0) {
-            var curIdx = -1;
-            for (var rai = 0; rai < anchors.length; rai++) {
-              if (anchors[rai][1] === scriptState.fsSpot.x && anchors[rai][2] === scriptState.fsSpot.y) { curIdx = rai; break; }
-            }
-            var nextA = anchors[(curIdx + 1) % anchors.length];
-            scriptState.fsSpot = { x: nextA[1], y: nextA[2], id: nextA[0] };
-            scriptState.fsAnchorTries = 0;
-            scriptState.fsFishAtAnchorStart = fishNow;
-            log('Anchor dry — rotating to (' + nextA[1] + ',' + nextA[2] + ') id ' + nextA[0]);
-          } else {
-            scriptState.fsAnchorTries = 0;
-            scriptState.fsFishAtAnchorStart = fishNow;
-          }
-        } else if (typeof scriptState.fsFishAtAnchorStart !== 'number') {
-          scriptState.fsFishAtAnchorStart = fishNow;
-        }
-      }
-      var KT = typeForSpot(scriptState.fsSpot.id);
-      if (!KT) KT = kept[0];
-      if (KT.T.cmd === 2) atObject2(scriptState.fsSpot.x, scriptState.fsSpot.y);
-      else atObject(scriptState.fsSpot.x, scriptState.fsSpot.y);
-      return CLICK_CADENCE;
-    };
-  }
-
-  // ═══════════════════════════════════════════════════════════════
   // v206: MINE/BANK REGISTRY + WEBWALK ROUTING (IdleRSC graph port)
   // Rock IDs + respawn secs: server ObjectMining.xml (verified 2026-08-16)
   // Rock coords: server SceneryLocs.json per-camp extraction
@@ -5109,514 +4406,43 @@
       scriptState.slot++;
       return 100;
     }
-return 1000;
+    return 1000;
   }
 
-  // ═══ v301: ckWalk — private walk for cooking (copy of walkTo2 with ck state keys) ═══
-  function ckWalk(destX, destY) {
-    var sKey = 'ckWalk_' + destX + '_' + destY;
-    var st = scriptState[sKey];
-    if (!st) st = scriptState[sKey] = { px: -9999, py: -9999, lastMove: Date.now(), mode: 'full', stride: 6, fails: 0, slide: 0 };
-    var px = getX(), py = getY();
-    if (px !== st.px || py !== st.py) {
-      st.px = px; st.py = py; st.lastMove = Date.now();
-    }
-    var mc0 = getMC();
-    if (mc0) {
-      var lx = destX - (mc0.du || 0), ly = destY - (mc0.dd || 0);
-      var plx = px - (mc0.du || 0), ply = py - (mc0.dd || 0);
-      var outRegion = lx < 1 || lx > 94 || ly < 1 || ly > 94;
-      if (outRegion && st.mode === 'full') {
-        var ddx = destX - px, ddy = destY - py;
-        var dlen = Math.max(Math.abs(ddx), Math.abs(ddy), 1);
-        var step = Math.min(60, dlen);
-        var t2x = plx + Math.round(ddx * (step / dlen));
-        var t2y = ply + Math.round(ddy * (step / dlen));
-        t2x = Math.max(4, Math.min(94, t2x));
-        t2y = Math.max(4, Math.min(94, t2y));
-        var wx = (mc0.du || 0) + t2x, wy = (mc0.dd || 0) + t2y;
-        walkTo(wx, wy);
-        log('[CKWALK] dest out-of-region — chunked via (' + wx + ',' + wy + ')');
-        return false;
-      }
-    }
-    if (st.mode === 'full') {
-      if (Date.now() - st.lastMove > 5000) {
-        st.mode = 'hop'; st.hopSince = Date.now(); st.stride = 6; st.fails = 0;
-        log('Full-route walk stalled — hop-walking (stale region?)');
-      } else {
-        walkTo(destX, destY);
-        return false;
-      }
-    } else if (Date.now() - (st.hopSince || 0) > 30000) {
-      st.mode = 'full'; st.lastMove = 0; st.hopSince = Date.now() + 30000;
-      walkTo(destX, destY);
-      return false;
-    }
-    var dx = destX - px, dy = destY - py;
-    var dist = Math.max(Math.abs(dx), Math.abs(dy));
-    if (dist <= 1) { walkTo(destX, destY); return false; }
-    if ((st.fails || 0) >= 6) {
-      st.fails = 0;
-      var nbrs = [[1,0],[-1,0],[0,1],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
-      var bestN = null, bestND = Infinity;
-      for (var n2 = 0; n2 < nbrs.length; n2++) {
-        var nx2 = destX + nbrs[n2][0], ny2 = destY + nbrs[n2][1];
-        var nd2 = Math.abs(nx2 - px) + Math.abs(ny2 - py);
-        if (nd2 < bestND) { bestND = nd2; bestN = [nx2, ny2]; }
-      }
-      st.altDest = bestN;
-      if (bestN) {
-        log('Dest (' + destX + ',' + destY + ') unreachable — walking to neighbor (' + bestN[0] + ',' + bestN[1] + ')');
-        ckWalk(bestN[0], bestN[1]);
-        return false;
-      }
-    }
-    if (st.markX === px && st.markY === py) {
-      st.fails = (st.fails || 0) + 1;
-      if (st.fails >= 2) {
-        st.fails = 0;
-        if ((st.stride || 6) > 1) {
-          st.stride = Math.max(1, Math.floor((st.stride || 6) / 2));
-        } else {
-          st.slide = (st.slide || 0) + 1;
-        }
-      }
-    } else {
-      st.markX = px; st.markY = py;
-      st.fails = 0; st.slide = 0;
-      st.stride = Math.min(8, (st.stride || 6) + 2);
-    }
-    var stepX, stepY;
-    if ((st.slide || 0) > 0 && (st.stride || 6) === 1) {
-      var flip = (st.slide % 2 === 0);
-      if (Math.abs(dx) >= Math.abs(dy)) { stepX = px; stepY = py + (flip ? 1 : -1); }
-      else { stepX = px + (flip ? 1 : -1); stepY = py; }
-    } else {
-      var ratio = Math.min(st.stride || 6, dist) / dist;
-      stepX = px + Math.round(dx * ratio);
-      stepY = py + Math.round(dy * ratio);
-    }
-    var mc = getMC();
-    if (window.__r2h_walk && mc) {
-      window.__r2h_walk(mc, mc.bJ || 0, mc.bK || 0, stepX - (mc.du || 0), stepY - (mc.dd || 0), false);
-    } else {
-      walkTo(stepX, stepY);
-    }
-    return false;
-  }
+  // ═══════════════════════════════════════════════════════════════
+  // COOK/SMELT/SPIN SCRIPT (use item on object)
+  // ═══════════════════════════════════════════════════════════════
 
-  // ═══ v301: makeCookingScript — factory returning tick function ═══
-  function makeCookingScript(runtimeConfig) {
-    var cfg = runtimeConfig || {};
-    var foodName = cfg.foodType || 'Anchovies';
-    var food = COOK_FOODS[foodName];
-    if (!food) { log('Unknown foodType: ' + foodName + ' — defaulting to Anchovies'); food = COOK_FOODS['Anchovies']; foodName = 'Anchovies'; }
-    var dropBurnt = !!cfg.dropBurnt;
-    var useGauntlets = !!cfg.gauntlets;
-    // v302: 'Auto (nearest)' resolves at init (needs live player position)
-    var siteName = cfg.cookSite || 'Auto (nearest)';
-    var site = COOK_SITES[siteName];
-    if (!site) { siteName = '__auto__'; site = null; }
-
+  function makeCookScript(stationLoc, itemIds) {
     return function() {
       if (!isLoggedIn()) return 5000;
 
-      // ══ INIT ══
       if (scriptState.phase === 'init') {
-        var lvl = getStatBase(7);
-        // v302: Auto site — nearest range to the player (fishing 'Auto' pattern)
-        if (siteName === '__auto__') {
-          var bestD2 = Infinity, bestS = null;
-          for (var sn2 in COOK_SITES) {
-            var s2 = COOK_SITES[sn2];
-            var dd = Math.abs(s2.range[0] - getX()) + Math.abs(s2.range[1] - getY());
-            if (dd < bestD2) { bestD2 = dd; bestS = sn2; }
-          }
-          siteName = bestS || 'Catherby';
-          site = COOK_SITES[siteName];
-          log('Cooking site auto-detected: ' + siteName + ' (' + bestD2 + ' tiles to range)');
-        }
-        log('Cooking v302: [' + foodName + '] @ ' + siteName + ' bank=' + site.bank + ' dropBurnt=' + dropBurnt + ' gauntlets=' + useGauntlets + ' lvl=' + lvl);
-        if (lvl < food.level) {
-          log('Need cooking level ' + food.level + ' for ' + foodName + ' — stopping');
-          stopBot();
-          return 1000;
-        }
-        scriptState.ckCooked = 0;
-        scriptState.ckBurnt = 0;
-        scriptState.ckTrips = 0;
-        scriptState.phase = 'toRange';
+        scriptState.phase = 'cook';
       }
 
-      // ══ FATIGUE / SLEEP (copy fishing pattern) ══
-      if (getIsSleeping()) {
-        if (!scriptState.sleepTyping) {
-          scriptState.sleepTyping = true;
-          var sleepWord = 'asleep';
-          for (var ci = 0; ci < sleepWord.length; ci++) window.__r2hTypeChar(sleepWord[ci]);
-          setTimeout(function() {
-            window.__r2hTypeSpecial('Enter');
-            scriptState.sleepTyping = false;
-          }, 500);
-        }
-        return 2000;
-      }
-      var fatigue = getFatigue();
-      if (fatigue >= 90) {
-        var bagSlot = getInventoryIndex(SLEEPING_BAG);
-        if (bagSlot >= 0) { log('Fatigue ' + fatigue + '% — using sleeping bag'); useItem(bagSlot); return 3000; }
-      }
-
-      // ══ TO RANGE ══
-      if (scriptState.phase === 'toRange') {
-        // v302: doorless site (outdoor range) → straight walk to the stand tile
-        if (!site.door) {
-          var dIn0 = Math.abs(site.inside[0] - getX()) + Math.abs(site.inside[1] - getY());
-          if (dIn0 <= 2) { scriptState.phase = 'cook'; scriptState.ckPending = 0; scriptState.ckStall = 0; return 400; }
-          ckWalk(site.inside[0], site.inside[1]);
-          return 1500;
-        }
-        if (getY() < site.door.y) {
-          // ── INSIDE the house ──
-          var dCook = Math.abs(site.inside[0] - getX()) + Math.abs(site.inside[1] - getY());
-          if (dCook <= 2) { scriptState.phase = 'cook'; scriptState.ckPending = 0; scriptState.ckStall = 0; return 400; }
-          ckWalk(site.inside[0], site.inside[1]);
-          return 1500;
-        }
-        // ── OUTSIDE: get to the bank-side door approach ──
-        var dOut = Math.abs(site.doorOut[0] - getX()) + Math.abs(site.doorOut[1] - getY());
-        if (dOut <= 1) {
-          scriptState.phase = 'doorIn';
-          scriptState.ckDoorTries = 0;
-          scriptState.ckDoorT = 0;
-          return 400;
-        }
-        ckWalk(site.doorOut[0], site.doorOut[1]);
-        return 1500;
-      }
-
-      // ══ DOOR IN — walk toward inside; on stall: ONE click then 6s SILENCE ══
-      // (server action model: each atBoundary cancels prior walks and starts a
-      // server-side WalkToObjectAction to the door — sending our own walk during
-      // it cancels it. Live-measured: click+walk every tick = frozen player.)
-      if (scriptState.phase === 'doorIn') {
-        if (getY() < site.door.y) {
-          scriptState.phase = 'toRange';   // crossed → INSIDE branch finishes
-          return 400;
-        }
-        // ── STRANDED ON THE DOOR TILE (auto-close sealed us in): doDir dir 0
-        // teleports the player to door.y-1 (INSIDE) on every successful toggle.
-        // Click every 3s (one may no-op on state-match; the next teleports) +
-        // try walking 1 tile north meanwhile.
-        if (getX() === site.door.x && getY() === site.door.y) {
-          walkTo(site.door.x, site.door.y - 1);
-          if (Date.now() - (scriptState.ckOnTileT || 0) > 3000) {
-            atBoundary(site.door.x, site.door.y, site.door.dir);
-            scriptState.ckOnTileT = Date.now();
-            scriptState.ckOnTileTries = (scriptState.ckOnTileTries || 0) + 1;
-            log('On door tile — click #' + scriptState.ckOnTileTries + ' (toggle teleports us inside)');
-          }
-          return 1200;
-        }
-        if (Date.now() < (scriptState.ckQuiet || 0)) return 1000;   // silence — server is walking us
-        ckWalk(site.inside[0], site.inside[1]);
-        if (scriptState.ckMarkX === getX() && scriptState.ckMarkY === getY()) {
-          if (Date.now() - (scriptState.ckMarkT || 0) > 3000) {
-            atBoundary(site.door.x, site.door.y, site.door.dir);
-            scriptState.ckQuiet = Date.now() + 6000;   // let the server action run
-            scriptState.ckMarkT = Date.now();
-            scriptState.ckDoorTries = (scriptState.ckDoorTries || 0) + 1;
-            log('Entry door click #' + scriptState.ckDoorTries + ' — silent 6s (server door-walk)');
-            if (scriptState.ckDoorTries > 8) {
-              log('Entry door not passable — restarting approach');
-              scriptState.phase = 'toRange';
-              scriptState.ckDoorTries = 0;
-            }
-          }
-        } else {
-          scriptState.ckMarkX = getX(); scriptState.ckMarkY = getY();
-          scriptState.ckMarkT = Date.now();
-        }
-        return 1200;
-      }
-
-      // ══ COOK (core) ══
       if (scriptState.phase === 'cook') {
-        var invCount = getInventoryCount();
-        var rawN = 0, cookedN = 0, burntN = 0;
-        var rawSlot = -1, cookedSlot = -1, burntSlot = -1;
-        for (var i = 0; i < invCount; i++) {
-          var id = getInventoryId(i);
-          if (id === food.raw) { rawN++; if (rawSlot < 0) rawSlot = i; }
-          else if (id === food.cooked) { cookedN++; if (cookedSlot < 0) cookedSlot = i; }
-          else if (id === food.burnt) { burntN++; if (burntSlot < 0) burntSlot = i; }
+        var slot = -1;
+        for (var i = 0; i < itemIds.length; i++) {
+          slot = getInventoryIndex(itemIds[i]);
+          if (slot >= 0) break;
         }
+        if (slot < 0) { log('No items to process!'); stopBot(); return 1000; }
 
-        // 1. Completion accounting FIRST (before any drop hides the burnt item)
-        if (scriptState.ckPending) {
-          if (rawN < scriptState.ckPendingRaw) {
-            if (cookedN > scriptState.ckPendingCooked) scriptState.ckCooked++;
-            else if (burntN > scriptState.ckPendingBurnt) scriptState.ckBurnt++;
-            scriptState.ckPending = 0;
-            var total = scriptState.ckCooked + scriptState.ckBurnt;
-            if (total % 10 === 0) log('Cooked ' + scriptState.ckCooked + ' (burnt ' + scriptState.ckBurnt + ')');
-          }
-        }
-
-        // 2. Drop burnt if enabled (after accounting saw it)
-        if (dropBurnt && burntSlot >= 0) {
-          dropItem(burntSlot);
-          return 700;
-        }
-
-        // 3. No raws left → trip done
-        if (rawN === 0) {
-          log('Batch done: cooked ' + scriptState.ckCooked + ' burnt ' + scriptState.ckBurnt + ' this trip');
-          scriptState.phase = 'toBank';
-          return 600;
-        }
-
-        // 4. Stall detection
-        if (scriptState.ckPending && (Date.now() - scriptState.ckPending) > 10000) {
-          scriptState.ckStall = (scriptState.ckStall || 0) + 1;
-          if (scriptState.ckStall >= 3) {
-            log('Range unresponsive — re-approaching');
-            scriptState.phase = 'toRange';
-            return 800;
-          }
-          log('Cook stall — resending (attempt ' + scriptState.ckStall + ')');
-          scriptState.ckPending = 0;
-        }
-
-        // 5. Send cook packet
-        if (!scriptState.ckPending) {
-          var slot = getInventoryIndex(food.raw);
-          if (slot >= 0) {
-            useItemOnObject(slot, site.range[0], site.range[1]);
-            scriptState.ckPending = Date.now();
-            scriptState.ckPendingRaw = rawN;
-            scriptState.ckPendingCooked = cookedN;
-            scriptState.ckPendingBurnt = burntN;
-            scriptState.ckStall = 0;
-            return 1400;
-          }
-        }
-        return 900;
+        log('Processing slot ' + slot + ' at (' + stationLoc.x + ',' + stationLoc.y + ')');
+        useItemOnObject(slot, stationLoc.x, stationLoc.y);
+        scriptState.phase = 'wait';
+        scriptState.waitStart = Date.now();
+        return 3000;
       }
 
-      // ══ TO BANK ══
-      if (scriptState.phase === 'toBank') {
-        var bankTile = BANK_REGISTRY[site.bank];
-        // v302: doorless site → straight to bank
-        if (!site.door) {
-          var chebB0 = Math.max(Math.abs(bankTile[0] - getX()), Math.abs(bankTile[1] - getY()));
-          if (chebB0 <= 2) { scriptState.phase = 'bankTalk'; scriptState._ckBankerMisses = 0; return 400; }
-          ckWalk(bankTile[0], bankTile[1]);
-          return 1500;
+      if (scriptState.phase === 'wait') {
+        if (Date.now() - scriptState.waitStart > 3000) {
+          scriptState.phase = 'cook';
+          return 500;
         }
-        // ── STEP 1: still inside the house → walk OUT; click door only on stall ──
-        if (getY() < site.door.y) {
-          // ── stranded ON the door tile? doDoor toggle teleports us OUT (dir 0) ──
-          if (getX() === site.door.x && getY() === site.door.y) {
-            walkTo(site.door.x, site.door.y + 1);
-            if (Date.now() - (scriptState.ckOnOutT || 0) > 3000) {
-              atBoundary(site.door.x, site.door.y, site.door.dir);
-              scriptState.ckOnOutT = Date.now();
-              log('On door tile (exit) — clicking to teleport out');
-            }
-            return 1200;
-          }
-          if (Date.now() < (scriptState.ckQuietOut || 0)) return 1000;   // silence
-          ckWalk(site.doorOut[0], site.doorOut[1]);
-          if (scriptState.ckOutX === getX() && scriptState.ckOutY === getY()) {
-            if (Date.now() - (scriptState.ckOutT || 0) > 3000) {
-              atBoundary(site.door.x, site.door.y, site.door.dir);
-              scriptState.ckQuietOut = Date.now() + 6000;   // server door-walk window
-              scriptState.ckOutT = Date.now();
-              scriptState.ckDoorOutTries = (scriptState.ckDoorOutTries || 0) + 1;
-              log('Exit door click #' + scriptState.ckDoorOutTries + ' — silent 6s');
-              if (scriptState.ckDoorOutTries > 8) {
-                log('Exit door not passable — stopping');
-                stopBot(); return 2000;
-              }
-            }
-          } else {
-            scriptState.ckOutX = getX(); scriptState.ckOutY = getY();
-            scriptState.ckOutT = Date.now();
-          }
-          return 1200;
-        }
-        // ── STEP 2: outside → bank (approach from the door, proven route) ──
-        scriptState.ckDoorOutTries = 0;
-        var chebBank = Math.max(Math.abs(bankTile[0] - getX()), Math.abs(bankTile[1] - getY()));
-        if (chebBank <= 2) {
-          scriptState.phase = 'bankTalk';
-          scriptState._ckBankerMisses = 0;
-          return 400;
-        }
-        ckWalk(bankTile[0], bankTile[1]);
-        return 1500;
+        return 1000;
       }
-
-      // ══ BANK TALK ══
-      if (scriptState.phase === 'bankTalk') {
-        var banker = findNpcs(WC_BANKER_IDS, 3);
-        if (banker.length > 0) {
-          log('Talking to banker (idx=' + banker[0].serverIndex + ')');
-          talkToNpc(banker[0].serverIndex);
-          scriptState._ckBankTimer = Date.now();
-          scriptState.phase = 'bankOption';
-          return 2000;
-        }
-        var bankTile = BANK_REGISTRY[site.bank];
-        walkTo(bankTile[0], bankTile[1]);
-        scriptState._ckBankerMisses = (scriptState._ckBankerMisses || 0) + 1;
-        if (scriptState._ckBankerMisses >= 12) {
-          log('ERROR: no banker near ' + site.bank + ' — stopping');
-          stopBot(); return 2000;
-        }
-        return 1500;
-      }
-
-      // ══ BANK OPTION ══
-      if (scriptState.phase === 'bankOption') {
-        if (isInBank()) { scriptState.phase = 'bankDeposit'; return 500; }
-        if (Date.now() - scriptState._ckBankTimer > 2000) {
-          optionAnswer(0);
-          scriptState._ckBankTimer = Date.now();
-        }
-        if (Date.now() - (scriptState._ckBankTalkStart || scriptState._ckBankTimer) > 12000) {
-          log('Bank not opening — retrying talk');
-          scriptState.phase = 'bankTalk';
-          scriptState._ckBankTalkStart = Date.now();
-        }
-        return 1500;
-      }
-
-      // ══ BANK DEPOSIT ══
-      if (scriptState.phase === 'bankDeposit') {
-        if (!isInBank()) {
-          if (Date.now() - (scriptState._ckBankTimer || 0) > 8000) {
-            log('Bank flag not set — retrying talk');
-            scriptState.phase = 'bankTalk';
-          }
-          return 1500;
-        }
-        var deposited = 0;
-        // deposit cooked
-        if (getInventoryIndex(food.cooked) >= 0) {
-          depositItem(food.cooked, 9999);
-          deposited++;
-        }
-        // deposit burnt if not dropping
-        else if (!dropBurnt && getInventoryIndex(food.burnt) >= 0) {
-          depositItem(food.burnt, 9999);
-          deposited++;
-        }
-        // sweep: deposit everything not in keep-list
-        if (deposited === 0) {
-          scriptState.ckSweepSkip = scriptState.ckSweepSkip || [];
-          for (var di = 0; di < getInventoryCount(); di++) {
-            var idLeft = getInventoryId(di);
-            var keepList = [1263, 700];
-            if (rawN > 0) keepList.push(food.raw);
-            if (idLeft > 0 && keepList.indexOf(idLeft) < 0 && scriptState.ckSweepSkip.indexOf(idLeft) < 0) {
-              scriptState.ckSweepSame = (scriptState.ckSweepSameId === idLeft) ? (scriptState.ckSweepSame || 0) + 1 : 1;
-              scriptState.ckSweepSameId = idLeft;
-              if (scriptState.ckSweepSame >= 4) {
-                log('Sweep stuck on item ' + idLeft + ' (unbankable?) — leaving it in inventory, continuing');
-                scriptState.ckSweepSkip.push(idLeft);
-                continue;
-              }
-              depositItem(idLeft, 9999);
-              deposited++;
-              break;
-            }
-          }
-        }
-        if (deposited === 0) {
-          // Everything banked — WITHDRAW NEXT (bank still open), close after.
-          scriptState.phase = 'bankWithdraw';
-          scriptState._ckWithdrawAttempts = 0;
-          return 600;
-        }
-        return 1200;
-      }
-
-      // ══ BANK WITHDRAW (bank still open) ══
-      if (scriptState.phase === 'bankWithdraw') {
-        if (!isInBank()) {
-          // Bank closed unexpectedly — if we have raws, go cook; else re-open.
-          if (getInventoryIndex(food.raw) >= 0) {
-            scriptState.phase = 'toRange';
-            return 400;
-          }
-          scriptState.phase = 'bankTalk';
-          return 800;
-        }
-        // a) gauntlets if needed (withdraw, equip AFTER leaving the bank)
-        if (useGauntlets && getInventoryIndex(700) < 0 && !isItemIdEquipped(700)) {
-          withdrawItem(700, 1);
-          return 1000;
-        }
-        // b) withdraw raw food
-        if (getInventoryIndex(food.raw) < 0) {
-          if ((scriptState._ckWithdrawAttempts || 0) >= 2) {
-            log('Bank has no raw ' + foodName + ' (id ' + food.raw + ') — stopping');
-            stopBot();
-            return 1000;
-          }
-          withdrawItem(food.raw, 30);
-          scriptState._ckWithdrawAttempts = (scriptState._ckWithdrawAttempts || 0) + 1;
-          return 1200;
-        }
-        // c) raws in inventory → equip gauntlets if needed, then close
-        scriptState.ckTrips = (scriptState.ckTrips || 0) + 1;
-        log('Withdrew raws (trip ' + scriptState.ckTrips + ') — closing bank');
-        closeBank();
-        scriptState._ckCloseTries = 1;
-        scriptState._ckCloseT = Date.now();
-        scriptState.phase = 'bankClose';
-        return 800;
-      }
-
-      // ══ BANK CLOSE ══
-      if (scriptState.phase === 'bankClose') {
-        if (!isInBank()) {
-          log('Bank closed — heading to range');
-          scriptState.phase = 'leaveEquip';
-          return 400;
-        }
-        if (Date.now() - (scriptState._ckCloseT || 0) > 1200) {
-          closeBank();
-          scriptState._ckCloseT = Date.now();
-          scriptState._ckCloseTries = (scriptState._ckCloseTries || 0) + 1;
-          if (scriptState._ckCloseTries % 4 === 0) log('Bank still open after ' + scriptState._ckCloseTries + ' close attempts');
-        }
-        if (scriptState._ckCloseTries > 12) {
-          log('Bank will not close — restarting talk cycle');
-          scriptState.phase = 'bankTalk';
-          scriptState._ckCloseTries = 0;
-        }
-        return 800;
-      }
-
-      // ══ LEAVE + EQUIP GAUNTLETS ══
-      if (scriptState.phase === 'leaveEquip') {
-        if (useGauntlets && !isItemIdEquipped(700)) {
-          var gSlot = getInventoryIndex(700);
-          if (gSlot >= 0) {
-            log('Equipping cooking gauntlets');
-            wearItem(gSlot);
-            return 1500;
-          }
-          log('Gauntlets missing — continuing without');
-        }
-        scriptState.phase = 'toRange';
-        return 400;
-      }
-
       return 1000;
     };
   }
@@ -5626,6 +4452,7 @@ return 1000;
   // ═══════════════════════════════════════════════════════════════
 
   // Item IDs
+  var RAW_FOOD = [345, 343, 350, 352, 355, 357, 359, 362, 364, 367, 370, 373, 349, 351, 353, 356, 358, 360, 361, 363, 365, 366, 368, 369, 371, 372, 374];
   var ORE_COPPER = 155, ORE_TIN = 156, ORE_IRON = 157, ORE_COAL = 158;
   var BAR_BRONZE = 169, BAR_IRON = 170, BAR_STEEL = 171;
   var LOG_NORMAL = 77, LOG_OAK = 183, LOG_WILLOW = 185, LOG_YEW = 187;
@@ -5636,6 +4463,8 @@ return 1000;
   // Spell IDs
   var SPELL_HIGH_ALCH = 30, SPELL_LOW_ALCH = 28;
   var SPELL_VARROCK_TELE = 12, SPELL_FALADOR_TELE = 18, SPELL_LUMBRIDGE_TELE = 4;
+  // Cooking range locations (Lumbridge)
+  var RANGE_LUMBRIDGE = {x: 123, y: 640};
   // Furnace location (Al Kharid)
   var FURNACE_ALKHARID = {x: 330, y: 530};
   // Anvil location (Varrock west)
@@ -5825,7 +4654,8 @@ return 1000;
     'K_Waterfall_FireGiants': [208], 'K_WildyFireGiants': [208],
     'K_YanilleBlueDrag': [206], 'K_YanilleChaosDruids': [270],
     'K_YanilleDruidWarriors': [125], 'K_EdgeHobsPlus': [49, 60, 48],
-    'ABC_KBDKiller': [215], 'LimpySnapez': [0], 'Man': [11, 12, 16],
+    'ABC_KBDKiller': [215], 'ChickenMunch0r': [3],
+    'LimpySnapez': [0], 'Man': [11, 12, 16],
     // Kaila PvM scripts with specific locations
     'K_Paladins': [312], 'K_Nightshade': [0],
     'K_RedSpiderEggz': [0], 'K_WineDrinker': [0],
@@ -5927,6 +4757,20 @@ return 1000;
       return 2000;
     },
 
+    // ─── Auto-Cooker ───
+    // Cooks raw food on a range. Player must stand near a range.
+    // Uses action 900 (use item on object) with the range coords.
+    'cook-meat': makeCookScript(RANGE_LUMBRIDGE, RAW_FOOD),
+    'cook-fish': makeCookScript(RANGE_LUMBRIDGE, RAW_FOOD),
+
+    // ─── Auto-Smelter ───
+    // Smelts ore into bars at a furnace.
+    'smith-smelt': makeCookScript(FURNACE_ALKHARID, [ORE_COPPER, ORE_TIN, ORE_IRON]),
+
+    // ─── Auto-Smither ───
+    // Smiths bars into items on an anvil.
+    'smith-anvil': makeCookScript(ANVIL_VARROCK, [BAR_BRONZE, BAR_IRON, BAR_STEEL]),
+
     // ─── Auto-Fletcher ───
     // Uses knife on logs to make bows. Cut logs must be in inventory.
     'fletch-bow': function() {
@@ -6000,6 +4844,10 @@ return 1000;
       }
       return 2000;
     },
+
+    // ─── Auto-Flax Spinner ───
+    // Uses flax on spinning wheel to make bow strings.
+    'craft-flax': makeCookScript(SPIN_WHEEL_SEERS, [FLAX]),
 
     // ─── Auto-Alcher ───
     // High alches items from inventory. Set the item ID in script state.
