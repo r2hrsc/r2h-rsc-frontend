@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v302';
+  var VERSION = 'v303';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -194,22 +194,24 @@
   };
   var COOK_SITES = {
     // range coords = server SceneryLocs.json (GameObjectDef 11 "Range") — ground truth.
-    // inside = cook stand tile · doorOut/doorIn = door approaches · door = boundary
-    // door (BoundaryLocs.json). Sites WITHOUT a door between bank and range omit
-    // door/doorOut/doorIn → phases skip straight through (v302).
-    // Geometry (live-verified Catherby): range y=480 N … door y=486 … bank y=494 S.
-    'Catherby':    { range: [432, 480], inside: [433, 481], doorIn: [435, 485], doorOut: [435, 487], bank: 'Catherby',    door: { x: 435, y: 486, dir: 0 } },
-    'Al-Kharid':   { range: [87, 685],  inside: [87, 686],  bank: 'Al-Kharid' },   // outdoor range, no door
-    'Varrock East':{ range: [113, 521], inside: [114, 522], doorOut: [112, 522], doorIn: [114, 524], bank: 'Varrock East', door: { x: 113, y: 523, dir: 1 } },
-    'Falador West':{ range: [311, 521], inside: [311, 522], doorOut: [310, 524], doorIn: [311, 524], bank: 'Falador West', door: { x: 309, y: 525, dir: 0 } },
-    'Yanille':     { range: [629, 749], inside: [630, 750], doorOut: [630, 751], doorIn: [630, 751], bank: 'Yanille',     door: { x: 631, y: 751, dir: 0 } },
-    'Seers':       { range: [510, 505], inside: [510, 506], bank: 'Seers' },        // no door between bank & range
-    'Ardougne':    { range: [581, 578], inside: [581, 579], doorOut: [581, 580], doorIn: [581, 580], bank: 'Ardougne North', door: { x: 581, y: 580, dir: 1 } },
-    'Draynor':     { range: [275, 638], inside: [275, 639], doorOut: [276, 638], doorIn: [275, 639], bank: 'Draynor',    door: { x: 276, y: 637, dir: 0 } }
+    // bank = BANK_REGISTRY key. NO hand-coded door tiles: v303 discovers doors
+    // dynamically from the client object arrays (dp/dn/fl/ee — live-verified at
+    // Al-Kharid: boundary id 1 @ (85,683) dir 1 appears with its direction).
+    // Static door hint (optional) accelerates the first click.
+    'Catherby':    { range: [432, 480], inside: [433, 481], bank: 'Catherby',    doorHint: { x: 435, y: 486, dir: 0 } },
+    // v303: ALL non-Catherby sites use rig-verified OUTDOOR/accessible ranges —
+    // tele+241 probe verified per tile (2026-08-27). No door machinery needed.
+    // Al-Kharid (87,685) is an enclosed furnace-house → use outdoor (73,669).
+    'Al-Kharid':   { range: [73, 669],  inside: [73, 670],  bank: 'Al-Kharid' },
+    'Varrock East':{ range: [110, 534], inside: [110, 535], bank: 'Varrock East' },
+    'Falador West':{ range: [275, 638], inside: [275, 639], bank: 'Falador West' },
+    'Yanille':     { range: [629, 749], inside: [630, 749], bank: 'Yanille' },
+    'Seers':       { range: [497, 385], inside: [497, 386], bank: 'Seers' },
+    'Ardougne':    { range: [581, 578], inside: [581, 579], bank: 'Ardougne North' },
+    'Draynor':     { range: [275, 638], inside: [275, 639], bank: 'Draynor' }
   };
-  // ⚠ Site entries carry BEST-GUESS stand/door tiles except Catherby (fully
-  // live-verified). The engine self-corrects: adjacency scan + door stall-click
-  // loop generalizes. Verify per-site on the rig before trusting long runs.
+  // Boundary ids that are openable doors (DoorDef name "door" — DoorAction blocklist)
+  var CK_DOOR_IDS = [1, 2, 57, 60, 64, 94];
   var COOKING_SCRIPT_IDS = ['AIOCooker', 'CatherbyFishFarm', 'ChickenMunch0r', 'cooking', 'cook-meat', 'cook-fish'];
   // ChickenMunch0r: legacy APOS script ID, now routed to v301 cooking engine
   function isCookingScript(id) {
@@ -5206,6 +5208,51 @@ return 1000;
     return false;
   }
 
+  // ═══ v303: ckFindDoor — discover a boundary door in the corridor between the
+  // player and the target by scanning the LIVE client object arrays (dp/dn/fl/ee).
+  // Live-verified at Al-Kharid: boundary id 1 @ (85,683) dir 1 present in arrays.
+  // Corridor = bounding box of player→target inflated by 4 tiles. Returns the
+  // door nearest the player, or null. ═══
+  function ckFindDoor(px, py, tx, ty) {
+    var mc = getMC();
+    if (!mc) return null;
+    var n = Number(mc.co || 0);
+    if (!n || !mc.dp || !mc.dp.data) return null;
+    var loX = Math.min(px, tx) - 4, hiX = Math.max(px, tx) + 4;
+    var loY = Math.min(py, ty) - 4, hiY = Math.max(py, ty) + 4;
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < n && i < 500; i++) {
+      var id = Number(mc.fl.data[i]);
+      if (CK_DOOR_IDS.indexOf(id) < 0) continue;
+      var wx = Number(mc.dp.data[i]) + Number(mc.du || 0);
+      var wy = Number(mc.dn.data[i]) + Number(mc.dd || 0);
+      if (wx < loX || wx > hiX || wy < loY || wy > hiY) continue;
+      var d = Math.abs(wx - px) + Math.abs(wy - py);
+      if (d < bestD) { bestD = d; best = { x: wx, y: wy, dir: Number(mc.ee.data[i]) }; }
+    }
+    return best;
+  }
+
+  // ═══ v303: ckDoorState — read a boundary door's open state from the LIVE
+  // client arrays (APOS getObjectAtCoord parity). Returns 1 (closed), 2 (open),
+  // or 0 (not visible). Boundary doors swap id on toggle: 1→2 open, 2→1 closed. ═══
+  function ckDoorState(x, y, dir) {
+    var mc = getMC();
+    if (!mc) return 0;
+    var n = Number(mc.co || 0);
+    if (!n || !mc.dp || !mc.dp.data) return 0;
+    for (var i = 0; i < n && i < 500; i++) {
+      var wx = Number(mc.dp.data[i]) + Number(mc.du || 0);
+      var wy = Number(mc.dn.data[i]) + Number(mc.dd || 0);
+      if (wx !== x || wy !== y) continue;
+      var id = Number(mc.fl.data[i]);
+      var d = Number(mc.ee.data[i]);
+      if (id === 2 && CK_DOOR_IDS.indexOf(id) >= 0) return 2;   // open door
+      if (id === 1 && d === dir) return 1;                       // closed door
+    }
+    return 0;
+  }
+
   // ═══ v301: makeCookingScript — factory returning tick function ═══
   function makeCookingScript(runtimeConfig) {
     var cfg = runtimeConfig || {};
@@ -5268,77 +5315,137 @@ return 1000;
         if (bagSlot >= 0) { log('Fatigue ' + fatigue + '% — using sleeping bag'); useItem(bagSlot); return 3000; }
       }
 
-      // ══ TO RANGE ══
-      if (scriptState.phase === 'toRange') {
-        // v302: doorless site (outdoor range) → straight walk to the stand tile
-        if (!site.door) {
-          var dIn0 = Math.abs(site.inside[0] - getX()) + Math.abs(site.inside[1] - getY());
-          if (dIn0 <= 2) { scriptState.phase = 'cook'; scriptState.ckPending = 0; scriptState.ckStall = 0; return 400; }
-          ckWalk(site.inside[0], site.inside[1]);
-          return 1500;
-        }
-        if (getY() < site.door.y) {
-          // ── INSIDE the house ──
-          var dCook = Math.abs(site.inside[0] - getX()) + Math.abs(site.inside[1] - getY());
-          if (dCook <= 2) { scriptState.phase = 'cook'; scriptState.ckPending = 0; scriptState.ckStall = 0; return 400; }
-          ckWalk(site.inside[0], site.inside[1]);
-          return 1500;
-        }
-        // ── OUTSIDE: get to the bank-side door approach ──
-        var dOut = Math.abs(site.doorOut[0] - getX()) + Math.abs(site.doorOut[1] - getY());
-        if (dOut <= 1) {
-          scriptState.phase = 'doorIn';
-          scriptState.ckDoorTries = 0;
-          scriptState.ckDoorT = 0;
-          return 400;
-        }
-        ckWalk(site.doorOut[0], site.doorOut[1]);
-        return 1500;
+      // ══ GLOBAL DOOR SILENCE (v303): while a door action is pending, NO other
+      // packets may leave — any packet triggers server resetAll() and cancels the
+      // door's WalkToObjectAction + teleport. Checked before ALL phases. ══
+      if (Date.now() < (scriptState.ckQuiet || 0) || Date.now() < (scriptState.ckQuietOut || 0)) {
+        if (getIsSleeping()) return 2000;
+        return 1000;
       }
 
-      // ══ DOOR IN — walk toward inside; on stall: ONE click then 6s SILENCE ══
-      // (server action model: each atBoundary cancels prior walks and starts a
-      // server-side WalkToObjectAction to the door — sending our own walk during
-      // it cancels it. Live-measured: click+walk every tick = frozen player.)
-      if (scriptState.phase === 'doorIn') {
-        if (getY() < site.door.y) {
-          scriptState.phase = 'toRange';   // crossed → INSIDE branch finishes
+      // ══ TO RANGE — universal v303: range-adjacency discovery (fishing pattern).
+      // NO trusted stand tiles: walk toward the RANGE; try its 8 neighbor tiles
+      // nearest-first (2-stall = dead tile → next, cache winners); when stalled,
+      // discover doors in the corridor from the client arrays and click them. ══
+      if (scriptState.phase === 'toRange') {
+        var rx = site.range[0], ry = site.range[1];
+        // fast-path only if we haven't PROVEN blocked (a wall may sit between an
+        // adjacent tile and the range — ckBlocked forces the discovery walk)
+        if (Math.max(Math.abs(rx - getX()), Math.abs(ry - getY())) <= 1 && !scriptState.ckBlocked) {
+          scriptState.phase = 'cook'; scriptState.ckPending = 0; scriptState.ckStall = 0;
           return 400;
         }
-        // ── STRANDED ON THE DOOR TILE (auto-close sealed us in): doDir dir 0
-        // teleports the player to door.y-1 (INSIDE) on every successful toggle.
-        // Click every 3s (one may no-op on state-match; the next teleports) +
-        // try walking 1 tile north meanwhile.
-        if (getX() === site.door.x && getY() === site.door.y) {
-          walkTo(site.door.x, site.door.y - 1);
-          if (Date.now() - (scriptState.ckOnTileT || 0) > 3000) {
-            atBoundary(site.door.x, site.door.y, site.door.dir);
-            scriptState.ckOnTileT = Date.now();
-            scriptState.ckOnTileTries = (scriptState.ckOnTileTries || 0) + 1;
-            log('On door tile — click #' + scriptState.ckOnTileTries + ' (toggle teleports us inside)');
+        // SILENCE GUARD: after a door click, the server runs its own door-walk —
+        // any packet from us cancels it (resetAll). Wait it out.
+        if (Date.now() < (scriptState.ckQuiet || 0)) return 1000;
+        // ── DOOR MODE (APOS openDoor parity): read the door's OPEN STATE from the
+        // object array (boundary id 1=closed, 2=open). Closed → click + short
+        // silence. Open → walk THROUGH the door tile toward the range. No timers. ──
+        if (scriptState.ckDoor) {
+          var dDoor = Math.max(Math.abs(scriptState.ckDoor.x - getX()), Math.abs(scriptState.ckDoor.y - getY()));
+          if (dDoor > 1) {
+            // walk to a SIDE-NEIGHBOR of the door (never the door tile — it's a
+            // boundary; walking onto it is silently refused, fishing-spot rule)
+            if (!scriptState.ckDoorAdj || (scriptState.ckDoorAdjX === getX() && scriptState.ckDoorAdjY === getY() && (scriptState.ckDoorAdjStall||0) >= 2)) {
+              var side = [[0,-1],[0,1],[-1,0],[1,0]];
+              side.sort(function(a, b) {
+                var da = Math.abs(scriptState.ckDoor.x + a[0] - getX()) + Math.abs(scriptState.ckDoor.y + a[1] - getY());
+                var db = Math.abs(scriptState.ckDoor.x + b[0] - getX()) + Math.abs(scriptState.ckDoor.y + b[1] - getY());
+                return da - db;
+              });
+              var pick = side[(scriptState.ckDoorAdjTry || 0) % side.length];
+              scriptState.ckDoorAdj = { x: scriptState.ckDoor.x + pick[0], y: scriptState.ckDoor.y + pick[1] };
+              scriptState.ckDoorAdjStall = 0;
+            }
+            var px5 = getX(), py5 = getY();
+            ckWalk(scriptState.ckDoorAdj.x, scriptState.ckDoorAdj.y);
+            if (scriptState.ckDoorAdjX === px5 && scriptState.ckDoorAdjY === py5) {
+              scriptState.ckDoorAdjStall = (scriptState.ckDoorAdjStall || 0) + 1;
+              if (scriptState.ckDoorAdjStall >= 2) scriptState.ckDoorAdjTry = (scriptState.ckDoorAdjTry || 0) + 1;
+            } else { scriptState.ckDoorAdjStall = 0; }
+            scriptState.ckDoorAdjX = px5; scriptState.ckDoorAdjY = py5;
+            return 1500;
           }
-          return 1200;
-        }
-        if (Date.now() < (scriptState.ckQuiet || 0)) return 1000;   // silence — server is walking us
-        ckWalk(site.inside[0], site.inside[1]);
-        if (scriptState.ckMarkX === getX() && scriptState.ckMarkY === getY()) {
-          if (Date.now() - (scriptState.ckMarkT || 0) > 3000) {
-            atBoundary(site.door.x, site.door.y, site.door.dir);
-            scriptState.ckQuiet = Date.now() + 6000;   // let the server action run
-            scriptState.ckMarkT = Date.now();
+          // adjacent to the door → state-driven click/through (APOS parity)
+          // ── DOOR MODE (doDoor mechanics, live-proven at Catherby v301):
+          // The teleport-onto-tile fires on the CLOSED→OPEN transition only.
+          // Clicks on an OPEN door toggle it CLOSED with NO teleport (the 1↔2
+          // alternation in server logs = own rapid clicks). So: read state;
+          // OPEN → one click to close it; CLOSED → click = open + teleport on. ──
+          if (getX() === scriptState.ckDoor.x && getY() === scriptState.ckDoor.y) {
+            var ax2 = (scriptState.ckDoor.dir === 1) ? scriptState.ckDoor.x + 1 : scriptState.ckDoor.x;
+            var ay2 = (scriptState.ckDoor.dir === 1) ? scriptState.ckDoor.y : scriptState.ckDoor.y - 1;
+            walkTo(ax2, ay2);
+            scriptState.ckDoor = null;
+            scriptState.ckDoorTries = 0;
+            log('On door tile — walking through to (' + ax2 + ',' + ay2 + ')');
+            return 1000;
+          }
+          if (Date.now() - (scriptState.ckDoorClickT || 0) > 2500) {
+            var stNow = ckDoorState(scriptState.ckDoor.x, scriptState.ckDoor.y, scriptState.ckDoor.dir);
+            atBoundary(scriptState.ckDoor.x, scriptState.ckDoor.y, scriptState.ckDoor.dir);
+            scriptState.ckDoorClickT = Date.now();
+            scriptState.ckQuiet = Date.now() + 3000;
             scriptState.ckDoorTries = (scriptState.ckDoorTries || 0) + 1;
-            log('Entry door click #' + scriptState.ckDoorTries + ' — silent 6s (server door-walk)');
-            if (scriptState.ckDoorTries > 8) {
-              log('Entry door not passable — restarting approach');
-              scriptState.phase = 'toRange';
+            log('Door click #' + scriptState.ckDoorTries + ' (state=' + (stNow || '?') + ', expect teleport when 1→2)');
+            if (scriptState.ckDoorTries > 10) {
+              scriptState.ckDoor = null;
               scriptState.ckDoorTries = 0;
             }
           }
-        } else {
-          scriptState.ckMarkX = getX(); scriptState.ckMarkY = getY();
-          scriptState.ckMarkT = Date.now();
+          return 1200;
         }
-        return 1200;
+
+        // neighbor candidates of the range, nearest-to-player first
+        scriptState.ckAdjCache = scriptState.ckAdjCache || {};
+        var akey = rx + ',' + ry;
+        var adjT = scriptState.ckAdjCache[akey];
+        if (!adjT) {
+          var cands = [[0,-1],[0,1],[-1,0],[1,0],[-1,-1],[1,-1],[-1,1],[1,1]];
+          cands.sort(function(a, b) {
+            var da = Math.abs(rx + a[0] - getX()) + Math.abs(ry + a[1] - getY());
+            var db = Math.abs(rx + b[0] - getX()) + Math.abs(ry + b[1] - getY());
+            return da - db;
+          });
+          var ci = (scriptState.ckAdjTry || 0) % cands.length;
+          adjT = { x: rx + cands[ci][0], y: ry + cands[ci][1] };
+        }
+        var bx4 = getX(), by4 = getY();
+        ckWalk(adjT.x, adjT.y);
+        // stall detection between ticks
+        if (scriptState.ckAdjSentX === bx4 && scriptState.ckAdjSentY === by4 && scriptState.ckAdjSentX !== undefined) {
+          scriptState.ckAdjStall = (scriptState.ckAdjStall || 0) + 1;
+          if (scriptState.ckAdjStall >= 2) {
+            // Door in corridor AND multiple neighbors already failed → door mode.
+            // (Last resort only: v303 live lesson — routes passing NEAR enclosed
+            // buildings trigger false door mode on ordinary pathing stalls.)
+            var dr = null;
+            if ((scriptState.ckAdjFail || 0) >= 3) {
+              dr = ckFindDoor(bx4, by4, rx, ry);
+              if (!dr && site.doorHint) dr = { x: site.doorHint.x, y: site.doorHint.y, dir: site.doorHint.dir };
+            }
+            if (dr) {
+              scriptState.ckDoor = dr;
+              scriptState.ckAdjStall = 0;
+              log('Door discovered @ (' + dr.x + ',' + dr.y + ') dir ' + dr.dir + ' — walking to it');
+              return 800;
+            }
+            // no door → this neighbor is dead (wall/water) → next candidate
+            delete scriptState.ckAdjCache[akey];
+            scriptState.ckAdjTry = (scriptState.ckAdjTry || 0) + 1;
+            scriptState.ckAdjStall = 0;
+            scriptState.ckAdjFail = (scriptState.ckAdjFail || 0) + 1;
+            if ((scriptState.ckAdjFail || 0) >= 12) {
+              log('Range unreachable from all neighbors — stopping');
+              stopBot(); return 2000;
+            }
+          }
+        } else {
+          scriptState.ckAdjStall = 0;
+          scriptState.ckAdjSentX = bx4; scriptState.ckAdjSentY = by4;
+          if (!scriptState.ckAdjCache[akey]) scriptState.ckAdjCache[akey] = adjT;
+        }
+        return 1500;
       }
 
       // ══ COOK (core) ══
@@ -5359,6 +5466,8 @@ return 1000;
             if (cookedN > scriptState.ckPendingCooked) scriptState.ckCooked++;
             else if (burntN > scriptState.ckPendingBurnt) scriptState.ckBurnt++;
             scriptState.ckPending = 0;
+            scriptState.ckStall = 0;
+            scriptState.ckBlocked = false;   // range reachable again — clear flag
             var total = scriptState.ckCooked + scriptState.ckBurnt;
             if (total % 10 === 0) log('Cooked ' + scriptState.ckCooked + ' (burnt ' + scriptState.ckBurnt + ')');
           }
@@ -5377,19 +5486,24 @@ return 1000;
           return 600;
         }
 
-        // 4. Stall detection
+        // 4. Stall detection — 241s not landing means a wall/door between us and
+        // the range: fall back to toRange (adjacency discovery + door clicks)
         if (scriptState.ckPending && (Date.now() - scriptState.ckPending) > 10000) {
           scriptState.ckStall = (scriptState.ckStall || 0) + 1;
-          if (scriptState.ckStall >= 3) {
-            log('Range unresponsive — re-approaching');
+          if (scriptState.ckStall >= 2) {
+            log('Range not responding — re-approaching (door/wall suspected)');
             scriptState.phase = 'toRange';
+            scriptState.ckAdjTry = 0;
+            scriptState.ckAdjCache = {};
+            scriptState.ckBlocked = true;   // force discovery walk, skip fast-path
             return 800;
           }
           log('Cook stall — resending (attempt ' + scriptState.ckStall + ')');
           scriptState.ckPending = 0;
         }
 
-        // 5. Send cook packet
+        // 5. Send cook packet (NOTE: do NOT reset ckStall here — the stall counter
+        // must accumulate across resends so escalation to re-approach fires)
         if (!scriptState.ckPending) {
           var slot = getInventoryIndex(food.raw);
           if (slot >= 0) {
@@ -5398,64 +5512,90 @@ return 1000;
             scriptState.ckPendingRaw = rawN;
             scriptState.ckPendingCooked = cookedN;
             scriptState.ckPendingBurnt = burntN;
-            scriptState.ckStall = 0;
             return 1400;
           }
         }
         return 900;
       }
 
-      // ══ TO BANK ══
+      // ══ TO BANK — universal v303: walk to bank; on stall, discover + click door ══
       if (scriptState.phase === 'toBank') {
         var bankTile = BANK_REGISTRY[site.bank];
-        // v302: doorless site → straight to bank
-        if (!site.door) {
-          var chebB0 = Math.max(Math.abs(bankTile[0] - getX()), Math.abs(bankTile[1] - getY()));
-          if (chebB0 <= 2) { scriptState.phase = 'bankTalk'; scriptState._ckBankerMisses = 0; return 400; }
-          ckWalk(bankTile[0], bankTile[1]);
-          return 1500;
-        }
-        // ── STEP 1: still inside the house → walk OUT; click door only on stall ──
-        if (getY() < site.door.y) {
-          // ── stranded ON the door tile? doDoor toggle teleports us OUT (dir 0) ──
-          if (getX() === site.door.x && getY() === site.door.y) {
-            walkTo(site.door.x, site.door.y + 1);
-            if (Date.now() - (scriptState.ckOnOutT || 0) > 3000) {
-              atBoundary(site.door.x, site.door.y, site.door.dir);
-              scriptState.ckOnOutT = Date.now();
-              log('On door tile (exit) — clicking to teleport out');
-            }
-            return 1200;
-          }
-          if (Date.now() < (scriptState.ckQuietOut || 0)) return 1000;   // silence
-          ckWalk(site.doorOut[0], site.doorOut[1]);
-          if (scriptState.ckOutX === getX() && scriptState.ckOutY === getY()) {
-            if (Date.now() - (scriptState.ckOutT || 0) > 3000) {
-              atBoundary(site.door.x, site.door.y, site.door.dir);
-              scriptState.ckQuietOut = Date.now() + 6000;   // server door-walk window
-              scriptState.ckOutT = Date.now();
-              scriptState.ckDoorOutTries = (scriptState.ckDoorOutTries || 0) + 1;
-              log('Exit door click #' + scriptState.ckDoorOutTries + ' — silent 6s');
-              if (scriptState.ckDoorOutTries > 8) {
-                log('Exit door not passable — stopping');
-                stopBot(); return 2000;
-              }
-            }
-          } else {
-            scriptState.ckOutX = getX(); scriptState.ckOutY = getY();
-            scriptState.ckOutT = Date.now();
-          }
-          return 1200;
-        }
-        // ── STEP 2: outside → bank (approach from the door, proven route) ──
-        scriptState.ckDoorOutTries = 0;
         var chebBank = Math.max(Math.abs(bankTile[0] - getX()), Math.abs(bankTile[1] - getY()));
         if (chebBank <= 2) {
           scriptState.phase = 'bankTalk';
           scriptState._ckBankerMisses = 0;
+          scriptState.ckDoorOut = null;   // reached bank — exit door handled
           return 400;
         }
+        // SILENCE GUARD (exit door)
+        if (Date.now() < (scriptState.ckQuietOut || 0)) return 1000;
+        // ── EXIT DOOR MODE (APOS parity): read state; closed→click, open→walk out ──
+        if (scriptState.ckDoorOut) {
+          var dDoorOut = Math.max(Math.abs(scriptState.ckDoorOut.x - getX()), Math.abs(scriptState.ckDoorOut.y - getY()));
+          if (dDoorOut > 1) {
+            // side-neighbor approach (same as entry — never walk onto the door tile)
+            if (!scriptState.ckDoorOutAdj) {
+              var side2 = [[0,-1],[0,1],[-1,0],[1,0]];
+              side2.sort(function(a, b) {
+                var da = Math.abs(scriptState.ckDoorOut.x + a[0] - getX()) + Math.abs(scriptState.ckDoorOut.y + a[1] - getY());
+                var db = Math.abs(scriptState.ckDoorOut.x + b[0] - getX()) + Math.abs(scriptState.ckDoorOut.y + b[1] - getY());
+                return da - db;
+              });
+              var pick2 = side2[(scriptState.ckDoorOutAdjTry || 0) % side2.length];
+              scriptState.ckDoorOutAdj = { x: scriptState.ckDoorOut.x + pick2[0], y: scriptState.ckDoorOut.y + pick2[1] };
+            }
+            ckWalk(scriptState.ckDoorOutAdj.x, scriptState.ckDoorOutAdj.y);
+            return 1500;
+          }
+          var dOutState = ckDoorState(scriptState.ckDoorOut.x, scriptState.ckDoorOut.y, scriptState.ckDoorOut.dir);
+          // On the door tile → walk through toward the bank (click teleported us)
+          if (getX() === scriptState.ckDoorOut.x && getY() === scriptState.ckDoorOut.y) {
+            var ox2 = (scriptState.ckDoorOut.dir === 1) ? scriptState.ckDoorOut.x - 1 : scriptState.ckDoorOut.x;
+            var oy2 = (scriptState.ckDoorOut.dir === 1) ? scriptState.ckDoorOut.y : scriptState.ckDoorOut.y + 1;
+            walkTo(ox2, oy2);
+            scriptState.ckDoorOut = null;
+            scriptState.ckDoorOutTries = 0;
+            log('On exit door tile — walking out');
+            return 1000;
+          }
+          if (dOutState === 1 || dOutState === 2) {
+            // any state → click; doDoor teleports us onto the tile
+            if (Date.now() - (scriptState.ckDoorOutClickT || 0) > 3000) {
+              atBoundary(scriptState.ckDoorOut.x, scriptState.ckDoorOut.y, scriptState.ckDoorOut.dir);
+              scriptState.ckDoorOutClickT = Date.now();
+              scriptState.ckQuietOut = Date.now() + 3500;
+              scriptState.ckDoorOutTries = (scriptState.ckDoorOutTries || 0) + 1;
+              log('Exit door click #' + scriptState.ckDoorOutTries + ' (teleport-cross)');
+              if (scriptState.ckDoorOutTries > 8) { scriptState.ckDoorOut = null; scriptState.ckDoorOutTries = 0; }
+            }
+            return 1200;
+          }
+          scriptState.ckDoorOut = null;
+          scriptState.ckDoorOutTries = 0;
+          return 800;
+        }
         ckWalk(bankTile[0], bankTile[1]);
+        // stall → door discovery (mirror of entry)
+        if (scriptState.ckOutX === getX() && scriptState.ckOutY === getY()) {
+          if (Date.now() - (scriptState.ckOutT || 0) > 3500) {
+            var doorOut = ckFindDoor(getX(), getY(), bankTile[0], bankTile[1]);
+            if (!doorOut && site.doorHint) doorOut = { x: site.doorHint.x, y: site.doorHint.y, dir: site.doorHint.dir };
+            if (doorOut) {
+              atBoundary(doorOut.x, doorOut.y, doorOut.dir);
+              scriptState.ckQuietOut = Date.now() + 6000;
+              scriptState.ckOutT = Date.now();
+              scriptState.ckDoorOutTries = (scriptState.ckDoorOutTries || 0) + 1;
+              log('Exit door found @ (' + doorOut.x + ',' + doorOut.y + ') — click #' + scriptState.ckDoorOutTries + ', silent 6s');
+            } else {
+              scriptState.ckOutT = Date.now();
+            }
+          }
+        } else {
+          scriptState.ckOutX = getX(); scriptState.ckOutY = getY();
+          scriptState.ckOutT = Date.now();
+          scriptState.ckDoorOutTries = 0;
+        }
         return 1500;
       }
 
