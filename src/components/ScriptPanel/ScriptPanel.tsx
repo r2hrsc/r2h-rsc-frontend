@@ -634,7 +634,7 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
     case 'cooking':
       return { foodType: FOOD_TYPES[0], dropBurnt: false, gauntlets: false, cookSite: 'Auto (nearest)' };
     case 'firemaking':
-      return { fmLogs: 'normal' };
+      return { fmLogs: 'normal', fmMode: 'bank', fmBank: 'Auto (nearest)' };
     case 'woodcutting':
       return { treeType: 'Normal', treeTypes: { Normal: true, Oak: false, Willow: false, Maple: false, Yew: false, Magic: false }, wcBank: true, bankDestination: 'Auto' };
     case 'fishing':
@@ -1032,7 +1032,8 @@ function FiremakingConfig({ cfg, set }: CfgProps) {
       </Field>
       {(cfg.fmMode ?? 'bank') === 'bank' && (
         <Field label="Bank">
-          <select style={S_SELECT} value={cfg.fmBank ?? 'Draynor'} onChange={e => set({ fmBank: e.target.value })}>
+          <select style={S_SELECT} value={cfg.fmBank ?? 'Auto (nearest)'} onChange={e => set({ fmBank: e.target.value })}>
+            <option value="Auto (nearest)">Auto (nearest)</option>
             {BANK_LOCATIONS.map(b => <option key={b} value={b}>{b}</option>)}
           </select>
         </Field>

@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v308';
+  var VERSION = 'v309';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -4873,7 +4873,7 @@
     var FM_MODE = cfg.fmMode || 'bank';                       // 'bank' | 'chop'
     var LOG_TYPES = { normal: LOG_NORMAL, oak: LOG_OAK, willow: LOG_WILLOW, maple: LOG_MAPLE, yew: LOG_YEW, magic: LOG_MAGIC };
     var logId = LOG_TYPES[cfg.fmLogs] || LOG_NORMAL;
-    var bankName = cfg.fmBank || 'Draynor';
+    var bankName = cfg.fmBank || 'Auto (nearest)';   // v309: auto-detect default
 
     function fmXp() {
       var mc = getMC();
@@ -4943,6 +4943,16 @@
       // ══ INIT ══
       if (scriptState.phase === 'init') {
         var lvl = getStatBase(11);
+        // v309: Auto bank — nearest bank to the player (cooking's auto-site pattern)
+        if (bankName === 'Auto (nearest)') {
+          var bestB = null, bestBD = Infinity;
+          for (var bn in BANK_REGISTRY) {
+            var bd = Math.abs(BANK_REGISTRY[bn][0] - getX()) + Math.abs(BANK_REGISTRY[bn][1] - getY());
+            if (bd < bestBD) { bestBD = bd; bestB = bn; }
+          }
+          bankName = bestB || 'Draynor';
+          log('FM bank auto-detected: ' + bankName + ' (' + bestBD + ' tiles)');
+        }
         log('Firemaking v308 [' + FM_MODE + ' mode]: lvl=' + lvl + ' logs=' + (cfg.fmLogs || 'normal') + ' bank=' + bankName);
         scriptState.fmLit = 0; scriptState.fmFail = 0;
         scriptState.phase = (FM_MODE === 'chop') ? 'chop' : 'toBankLight';
