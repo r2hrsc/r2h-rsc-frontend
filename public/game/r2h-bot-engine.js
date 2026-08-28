@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v307';
+  var VERSION = 'v308';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -4857,38 +4857,98 @@
 
   // ═══════════════════════════════════════════════════════════════
   // ═══════════════════════════════════════════════════════════════
-  // v304: FIREMAKING — server-verified (Firemaking.java, authentic mode)
-  // Mechanics: batch_progression=FALSE → ONE light attempt per tinderbox-use.
-  //   1. dropItem(logSlot)          — log lands on ground at player tile
-  //   2. I9 210 → opcode 250 (346): Z(x), Z(y), Z(groundItemId), Z(tinderboxSlot)
-  //      (classes.js verified; GROUND_ITEM_USE_ITEM)
-  //   3. server: delay(3) → light roll (fail rate = level-based) → on success:
-  //      fire object 97 spawns, XP, then firemakingWalk() moves the player 1 tile
-  //      (east-preferred) off the fire → next log drops at the NEW feet tile.
-  // Loop = drop → use → wait for log to vanish (lit or reclaimed) → repeat.
-  // Custom firemaking OFF on FuzzyNuts → NORMAL LOGS ONLY (id 14).
-  // FM = stat index 11. Tinderbox 166, logs 14.
+  // v308: FIREMAKING — two modes, APOS Abyte0_Firemaking as blueprint:
+  //   BANK MODE  (default): nearest bank → withdraw tinderbox + selected logs →
+  //                        walk to open area → light fire lines (west→east runs)
+  //   CHOP MODE  (fmMode:'chop'): axe + tinderbox → find nearest tree (object
+  //                        scan, NOT hardcoded paths) → chop until a log lands →
+  //                        drop & light at feet → next tree. Runs for hours —
+  //                        no banking at all (APOS behavior).
+  // Light mechanics (v304, live-proven): drop log → op 250 tinderbox-on-ground-log
+  // → XP-gain success detect (client arrays ghost) → step east. FM = stat 11.
   // ═══════════════════════════════════════════════════════════════
 
   function makeFiremakingScript(runtimeConfig) {
     var cfg = runtimeConfig || {};
+    var FM_MODE = cfg.fmMode || 'bank';                       // 'bank' | 'chop'
+    var LOG_TYPES = { normal: LOG_NORMAL, oak: LOG_OAK, willow: LOG_WILLOW, maple: LOG_MAPLE, yew: LOG_YEW, magic: LOG_MAGIC };
+    var logId = LOG_TYPES[cfg.fmLogs] || LOG_NORMAL;
+    var bankName = cfg.fmBank || 'Draynor';
+
+    function fmXp() {
+      var mc = getMC();
+      return mc && mc.kN && mc.kN.data ? Number(mc.kN.data[11]) : 0;
+    }
+    function countLogs() {
+      // v308d: same discipline as getInventoryCount (v246/v249): slots >= cU
+      // hold stale ghost ids (never cleared — classes.js opcode 252). If the
+      // [0,cU) window holds ANY item it is sane → count logs ONLY within it;
+      // all-30 fallback is for the cU-desynced-LOW case (window empty, items real).
+      var mc = getMC();
+      var cu = Number(mc.cU || 0);
+      var windowHasItems = false, nWindow = 0, nAll = 0;
+      for (var i = 0; i < 30; i++) {
+        var id = getInventoryId(i);
+        if (!id) continue;
+        if (i < cu) {
+          windowHasItems = true;
+          if (id === logId) nWindow++;
+        }
+        if (id === logId) nAll++;
+      }
+      return windowHasItems ? nWindow : nAll;
+    }
+    function hasKit(kitId) { return getInventoryIndex(kitId) >= 0; }
+    function hasAxe() {
+      for (var ai = 0; ai < AXE_IDS.length; ai++) {
+        if (getInventoryIndex(AXE_IDS[ai]) >= 0 || isItemIdEquipped(AXE_IDS[ai])) return true;
+      }
+      return false;
+    }
+    // v308c: TREE REGISTRY (server SceneryLocs truth — the WC v263 lesson:
+    // client object lists are stale; chop packets at registry tiles, the server
+    // no-ops on stumps). 81 Draynor-woodland normal trees.
+    var FM_TREES = [
+      {x:190,y:625}, {x:190,y:628}, {x:190,y:631}, {x:190,y:644}, {x:190,y:665}, {x:191,y:647},
+      {x:192,y:628}, {x:192,y:632}, {x:192,y:655}, {x:192,y:665}, {x:193,y:648}, {x:193,y:657},
+      {x:193,y:662}, {x:193,y:667}, {x:194,y:645}, {x:194,y:651}, {x:194,y:654}, {x:194,y:660},
+      {x:194,y:664}, {x:195,y:627}, {x:195,y:652}, {x:195,y:655}, {x:195,y:659}, {x:196,y:657},
+      {x:196,y:665}, {x:196,y:668}, {x:197,y:628}, {x:197,y:631}, {x:197,y:645}, {x:197,y:661},
+      {x:198,y:652}, {x:198,y:658}, {x:198,y:663}, {x:198,y:665}, {x:198,y:668}, {x:199,y:632},
+      {x:199,y:644}, {x:199,y:659}, {x:199,y:666}, {x:199,y:669}, {x:200,y:648}, {x:200,y:650},
+      {x:200,y:652}, {x:200,y:662}, {x:201,y:627}, {x:201,y:633}, {x:201,y:635}, {x:201,y:645},
+      {x:201,y:646}, {x:201,y:655}, {x:201,y:657}, {x:201,y:660}, {x:201,y:663}, {x:202,y:646},
+      {x:202,y:665}, {x:203,y:644}, {x:204,y:631}, {x:204,y:635}, {x:204,y:652}, {x:204,y:656},
+      {x:205,y:642}, {x:206,y:634}, {x:206,y:637}, {x:206,y:639}, {x:206,y:643}, {x:206,y:658},
+      {x:206,y:661}, {x:207,y:630}, {x:207,y:641}, {x:208,y:645}, {x:208,y:656}, {x:209,y:631},
+      {x:210,y:639}, {x:212,y:634}, {x:212,y:638}, {x:212,y:643}, {x:213,y:636}, {x:213,y:659},
+      {x:213,y:663}, {x:214,y:652}, {x:226,y:617}
+    ];
+    // nearest registry tree (skips known-felled)
+    function nearestTree() {
+      var best = null, bestD = Infinity;
+      for (var i = 0; i < FM_TREES.length; i++) {
+        var t = FM_TREES[i];
+        var k = t.x + ',' + t.y;
+        if (scriptState.fmFelled && scriptState.fmFelled[k]) continue;
+        var d = Math.abs(t.x - getX()) + Math.abs(t.y - getY());
+        if (d < bestD) { bestD = d; best = { worldX: t.x, worldY: t.y }; }
+      }
+      return best;
+    }
+
     return function() {
       if (!isLoggedIn()) return 5000;
 
+      // ══ INIT ══
       if (scriptState.phase === 'init') {
         var lvl = getStatBase(11);
-        var tSlot = getInventoryIndex(TINDERBOX);
-        if (tSlot < 0) {
-          log('Firemaking: no tinderbox (id 166) in inventory — stopping');
-          stopBot(); return 2000;
-        }
-        log('Firemaking v304: lvl=' + lvl + ' logs=' + (cfg.fmLogs || 'normal'));
-        scriptState.fmLit = 0;
-        scriptState.fmFail = 0;
-        scriptState.phase = 'fm';
+        log('Firemaking v308 [' + FM_MODE + ' mode]: lvl=' + lvl + ' logs=' + (cfg.fmLogs || 'normal') + ' bank=' + bankName);
+        scriptState.fmLit = 0; scriptState.fmFail = 0;
+        scriptState.phase = (FM_MODE === 'chop') ? 'chop' : 'toBankLight';
       }
 
-      // ── fatigue/sleep (standard) ──
+      // ══ FATIGUE / SLEEP ══
       if (getIsSleeping()) {
         if (!scriptState.sleepTyping) {
           scriptState.sleepTyping = true;
@@ -4901,90 +4961,240 @@
         }
         return 2000;
       }
-      var fatigue = getFatigue();
-      if (fatigue >= 90) {
+      if (getFatigue() >= 96) {
         var bagSlot = getInventoryIndex(SLEEPING_BAG);
-        if (bagSlot >= 0) { log('Fatigue ' + fatigue + '% — using sleeping bag'); useItem(bagSlot); return 3000; }
+        if (bagSlot >= 0) { log('Fatigue ' + getFatigue() + '% — sleeping'); useItem(bagSlot); return 3000; }
       }
 
-      // ── resolve log id (custom FM off → normal only) ──
-      var LOG_TYPES = { normal: LOG_NORMAL, oak: LOG_OAK, willow: LOG_WILLOW, maple: LOG_MAPLE, yew: LOG_YEW, magic: LOG_MAGIC };
-      var logId = LOG_TYPES[cfg.fmLogs] || LOG_NORMAL;
-      var logSlot = getInventoryIndex(logId);
-
-      // ── silence: server-side action running (walk-to-log + roll) ──
-      if (Date.now() < (scriptState.fmQuiet || 0)) return 1000;
-
-      // v304c: success detection via XP GAIN (ground-item arrays ghost burned
-      // logs — v249-class client bug, live-proven: fires lit while client still
-      // showed the log). XP packets are reliable (miner-proven pattern).
-      function fmXp() {
-        var mc = getMC();
-        return mc && mc.kN && mc.kN.data ? Number(mc.kN.data[11]) : 0;
-      }
-
-      // ── attempt in flight: wait for XP gain (success) or timeout (fail) ──
-      if (scriptState.fmAttempt) {
-        if (fmXp() > (scriptState.fmXp0 || 0)) {
-          // SUCCESS — fire lit; server walked us off (firemakingWalk). Step east
-          // ourselves too (idempotent) to guarantee we're off the fire tile.
-          scriptState.fmLit++;
-          log('Fire lit #' + scriptState.fmLit + ' (fails ' + (scriptState.fmFail || 0) + ')');
-          scriptState.fmAttempt = 0;
-          walkTo(getX() + 1, getY());
+      // ══ LIGHT LOOP (shared core — both modes) ══
+      if (scriptState.phase === 'light') {
+        var nLogs = countLogs();
+        if (scriptState.fmAttempt) {
+          var xpNow = fmXp();
+          if (xpNow > (scriptState.fmXp0 || 0)) {
+            scriptState.fmLit++;
+            if (scriptState.fmLit % 5 === 0) log('Fires lit: ' + scriptState.fmLit + ' (fails ' + (scriptState.fmFail || 0) + ')');
+            scriptState.fmAttempt = 0;
+            scriptState.fmLastXpT = Date.now();
+            scriptState.fmXPAtLast = xpNow;
+            walkTo(getX() + 1, getY());          // off the fire tile (east line)
+            return 800;
+          }
+          if (Date.now() - scriptState.fmAttempt > 8000) {
+            scriptState.fmFail++;
+            scriptState.fmAttempt = 0;            // re-roll same ground log next tick
+            if (scriptState.fmFail % 5 === 0) {
+              // 5 straight fails: tile refusing (fire below/shoreline) — abandon,
+              // step to a fresh tile (east, else south — shore-end safe)
+              walkTo(getX() + 1, getY());
+              if (scriptState.fmFail % 10 === 0) walkTo(getX(), getY() + 1);
+              log('Tile refusing lights (fails ' + scriptState.fmFail + ') — stepping on');
+            }
+            return 600;
+          }
+          return 1000;
+        }
+        // OUT-OF-LOGS detection — inventory count GHOSTS after drops (live-proven
+        // this session: logs=27 forever while XP climbed). Truth = XP stalls:
+        // 45s without a gain while in light phase → the drops aren't landing →
+        // no real logs left → mode transition.
+        if (Date.now() - (scriptState.fmLastXpT || Date.now()) > 45000) {
+          if (FM_MODE === 'chop') { scriptState.phase = 'chop'; return 400; }
+          scriptState.fmBankTrips = (scriptState.fmBankTrips || 0) + 1;
+          if (scriptState.fmBankTrips > 1 && (fmXp() || 0) === (scriptState.fmXPAtBank || 0)) {
+            log('Bank out of logs — done. Fires lit: ' + scriptState.fmLit);
+            stopBot(); return 1000;
+          }
+          scriptState.fmXPAtBank = fmXp();
+          scriptState.fmLastXpT = Date.now();
+          log('Out of logs — returning to bank');
+          scriptState.phase = 'toBankLight';
           return 800;
         }
-        if (Date.now() - scriptState.fmAttempt > 8000) {
-          scriptState.fmFail = (scriptState.fmFail || 0) + 1;
-          if ((scriptState.fmFailTries || 0) >= 5) {
-            // ~0.03% chance of 5 straight fails at 66% — abandon tile
-            log('Tile refusing lights — stepping east, abandoning log');
-            scriptState.fmAttempt = 0;
-            scriptState.fmFailTries = 0;
-            walkTo(getX() + 1, getY());
-            return 1000;
-          }
-          // re-roll the SAME ground log (server leaves it on fail)
-          scriptState.fmAttempt = Date.now();
-          scriptState.fmFailTries = (scriptState.fmFailTries || 0) + 1;
-          var tS3 = getInventoryIndex(TINDERBOX);
-          if (tS3 >= 0) {
-            sendRaw(250, 346, function(stream, Z) {
-              Z(stream, scriptState.fmDropX);
-              Z(stream, scriptState.fmDropY);
-              Z(stream, logId);
-              Z(stream, tS3);
-            });
-            scriptState.fmQuiet = Date.now() + 4000;
-          }
+        if (nLogs === 0 && Date.now() - (scriptState.fmLastXpT || Date.now()) > 8000) {
+          if (FM_MODE === 'chop') { scriptState.phase = 'chop'; return 400; }
+          log('Firemaking done: ' + scriptState.fmLit + ' fires lit, ' + (scriptState.fmFail || 0) + ' failed rolls');
+          stopBot(); return 1000;
         }
-        return 1000;
+        if (!hasKit(TINDERBOX)) { log('Tinderbox lost — stopping'); stopBot(); return 1000; }
+        var px = getX(), py = getY();
+        var slot = getInventoryIndex(logId);
+        if (slot < 0) {
+          // no log in inventory AND no attempt pending — the count was ghost;
+          // don't idle: chop mode → back to chopping; bank mode → resupply.
+          // (The XP-stall path also covers this, but immediate = no 45s stall.)
+          scriptState.fmAttempt = 0;
+          if (FM_MODE === 'chop') { scriptState.phase = 'chop'; return 400; }
+          scriptState.phase = 'toBankLight';
+          return 800;
+        }
+        dropItem(slot);
+        scriptState.fmDropX = px; scriptState.fmDropY = py;
+        scriptState.fmXp0 = fmXp();
+        var tS = getInventoryIndex(TINDERBOX);
+        sendRaw(250, 346, function(stream, Z) {
+          Z(stream, px); Z(stream, py); Z(stream, logId); Z(stream, tS);
+        });
+        scriptState.fmAttempt = Date.now();
+        scriptState.fmQuiet = Date.now() + 4000;
+        return 1500;
+      }
+      if (Date.now() < (scriptState.fmQuiet || 0)) return 1000;   // post-click silence
+
+      // ══ CHOP MODE (APOS Abyte0_Firemaking blueprint) ══
+      if (scriptState.phase === 'chop') {
+        if (countLogs() > 0) { scriptState.phase = 'light'; return 300; }
+        if (!hasKit(TINDERBOX)) { log('No tinderbox — stopping (bring id 166)'); stopBot(); return 2000; }
+        if (!hasAxe()) { log('No axe — stopping (bring any axe)'); stopBot(); return 2000; }
+        // fire on our tile? step east before chopping
+        var footFire = false;
+        var objs97 = findObjects([97], 0);
+        if (objs97.length > 0) footFire = true;
+        if (footFire) { walkTo(getX() + 1, getY()); return 800; }
+        var tree = nearestTree();
+        if (!tree) {
+          // no tree in scan range — walk toward the DENSEST verified woodland
+          // cells (server SceneryLocs density map): Draynor west/southwest woods
+          var cells = [[197,665],[197,655],[202,646],[207,632]];
+          if (!scriptState.fmWoodsIdx || Date.now() - (scriptState.fmWoodsT || 0) > 15000) {
+            scriptState.fmWoodsIdx = (scriptState.fmWoodsIdx === undefined ? 0 : (scriptState.fmWoodsIdx + 1) % cells.length);
+            scriptState.fmWoodsT = Date.now();
+            scriptState.fmWoodsTarget = cells[scriptState.fmWoodsIdx];
+          }
+          var wt = scriptState.fmWoodsTarget || cells[0];
+          if (Date.now() - (scriptState.fmTreeMissT || 0) > 4000) {
+            scriptState.fmTreeMissT = Date.now();
+            walkTo(wt[0] + Math.floor(Math.random() * 3), wt[1] + Math.floor(Math.random() * 3));
+            log('No trees nearby — heading to woodland cell ' + wt.join(','));
+          }
+          return 1500;
+        }
+        var tCheb = Math.max(Math.abs(tree.worldX - getX()), Math.abs(tree.worldY - getY()));
+        if (tCheb > 1) {
+          if (Date.now() - (scriptState.fmTreeWalkT || 0) > 2500) {
+            scriptState.fmTreeWalkT = Date.now();
+            walkTo(tree.worldX, tree.worldY);
+          }
+          return 1000;
+        }
+        atObject(tree.worldX, tree.worldY);
+        // felled tracking: no log after 8s of chopping this tree → mark felled,
+        // move to next (stumps are server-side no-ops); clear all marks every
+        // 10 minutes (trees respawn)
+        if (scriptState.fmChopTree !== tree.worldX + ',' + tree.worldY) {
+          scriptState.fmChopTree = tree.worldX + ',' + tree.worldY;
+          scriptState.fmChopT = Date.now();
+        } else if (Date.now() - scriptState.fmChopT > 8000) {
+          scriptState.fmFelled = scriptState.fmFelled || {};
+          scriptState.fmFelled[scriptState.fmChopTree] = 1;
+          var fc = 0;
+          for (var fk in scriptState.fmFelled) fc++;
+          if (fc > 60) scriptState.fmFelled = {};   // respawn cycle — reset all
+          log('Tree felled/exhausted at ' + scriptState.fmChopTree + ' — next tree');
+        }
+        return 1200;
       }
 
-      // ── no logs left → done ──
-      if (logSlot < 0) {
-        log('Firemaking done: ' + scriptState.fmLit + ' fires lit, ' + (scriptState.fmFail || 0) + ' failed rolls');
-        stopBot();
-        return 1000;
+      // ══ BANK MODE ══
+      if (scriptState.phase === 'toBankLight') {
+        var bt = BANK_REGISTRY[bankName];
+        if (!bt) { log('Unknown bank ' + bankName + ' — stopping'); stopBot(); return 2000; }
+        var cheb = Math.max(Math.abs(bt[0] - getX()), Math.abs(bt[1] - getY()));
+        if (cheb <= 2) { scriptState.phase = 'fmBankTalk'; scriptState._fmBankerMisses = 0; return 400; }
+        walkTo(bt[0], bt[1]);
+        if (scriptState.fmBX === getX() && scriptState.fmBY === getY()) {
+          if (Date.now() - (scriptState.fmBT || 0) > 4000) {
+            scriptState.fmBT = Date.now();
+            walkTo(bt[0] + 2, bt[1] + 2);   // nudge
+          }
+        } else { scriptState.fmBX = getX(); scriptState.fmBY = getY(); scriptState.fmBT = Date.now(); }
+        return 1200;
+      }
+      if (scriptState.phase === 'fmBankTalk') {
+        var BANKER_IDS = [95, 224, 268, 485, 540, 617];
+        var banker = findNpcs(BANKER_IDS, 4);
+        if (banker.length > 0) {
+          log('Talking to banker');
+          talkToNpc(banker[0].serverIndex);
+          scriptState.fmBankTimer = Date.now();
+          scriptState.phase = 'fmBankOption';   // cooking pattern: switch NOW,
+          // option phase answers + retries; 12s no-bank → re-talk
+          return 2000;
+        }
+        // NPC array ghost after long walks — re-walk the bank tile each miss
+        // (cooking bankTalk pattern); the scan recovers within ~2 tiles
+        scriptState._fmBankerMisses = (scriptState._fmBankerMisses || 0) + 1;
+        if (scriptState._fmBankerMisses % 3 === 1) {
+          var btM = BANK_REGISTRY[bankName];
+          walkTo(btM[0], btM[1]);
+        }
+        if (scriptState._fmBankerMisses >= 12) { log('No banker found — stopping'); stopBot(); return 2000; }
+        return 1500;
+      }
+      if (scriptState.phase === 'fmBankOption') {
+        if (isInBank()) { scriptState.phase = 'fmWithdraw'; return 500; }
+        if (Date.now() - scriptState.fmBankTimer > 2000) {
+          optionAnswer(0);
+          scriptState.fmBankTimer = Date.now();
+        }
+        if (Date.now() - scriptState.fmBankTalkStart > 12000) {
+          log('Bank not opening — retrying talk');
+          scriptState.phase = 'fmBankTalk';
+          scriptState.fmBankTalkStart = Date.now();
+        }
+        return 1500;
+      }
+      if (scriptState.phase === 'fmWithdraw') {
+        if (!isInBank()) { scriptState.phase = 'toBankLight'; return 800; }
+        if (!hasKit(TINDERBOX)) { withdrawItem(TINDERBOX, 1); return 2000; }
+        var have = countLogs();
+        if (!scriptState.fmWdT) {
+          // ONE withdraw request per visit (bank may have less than asked —
+          // a repeat request loops forever when the bank is short/empty)
+          withdrawItem(logId, 27);
+          scriptState.fmWdT = Date.now();
+          return 2000;
+        }
+        if (Date.now() - scriptState.fmWdT > 3500) {
+          if (have === 0) {
+            // nothing arrived — bank is out of logs entirely
+            log('Bank has no logs — done. Fires lit: ' + (scriptState.fmLit || 0));
+            closeBank();
+            stopBot(); return 1000;
+          }
+          scriptState.fmWdT = 0;
+          scriptState.phase = 'fmBankClose';
+        }
+        return 1500;
+      }
+      if (scriptState.phase === 'fmBankClose') {
+        if (!isInBank()) { scriptState.phase = 'toLightArea'; return 400; }
+        closeBank();
+        return 1200;
       }
 
-      // ── new attempt: drop log at feet → tinderbox on it ──
-      var px2 = getX(), py2 = getY();
-      dropItem(logSlot);
-      scriptState.fmDropX = px2; scriptState.fmDropY = py2;
-      scriptState.fmXp0 = fmXp();
-      var tSlot2 = getInventoryIndex(TINDERBOX);
-      if (tSlot2 < 0) { log('Tinderbox lost — stopping'); stopBot(); return 1000; }
-      sendRaw(250, 346, function(stream, Z) {
-        Z(stream, px2);
-        Z(stream, py2);
-        Z(stream, logId);
-        Z(stream, tSlot2);
-      });
-      scriptState.fmAttempt = Date.now();
-      scriptState.fmFailTries = 0;
-      scriptState.fmQuiet = Date.now() + 4000;
-      return 1500;
+      // ══ TO LIGHT AREA (bank mode): south of the bank into the open shore band.
+      // Per-bank offsets are terrain-verified (live walk-tested): Draynor SW
+      // works, (212,643) is pathfinder-blocked from the bank while (216,643)
+      // works — offset −4,+8 is the verified safe default. ══
+      var FM_LIGHT_OFFSETS = {
+        'Draynor': [-4, 8], 'Edgeville': [-4, 8], 'Varrock West': [-4, 8],
+        'Varrock East': [4, 8], 'Falador East': [-4, 8], 'Falador West': [-4, 8],
+        'Seers': [4, 8], 'Ardougne North': [-4, 8], 'Ardougne South': [-4, 8],
+        'Yanille': [-4, 8], 'Al-Kharid': [-4, 8], 'Catherby': [-4, 8]
+      };
+      if (scriptState.phase === 'toLightArea') {
+        var bt2 = BANK_REGISTRY[bankName];
+        var off = FM_LIGHT_OFFSETS[bankName] || [-4, 8];
+        var lx = bt2[0] + off[0], ly = bt2[1] + off[1];
+        var dL = Math.max(Math.abs(lx - getX()), Math.abs(ly - getY()));
+        if (dL <= 2) { scriptState.phase = 'light'; return 400; }
+        if (Date.now() - (scriptState.fmAreaT || 0) > 2500) {
+          scriptState.fmAreaT = Date.now();
+          walkTo(lx, ly);
+        }
+        return 1200;
+      }
     };
   }
 

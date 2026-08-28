@@ -455,6 +455,8 @@ export interface ScriptConfig {
   cookSite?: string;
   // — Firemaking —
   fmLogs?: string;
+  fmMode?: string;    // 'bank' | 'chop'
+  fmBank?: string;
   // — Woodcutting —
   treeType?: string;
   treeTypes?: Record<string, boolean>;   // v265: multi-select
@@ -1010,11 +1012,17 @@ function CookingConfig({ cfg, set }: CfgProps) {
 }
 
 function FiremakingConfig({ cfg, set }: CfgProps) {
-  // v304: normal logs only on this server (custom_firemaking=FALSE — authentic
-  // mode lights normal logs; oak+ need the custom config). Bring tinderbox 166
-  // + logs; fires light at your feet, bot walks the line automatically.
+  // v308: two modes. BANK — withdraw logs + tinderbox, light lines west of bank.
+  // CHOP — APOS Abyte0_Firemaking style: axe + tinderbox, cut nearest trees,
+  // light each log as it lands. Runs for hours, no banking.
   return (
     <div style={S_PANEL}>
+      <Field label="Mode">
+        <select style={S_SELECT} value={cfg.fmMode ?? 'bank'} onChange={e => set({ fmMode: e.target.value })}>
+          <option value="bank">Bank logs (withdraw & burn)</option>
+          <option value="chop">Chop & burn (axe, no bank)</option>
+        </select>
+      </Field>
       <Field label="Log Type">
         <select style={S_SELECT} value={cfg.fmLogs ?? 'normal'} onChange={e => set({ fmLogs: e.target.value })}>
           <option value="normal">Normal logs</option>
@@ -1022,8 +1030,17 @@ function FiremakingConfig({ cfg, set }: CfgProps) {
           <option value="willow">Willow (needs custom FM)</option>
         </select>
       </Field>
+      {(cfg.fmMode ?? 'bank') === 'bank' && (
+        <Field label="Bank">
+          <select style={S_SELECT} value={cfg.fmBank ?? 'Draynor'} onChange={e => set({ fmBank: e.target.value })}>
+            {BANK_LOCATIONS.map(b => <option key={b} value={b}>{b}</option>)}
+          </select>
+        </Field>
+      )}
       <div style={{ fontSize: 11, color: '#8a8f98', lineHeight: 1.5, padding: '2px 0' }}>
-        Bring a tinderbox + logs. Drops each log at your feet, lights it, and follows the fire line. Server is authentic FM — normal logs only.
+        {(cfg.fmMode ?? 'bank') === 'chop'
+          ? 'Bring an axe + tinderbox. Cuts the nearest trees, drops and lights each log, moves tree to tree.'
+          : 'Withdraws tinderbox + logs from the bank, lights a fire line west of the bank, repeats until the bank is out of logs.'}
       </div>
     </div>
   );
