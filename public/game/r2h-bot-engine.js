@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v305';
+  var VERSION = 'v306';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5567,7 +5567,23 @@ return 1000;
         scriptState.ckCooked = 0;
         scriptState.ckBurnt = 0;
         scriptState.ckTrips = 0;
-        scriptState.phase = 'toRange';
+        // v306: START-TIME INVENTORY CHECK — where we begin depends on what we're
+        // holding. Raw food in inventory → range as before. Empty/no raws → go to
+        // the BANK first (withdraw loop takes over; "bank has no raws" stops there
+        // if truly out — user-reported: walking to the range with nothing to cook).
+        var startRaw = 0;
+        for (var si = 0; si < 30; si++) {
+          if (getInventoryId && typeof getInventoryId === 'function') {
+            if (getInventoryId(si) === food.raw) startRaw++;
+          }
+        }
+        if (startRaw === 0) {
+          log('No raw ' + foodName + ' in inventory — starting at the bank (withdraw)');
+          scriptState.phase = 'toBank';
+        } else {
+          log(startRaw + ' raw ' + foodName + ' in inventory — starting at the range');
+          scriptState.phase = 'toRange';
+        }
       }
 
       // ══ FATIGUE / SLEEP (copy fishing pattern) ══
