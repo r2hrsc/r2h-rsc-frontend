@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v309';
+  var VERSION = 'v310';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -4874,6 +4874,12 @@
     var LOG_TYPES = { normal: LOG_NORMAL, oak: LOG_OAK, willow: LOG_WILLOW, maple: LOG_MAPLE, yew: LOG_YEW, magic: LOG_MAGIC };
     var logId = LOG_TYPES[cfg.fmLogs] || LOG_NORMAL;
     var bankName = cfg.fmBank || 'Auto (nearest)';   // v309: auto-detect default
+    var FM_LIGHT_OFFSETS = {
+      'Draynor': [-4, 8], 'Edgeville': [-4, 8], 'Varrock West': [-4, 8],
+      'Varrock East': [4, 8], 'Falador East': [-4, 8], 'Falador West': [-4, 8],
+      'Seers': [4, 8], 'Ardougne North': [-4, 8], 'Ardougne South': [-4, 8],
+      'Yanille': [-4, 8], 'Al-Kharid': [-4, 8], 'Catherby': [-4, 8]
+    };
 
     function fmXp() {
       var mc = getMC();
@@ -5183,22 +5189,29 @@
         return 1200;
       }
 
-      // ══ TO LIGHT AREA (bank mode): south of the bank into the open shore band.
-      // Per-bank offsets are terrain-verified (live walk-tested): Draynor SW
-      // works, (212,643) is pathfinder-blocked from the bank while (216,643)
-      // works — offset −4,+8 is the verified safe default. ══
-      var FM_LIGHT_OFFSETS = {
-        'Draynor': [-4, 8], 'Edgeville': [-4, 8], 'Varrock West': [-4, 8],
-        'Varrock East': [4, 8], 'Falador East': [-4, 8], 'Falador West': [-4, 8],
-        'Seers': [4, 8], 'Ardougne North': [-4, 8], 'Ardougne South': [-4, 8],
-        'Yanille': [-4, 8], 'Al-Kharid': [-4, 8], 'Catherby': [-4, 8]
-      };
+      // ══ TO LIGHT AREA (bank mode): try the terrain offset tile, but if the
+      // walk stalls >12s, LIGHT WHERE WE STAND — fire lines work anywhere
+      // fire-free; the step-east logic walks the line outward from here.
+      // (User-reported: bot withdrew logs then idled at the bank forever —
+      // blocked offset tile, no stall fallback.) ══
       if (scriptState.phase === 'toLightArea') {
         var bt2 = BANK_REGISTRY[bankName];
         var off = FM_LIGHT_OFFSETS[bankName] || [-4, 8];
         var lx = bt2[0] + off[0], ly = bt2[1] + off[1];
         var dL = Math.max(Math.abs(lx - getX()), Math.abs(ly - getY()));
         if (dL <= 2) { scriptState.phase = 'light'; return 400; }
+        // stall detection on THIS walk
+        if (scriptState.fmAreaX === getX() && scriptState.fmAreaY === getY()) {
+          scriptState.fmAreaStall = (scriptState.fmAreaStall || 0) + 1;
+        } else {
+          scriptState.fmAreaStall = 0;
+          scriptState.fmAreaX = getX(); scriptState.fmAreaY = getY();
+        }
+        if ((scriptState.fmAreaStall || 0) >= 8) {
+          log('Light area unreachable — lighting here instead');
+          scriptState.phase = 'light';
+          return 400;
+        }
         if (Date.now() - (scriptState.fmAreaT || 0) > 2500) {
           scriptState.fmAreaT = Date.now();
           walkTo(lx, ly);
