@@ -60,6 +60,7 @@ export const SCRIPTS: ScriptDef[] = [
   { id: 'FletchnBankBows', name: 'Fletch & Bank Bows', author: 'Searos', description: 'Fletches and banks bows.', categories: ['Skilling'], fileName: 'FletchnBankBows' },
   { id: 'ArrowMaker', name: 'Arrow Maker', author: 'Searos', description: 'Make headless arrows or tipped arrows of any type.', categories: ['Skilling'], fileName: 'ArrowMaker' },
   { id: 'AIOCooker', name: 'AIO Cooker', author: 'Dvorak & Kaila', description: 'Catherby — withdraws raw food, cooks, banks.', categories: ['Skilling'], fileName: 'AIOCooker' },
+  { id: 'Firemaking', name: 'Firemaker', author: 'R2H', description: 'Drops and lights logs in a fire line. Bring tinderbox + logs.', categories: ['Skilling'], fileName: 'Firemaking' },
   { id: 'AIOSmelter', name: 'AIO Smelter', author: 'Dvorak, Searos, Kaila', description: 'Standard Falador/Al-Kharid smelter script.', categories: ['Skilling'], fileName: 'AIOSmelter' },
   { id: 'SmithingVarrock', name: 'Varrock Smither', author: 'Searos & Kaila', description: 'Smiths items at the anvil in Varrock.', categories: ['Skilling'], fileName: 'SmithingVarrock' },
   { id: 'SmithGearSet', name: 'Smith Gear Sets', author: 'Searos', description: 'Smith entire gear sets.', categories: ['Skilling'], fileName: 'SmithGearSet' },

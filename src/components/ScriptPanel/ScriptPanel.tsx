@@ -453,6 +453,8 @@ export interface ScriptConfig {
   dropBurnt?: boolean;
   gauntlets?: boolean;
   cookSite?: string;
+  // — Firemaking —
+  fmLogs?: string;
   // — Woodcutting —
   treeType?: string;
   treeTypes?: Record<string, boolean>;   // v265: multi-select
@@ -488,7 +490,7 @@ export interface ScriptConfig {
   targetPrayerLevel?: string;
 }
 
-type ConfigType = 'combat' | 'mining' | 'cooking' | 'woodcutting' | 'fishing' | 'magic' | 'thieving' | 'smithing' | 'fletching' | 'bones';
+type ConfigType = 'combat' | 'mining' | 'cooking' | 'woodcutting' | 'fishing' | 'magic' | 'thieving' | 'smithing' | 'fletching' | 'firemaking' | 'bones';
 
 // ═══════════════════════════════════════════════════════════════
 // Option lists
@@ -603,6 +605,7 @@ const MAGIC_IDS     = new Set(['AIOMagic', 'AlchWheat', 'K_TeleWines', 'K_NoBank
 const THIEVING_IDS  = new Set(['AIOThiever', 'Man']);
 const SMITHING_IDS  = new Set(['SmithingVarrock', 'SmithGearSet', 'CeikPlates', 'K_FastChainLinks', 'AIOSmelter']);
 const FLETCHING_IDS = new Set(['PowerFletcha', 'FletchnBankBows', 'ArrowMaker']);
+const FIREMAKING_IDS = new Set(['Firemaking', 'AIOFiremaker']);
 const BONE_IDS      = new Set(['BuryBone', 'K_BoneyardBury']);
 
 function getConfigType(script: ScriptDef): ConfigType | null {
@@ -615,6 +618,7 @@ function getConfigType(script: ScriptDef): ConfigType | null {
   if (THIEVING_IDS.has(script.id))  return 'thieving';
   if (SMITHING_IDS.has(script.id))  return 'smithing';
   if (FLETCHING_IDS.has(script.id)) return 'fletching';
+  if (FIREMAKING_IDS.has(script.id)) return 'firemaking';
   if (BONE_IDS.has(script.id))      return 'bones';
   return null;
 }
@@ -627,6 +631,8 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
       return { rocks: { Copper: true, Tin: true, Iron: false, Coal: false, Silver: false, Gold: false, Mithril: false, Adamantite: false, Runite: false }, mineNoBank: false, campLocation: MINING_CAMPS[0], mineBankLocation: BANK_LOCATIONS[0], customCoords: false, customX: '', customY: '' };
     case 'cooking':
       return { foodType: FOOD_TYPES[0], dropBurnt: false, gauntlets: false, cookSite: 'Auto (nearest)' };
+    case 'firemaking':
+      return { fmLogs: 'normal' };
     case 'woodcutting':
       return { treeType: 'Normal', treeTypes: { Normal: true, Oak: false, Willow: false, Maple: false, Yew: false, Magic: false }, wcBank: true, bankDestination: 'Auto' };
     case 'fishing':
@@ -1003,6 +1009,26 @@ function CookingConfig({ cfg, set }: CfgProps) {
   );
 }
 
+function FiremakingConfig({ cfg, set }: CfgProps) {
+  // v304: normal logs only on this server (custom_firemaking=FALSE — authentic
+  // mode lights normal logs; oak+ need the custom config). Bring tinderbox 166
+  // + logs; fires light at your feet, bot walks the line automatically.
+  return (
+    <div style={S_PANEL}>
+      <Field label="Log Type">
+        <select style={S_SELECT} value={cfg.fmLogs ?? 'normal'} onChange={e => set({ fmLogs: e.target.value })}>
+          <option value="normal">Normal logs</option>
+          <option value="oak">Oak (needs custom FM)</option>
+          <option value="willow">Willow (needs custom FM)</option>
+        </select>
+      </Field>
+      <div style={{ fontSize: 11, color: '#8a8f98', lineHeight: 1.5, padding: '2px 0' }}>
+        Bring a tinderbox + logs. Drops each log at your feet, lights it, and follows the fire line. Server is authentic FM — normal logs only.
+      </div>
+    </div>
+  );
+}
+
 function WoodcuttingConfig({ cfg, set }: CfgProps) {
   // v265: full engine — multi-select tree types (level-gated at start),
   // bank vs power-chop, auto or manual bank choice.
@@ -1238,6 +1264,7 @@ function ConfigPanel({ type, cfg, set }: { type: ConfigType; cfg: ScriptConfig; 
     case 'combat':      return <CombatConfig cfg={cfg} set={set} />;
     case 'mining':      return <MiningConfig cfg={cfg} set={set} />;
     case 'cooking':     return <CookingConfig cfg={cfg} set={set} />;
+    case 'firemaking':  return <FiremakingConfig cfg={cfg} set={set} />;
     case 'woodcutting': return <WoodcuttingConfig cfg={cfg} set={set} />;
     case 'fishing':     return <FishingConfig cfg={cfg} set={set} />;
     case 'magic':       return <MagicConfig cfg={cfg} set={set} />;

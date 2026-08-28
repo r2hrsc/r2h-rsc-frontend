@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v303';
+  var VERSION = 'v304';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1144,8 +1144,11 @@
       log('Woodcutting: "' + scriptId + '" → v265 full script');
       tickFn = makeWoodcuttingScript(runtimeConfig);
     } else if (isCookingScript(scriptId)) {
-      log('Cooking: "' + scriptId + '" → v301 cooking engine');
+      log('Cooking: "' + scriptId + '" → v303 cooking engine');
       tickFn = makeCookingScript(runtimeConfig);
+    } else if (isFiremakingScript(scriptId)) {
+      log('Firemaking: "' + scriptId + '" → v304 firemaking engine');
+      tickFn = makeFiremakingScript(runtimeConfig);
     } else if (isFishingScript(scriptId)) {
       // v275: APOS fishing ids → fishing engine; preset the fish type per id.
       // 'CatherbyFishFarm' is INTENTIONALLY excluded (it's in COOKING_IDS —
@@ -4853,6 +4856,143 @@
   }
 
   // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════
+  // v304: FIREMAKING — server-verified (Firemaking.java, authentic mode)
+  // Mechanics: batch_progression=FALSE → ONE light attempt per tinderbox-use.
+  //   1. dropItem(logSlot)          — log lands on ground at player tile
+  //   2. I9 210 → opcode 250 (346): Z(x), Z(y), Z(groundItemId), Z(tinderboxSlot)
+  //      (classes.js verified; GROUND_ITEM_USE_ITEM)
+  //   3. server: delay(3) → light roll (fail rate = level-based) → on success:
+  //      fire object 97 spawns, XP, then firemakingWalk() moves the player 1 tile
+  //      (east-preferred) off the fire → next log drops at the NEW feet tile.
+  // Loop = drop → use → wait for log to vanish (lit or reclaimed) → repeat.
+  // Custom firemaking OFF on FuzzyNuts → NORMAL LOGS ONLY (id 14).
+  // FM = stat index 11. Tinderbox 166, logs 14.
+  // ═══════════════════════════════════════════════════════════════
+
+  function makeFiremakingScript(runtimeConfig) {
+    var cfg = runtimeConfig || {};
+    return function() {
+      if (!isLoggedIn()) return 5000;
+
+      if (scriptState.phase === 'init') {
+        var lvl = getStatBase(11);
+        var tSlot = getInventoryIndex(TINDERBOX);
+        if (tSlot < 0) {
+          log('Firemaking: no tinderbox (id 166) in inventory — stopping');
+          stopBot(); return 2000;
+        }
+        log('Firemaking v304: lvl=' + lvl + ' logs=' + (cfg.fmLogs || 'normal'));
+        scriptState.fmLit = 0;
+        scriptState.fmFail = 0;
+        scriptState.phase = 'fm';
+      }
+
+      // ── fatigue/sleep (standard) ──
+      if (getIsSleeping()) {
+        if (!scriptState.sleepTyping) {
+          scriptState.sleepTyping = true;
+          var sw = 'asleep';
+          for (var ci = 0; ci < sw.length; ci++) window.__r2hTypeChar(sw[ci]);
+          setTimeout(function() {
+            window.__r2hTypeSpecial('Enter');
+            scriptState.sleepTyping = false;
+          }, 500);
+        }
+        return 2000;
+      }
+      var fatigue = getFatigue();
+      if (fatigue >= 90) {
+        var bagSlot = getInventoryIndex(SLEEPING_BAG);
+        if (bagSlot >= 0) { log('Fatigue ' + fatigue + '% — using sleeping bag'); useItem(bagSlot); return 3000; }
+      }
+
+      // ── resolve log id (custom FM off → normal only) ──
+      var LOG_TYPES = { normal: LOG_NORMAL, oak: LOG_OAK, willow: LOG_WILLOW, maple: LOG_MAPLE, yew: LOG_YEW, magic: LOG_MAGIC };
+      var logId = LOG_TYPES[cfg.fmLogs] || LOG_NORMAL;
+      var logSlot = getInventoryIndex(logId);
+
+      // ── silence: server-side action running (walk-to-log + roll) ──
+      if (Date.now() < (scriptState.fmQuiet || 0)) return 1000;
+
+      // v304c: success detection via XP GAIN (ground-item arrays ghost burned
+      // logs — v249-class client bug, live-proven: fires lit while client still
+      // showed the log). XP packets are reliable (miner-proven pattern).
+      function fmXp() {
+        var mc = getMC();
+        return mc && mc.kN && mc.kN.data ? Number(mc.kN.data[11]) : 0;
+      }
+
+      // ── attempt in flight: wait for XP gain (success) or timeout (fail) ──
+      if (scriptState.fmAttempt) {
+        if (fmXp() > (scriptState.fmXp0 || 0)) {
+          // SUCCESS — fire lit; server walked us off (firemakingWalk). Step east
+          // ourselves too (idempotent) to guarantee we're off the fire tile.
+          scriptState.fmLit++;
+          log('Fire lit #' + scriptState.fmLit + ' (fails ' + (scriptState.fmFail || 0) + ')');
+          scriptState.fmAttempt = 0;
+          walkTo(getX() + 1, getY());
+          return 800;
+        }
+        if (Date.now() - scriptState.fmAttempt > 8000) {
+          scriptState.fmFail = (scriptState.fmFail || 0) + 1;
+          if ((scriptState.fmFailTries || 0) >= 5) {
+            // ~0.03% chance of 5 straight fails at 66% — abandon tile
+            log('Tile refusing lights — stepping east, abandoning log');
+            scriptState.fmAttempt = 0;
+            scriptState.fmFailTries = 0;
+            walkTo(getX() + 1, getY());
+            return 1000;
+          }
+          // re-roll the SAME ground log (server leaves it on fail)
+          scriptState.fmAttempt = Date.now();
+          scriptState.fmFailTries = (scriptState.fmFailTries || 0) + 1;
+          var tS3 = getInventoryIndex(TINDERBOX);
+          if (tS3 >= 0) {
+            sendRaw(250, 346, function(stream, Z) {
+              Z(stream, scriptState.fmDropX);
+              Z(stream, scriptState.fmDropY);
+              Z(stream, logId);
+              Z(stream, tS3);
+            });
+            scriptState.fmQuiet = Date.now() + 4000;
+          }
+        }
+        return 1000;
+      }
+
+      // ── no logs left → done ──
+      if (logSlot < 0) {
+        log('Firemaking done: ' + scriptState.fmLit + ' fires lit, ' + (scriptState.fmFail || 0) + ' failed rolls');
+        stopBot();
+        return 1000;
+      }
+
+      // ── new attempt: drop log at feet → tinderbox on it ──
+      var px2 = getX(), py2 = getY();
+      dropItem(logSlot);
+      scriptState.fmDropX = px2; scriptState.fmDropY = py2;
+      scriptState.fmXp0 = fmXp();
+      var tSlot2 = getInventoryIndex(TINDERBOX);
+      if (tSlot2 < 0) { log('Tinderbox lost — stopping'); stopBot(); return 1000; }
+      sendRaw(250, 346, function(stream, Z) {
+        Z(stream, px2);
+        Z(stream, py2);
+        Z(stream, logId);
+        Z(stream, tSlot2);
+      });
+      scriptState.fmAttempt = Date.now();
+      scriptState.fmFailTries = 0;
+      scriptState.fmQuiet = Date.now() + 4000;
+      return 1500;
+    };
+  }
+
+  var FIREMAKING_SCRIPT_IDS = ['Firemaking', 'AIOFiremaker', 'fm-burn'];
+  function isFiremakingScript(id) {
+    return FIREMAKING_SCRIPT_IDS.indexOf(id) >= 0;
+  }
+
   // v206: MINE/BANK REGISTRY + WEBWALK ROUTING (IdleRSC graph port)
   // Rock IDs + respawn secs: server ObjectMining.xml (verified 2026-08-16)
   // Rock coords: server SceneryLocs.json per-camp extraction
@@ -5768,8 +5908,11 @@ return 1000;
   // Item IDs
   var ORE_COPPER = 155, ORE_TIN = 156, ORE_IRON = 157, ORE_COAL = 158;
   var BAR_BRONZE = 169, BAR_IRON = 170, BAR_STEEL = 171;
-  var LOG_NORMAL = 77, LOG_OAK = 183, LOG_WILLOW = 185, LOG_YEW = 187;
-  var KNIFE = 13, CHISEL = 12, TINDERBOX = 6;
+  // v304: log/tinderbox ids corrected from server ItemDefs.json (old values were
+  // wrong-era: 77/6 → truth 14/166). FiremakingDef.xml levels: oak 15, willow 30,
+  // maple 45, yew 60, magic 75.
+  var LOG_NORMAL = 14, LOG_OAK = 632, LOG_WILLOW = 633, LOG_MAPLE = 634, LOG_YEW = 635, LOG_MAGIC = 636;
+  var KNIFE = 13, CHISEL = 12, TINDERBOX = 166;
   var FLAX = 675, BOW_STRING = 676;
   var GEM_SAPPHIRE = 160, GEM_EMERALD = 161, GEM_RUBY = 162, GEM_DIAMOND = 163;
   var UNCUT_SAPPHIRE = 164, UNCUT_EMERALD = 165, UNCUT_RUBY = 166, UNCUT_DIAMOND = 167;
