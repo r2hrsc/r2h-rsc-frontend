@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v312';
+  var VERSION = 'v313';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5003,6 +5003,8 @@
             // v311: record the lit tile — never drop on it again this session
             scriptState.fmFireTiles = scriptState.fmFireTiles || {};
             scriptState.fmFireTiles[scriptState.fmDropX + ',' + scriptState.fmDropY] = 1;
+            // v313: the ground log was CONSUMED by the fire — no pending re-use
+            scriptState.fmPendingDrop = null;
             if (scriptState.fmLit % 5 === 0) log('Fires lit: ' + scriptState.fmLit + ' (fails ' + (scriptState.fmFail || 0) + ')');
             scriptState.fmAttempt = 0;
             scriptState.fmLastXpT = Date.now();
@@ -5100,8 +5102,28 @@
           scriptState.phase = 'toBankLight';
           return 800;
         }
+        // v313: ONE log on the ground per tile. If a dropped log still lies at
+        // our drop tile (failed light — server leaves it), RE-USE it: send the
+        // tinderbox-use again, NEVER drop a second log on the pile. (Live
+        // 2026-08-29 00:17: oak fails stacked logs 2-deep in the bank area.)
+        if (scriptState.fmPendingDrop &&
+            scriptState.fmPendingDrop.x === px && scriptState.fmPendingDrop.y === py) {
+          var tS0 = getInventoryIndex(TINDERBOX);
+          if (tS0 >= 0) {
+            sendRaw(250, 346, function(stream, Z) {
+              Z(stream, scriptState.fmPendingDrop.x);
+              Z(stream, scriptState.fmPendingDrop.y);
+              Z(stream, logId);
+              Z(stream, tS0);
+            });
+            scriptState.fmAttempt = Date.now();
+            scriptState.fmQuiet = Date.now() + 4000;
+            return 1500;
+          }
+        }
         dropItem(slot);
         scriptState.fmDropX = px; scriptState.fmDropY = py;
+        scriptState.fmPendingDrop = { x: px, y: py };   // v313: re-use until consumed
         scriptState.fmXp0 = fmXp();
         var tS = getInventoryIndex(TINDERBOX);
         sendRaw(250, 346, function(stream, Z) {
