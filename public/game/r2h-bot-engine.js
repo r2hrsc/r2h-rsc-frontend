@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v311';
+  var VERSION = 'v312';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -4872,6 +4872,10 @@
     var cfg = runtimeConfig || {};
     var FM_MODE = cfg.fmMode || 'bank';                       // 'bank' | 'chop'
     var LOG_TYPES = { normal: LOG_NORMAL, oak: LOG_OAK, willow: LOG_WILLOW, maple: LOG_MAPLE, yew: LOG_YEW, magic: LOG_MAGIC };
+    // v312: log level requirements (server FiremakingDef.xml — the roll
+    // hard-fails below these; live 2026-08-29 00:17: oak attempts at FM<15
+    // dropped 10 logs, zero fires, looped through the bank stock)
+    var FM_LOG_LEVELS = { normal: 1, oak: 15, willow: 30, maple: 45, yew: 60, magic: 75 };
     var logId = LOG_TYPES[cfg.fmLogs] || LOG_NORMAL;
     var bankName = cfg.fmBank || 'Auto (nearest)';   // v309: auto-detect default
     var FM_LIGHT_OFFSETS = {
@@ -4960,6 +4964,13 @@
           log('FM bank auto-detected: ' + bankName + ' (' + bestBD + ' tiles)');
         }
         log('Firemaking v308 [' + FM_MODE + ' mode]: lvl=' + lvl + ' logs=' + (cfg.fmLogs || 'normal') + ' bank=' + bankName);
+        // v312: level gate (server roll hard-fails below req — port of cooking's
+        // food-level check; live: oak @ FM<15 looped zero-fire attempts)
+        var needLvl = FM_LOG_LEVELS[cfg.fmLogs] || 1;
+        if (lvl < needLvl) {
+          log('Need Firemaking level ' + needLvl + ' for ' + (cfg.fmLogs || 'normal') + ' logs (you are ' + lvl + ') — stopping');
+          stopBot(); return 2000;
+        }
         scriptState.fmLit = 0; scriptState.fmFail = 0;
         scriptState.phase = (FM_MODE === 'chop') ? 'chop' : 'toBankLight';
       }
@@ -5002,6 +5013,13 @@
           if (Date.now() - scriptState.fmAttempt > 8000) {
             scriptState.fmFail++;
             scriptState.fmAttempt = 0;            // re-roll same ground log next tick
+            // v312: ZERO successes + mounting fails = the log type can't light
+            // (level gate missed / tile class). Cap at 12 consecutive zero-light
+            // fails with NO lit fires this run → stop, don't eat the bank stock.
+            if ((scriptState.fmFail || 0) >= 12 && !(scriptState.fmLit > 0)) {
+              log('12 failed lights, 0 fires — logs cannot light (level? tile?) — stopping');
+              stopBot(); return 2000;
+            }
             if (scriptState.fmFail % 5 === 0) {
               // 5 straight fails: tile refusing (fire below/shoreline) — abandon,
               // step to a fresh tile (east, else south — shore-end safe)
