@@ -1024,10 +1024,8 @@ function FiremakingConfig({ cfg, set }: CfgProps) {
         </select>
       </Field>
       <Field label="Log Type">
-        <select style={S_SELECT} value={cfg.fmLogs ?? 'normal'} onChange={e => set({ fmLogs: e.target.value })}>
+        <select style={S_SELECT} value="normal" disabled title="This server (authentic FM) only lights normal logs">
           <option value="normal">Normal logs</option>
-          <option value="oak">Oak (needs custom FM)</option>
-          <option value="willow">Willow (needs custom FM)</option>
         </select>
       </Field>
       {(cfg.fmMode ?? 'bank') === 'bank' && (

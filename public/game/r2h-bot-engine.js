@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v315';
+  var VERSION = 'v316';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -4872,11 +4872,14 @@
     var cfg = runtimeConfig || {};
     var FM_MODE = cfg.fmMode || 'bank';                       // 'bank' | 'chop'
     var LOG_TYPES = { normal: LOG_NORMAL, oak: LOG_OAK, willow: LOG_WILLOW, maple: LOG_MAPLE, yew: LOG_YEW, magic: LOG_MAGIC };
-    // v312: log level requirements (server FiremakingDef.xml — the roll
-    // hard-fails below these; live 2026-08-29 00:17: oak attempts at FM<15
-    // dropped 10 logs, zero fires, looped through the bank stock)
-    var FM_LOG_LEVELS = { normal: 1, oak: 15, willow: 30, maple: 45, yew: 60, magic: 75 };
-    var logId = LOG_TYPES[cfg.fmLogs] || LOG_NORMAL;
+    // v316 SERVER TRUTH (Firemaking.java, authentic mode = CUSTOM_FIREMAKING off):
+    // ONLY normal logs (id 14) are lightable. Oak/willow/maple/yew/magic hit
+    // "Nothing interesting happens" REGARDLESS of level — the level table in
+    // FiremakingDef.xml applies to custom-FM mode only. Force normal always.
+    var logId = LOG_NORMAL;
+    if (cfg.fmLogs && cfg.fmLogs !== 'normal') {
+      // noted at init (below) — config override is invalid on this server
+    }
     var bankName = cfg.fmBank || 'Auto (nearest)';   // v309: auto-detect default
     var FM_LIGHT_OFFSETS = {
       // Rig-probed anchors (2026-08-29): Catherby SOUTH IS OCEAN at y≥500 —
@@ -4965,13 +4968,9 @@
           bankName = bestB || 'Draynor';
           log('FM bank auto-detected: ' + bankName + ' (' + bestBD + ' tiles)');
         }
-        log('Firemaking v308 [' + FM_MODE + ' mode]: lvl=' + lvl + ' logs=' + (cfg.fmLogs || 'normal') + ' bank=' + bankName);
-        // v312: level gate (server roll hard-fails below req — port of cooking's
-        // food-level check; live: oak @ FM<15 looped zero-fire attempts)
-        var needLvl = FM_LOG_LEVELS[cfg.fmLogs] || 1;
-        if (lvl < needLvl) {
-          log('Need Firemaking level ' + needLvl + ' for ' + (cfg.fmLogs || 'normal') + ' logs (you are ' + lvl + ') — stopping');
-          stopBot(); return 2000;
+        log('Firemaking v316 [' + FM_MODE + ' mode]: lvl=' + lvl + ' logs=normal (server authentic FM: normal logs only) bank=' + bankName);
+        if (cfg.fmLogs && cfg.fmLogs !== 'normal') {
+          log('Note: ' + cfg.fmLogs + ' logs selected, but this server only lights NORMAL logs (authentic FM) — using normal');
         }
         scriptState.fmLit = 0; scriptState.fmFail = 0;
         scriptState.phase = (FM_MODE === 'chop') ? 'chop' : 'toBankLight';
@@ -5141,14 +5140,29 @@
         dropItem(slot);
         scriptState.fmDropX = px; scriptState.fmDropY = py;
         scriptState.fmPendingDrop = { x: px, y: py };   // v313: re-use until consumed
-        scriptState.fmXp0 = fmXp();
-        var tS = getInventoryIndex(TINDERBOX);
-        sendRaw(250, 346, function(stream, Z) {
-          Z(stream, px); Z(stream, py); Z(stream, logId); Z(stream, tS);
-        });
-        scriptState.fmAttempt = Date.now();
-        scriptState.fmQuiet = Date.now() + 4000;
-        return 1500;
+        // v316: DO NOT send the tinderbox-use in the same tick as the drop —
+        // the server registers ground items on its next tick, so a same-tick
+        // 250 hits "ground item null item" (live log: suspicious for item use
+        // on ground item null item). Wait ~1.2s, then the pending-reuse path
+        // (or next tick) sends the use.
+        scriptState.fmDropAt = Date.now();
+        return 1200;
+      }
+      // v316: drop registered last tick → now send the tinderbox-use
+      if (scriptState.fmPendingDrop && Date.now() - (scriptState.fmDropAt || 0) >= 1000) {
+        var tS2 = getInventoryIndex(TINDERBOX);
+        if (tS2 >= 0) {
+          sendRaw(250, 346, function(stream, Z) {
+            Z(stream, scriptState.fmPendingDrop.x);
+            Z(stream, scriptState.fmPendingDrop.y);
+            Z(stream, logId);
+            Z(stream, tS2);
+          });
+          scriptState.fmXp0 = fmXp();
+          scriptState.fmAttempt = Date.now();
+          scriptState.fmQuiet = Date.now() + 4000;
+          return 1500;
+        }
       }
       if (Date.now() < (scriptState.fmQuiet || 0)) return 1000;   // post-click silence
 
