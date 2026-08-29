@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v318';
+  var VERSION = 'v319';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5327,33 +5327,62 @@
         var nLogs = countLogs();
         if (scriptState.fmAttempt) {
           var xpNow = fmXp();
-          // v318: CAPPED-STAT SUCCESS DETECTION — a 99/capped player gains NO
-          // xp, so xp-compare alone never fires (live: shafster fire lit, then
-          // null-item resend spam forever). A FIRE object (97) at the drop tile
-          // IS the success signal.
-          var fireLitHere = false;
-          if (scriptState.fmDropX !== undefined) {
-            var fObjs = findObjects([97], 2);
-            for (var fi = 0; fi < fObjs.length; fi++) {
-              if (Math.abs(fObjs[fi].worldX - scriptState.fmDropX) <= 1 &&
-                  Math.abs(fObjs[fi].worldY - scriptState.fmDropY) <= 1) { fireLitHere = true; break; }
-            }
-          }
-          if (xpNow > (scriptState.fmXp0 || 0) || fireLitHere) {
+          // v319: POSITION-BASED SUCCESS DETECTION — the server's
+          // firemakingWalk moves the player off the tile on EVERY successful
+          // light (verified live: fire lines march east). Position never
+          // ghosts; XP lies at capped stats; client object arrays ghost. So:
+          // success = player no longer standing on the drop tile (or xp gain).
+          // engine-initiated moves (self-step/fail-step/escape) don't count —
+          // only SERVER-initiated movement (firemakingWalk) is a success signal
+          var movedOffDrop = (getX() !== scriptState.fmDropX || getY() !== scriptState.fmDropY) && !scriptState.fmSelfMoved;
+          if (xpNow > (scriptState.fmXp0 || 0) || movedOffDrop) {
             scriptState.fmLit++;
-            // v311: record the lit tile — never drop on it again this session
+            // record the lit tile — never drop on it again this session
             scriptState.fmFireTiles = scriptState.fmFireTiles || {};
             scriptState.fmFireTiles[scriptState.fmDropX + ',' + scriptState.fmDropY] = 1;
-            // v313: the ground log was CONSUMED by the fire — no pending re-use
             scriptState.fmPendingDrop = null;
+            scriptState.fmResends = 0;
+            scriptState.fmRetried = 0;
             if (scriptState.fmLit % 5 === 0) log('Fires lit: ' + scriptState.fmLit + ' (fails ' + (scriptState.fmFail || 0) + ')');
             scriptState.fmAttempt = 0;
             scriptState.fmLastXpT = Date.now();
             scriptState.fmXPAtLast = xpNow;
-            walkTo(getX() + 1, getY());          // off the fire tile (east line)
+            // server already walked us east on success; only self-step if
+            // somehow still on the fire tile (xp-path race)
+            if (!movedOffDrop) { scriptState.fmSelfMoved = true; walkTo(getX() + 1, getY()); }
             return 800;
           }
           if (Date.now() - scriptState.fmAttempt > 8000) {
+            // v319: ONE retry per log, then ABANDON — never grind (the ground
+            // log vanishing means success; standing here can't tell us more,
+            // and resends at a consumed log are null-item spam)
+            if (!scriptState.fmRetried) {
+              scriptState.fmRetried = 1;
+              var tSr = getInventoryIndex(TINDERBOX);
+              if (tSr >= 0 && scriptState.fmDropX !== undefined) {
+                sendRaw(250, 346, function(stream, Z) {
+                  Z(stream, scriptState.fmDropX);
+                  Z(stream, scriptState.fmDropY);
+                  Z(stream, logId);
+                  Z(stream, tSr);
+                });
+                scriptState.fmAttempt = Date.now();
+                scriptState.fmQuiet = Date.now() + 4000;
+                return 1500;
+              }
+            }
+            // retried already and STILL on the tile → unresolved: step east,
+            // clear state, move on to the next log/tree
+            scriptState.fmFail++;
+            scriptState.fmAttempt = 0;
+            scriptState.fmPendingDrop = null;
+            scriptState.fmRetried = 0;
+            scriptState.fmSelfMoved = true;
+            log('Light unresolved — moving on (fails ' + (scriptState.fmFail || 0) + ')');
+            walkTo(getX() + 1, getY());
+            return 1200;
+          }
+          if (false) {
             scriptState.fmFail++;
             scriptState.fmAttempt = 0;            // re-roll same ground log next tick
             // v312: ZERO successes + mounting fails = the log type can't light
@@ -5487,6 +5516,7 @@
         scriptState.fmDropX = px; scriptState.fmDropY = py;
         scriptState.fmPendingDrop = { x: px, y: py };   // v313: re-use until consumed
         scriptState.fmResends = 0;
+        scriptState.fmSelfMoved = false;
         // v316: DO NOT send the tinderbox-use in the same tick as the drop —
         // the server registers ground items on its next tick, so a same-tick
         // 250 hits "ground item null item" (live log: suspicious for item use
@@ -5518,10 +5548,13 @@
         if (countLogs() > 0) { scriptState.phase = 'light'; return 300; }
         if (!hasKit(TINDERBOX)) { log('No tinderbox — stopping (bring id 166)'); stopBot(); return 2000; }
         if (!hasAxe()) { log('No axe — stopping (bring any axe)'); stopBot(); return 2000; }
-        // fire on our tile? step east before chopping
-        var footFire = false;
-        var objs97 = findObjects([97], 0);
-        if (objs97.length > 0) footFire = true;
+        // fire on our tile? step east before chopping.
+        // v319: TRUST ONLY OUR OWN RECORD — client object arrays ghost (a
+        // phantom id-97 at the player tile made footFire true FOREVER → a
+        // +1-east walk fired EVERY TICK, cancelling every tree/hop walk the
+        // instant it was sent → bot stood still permanently. live 2026-08-29).
+        var myPos3 = getX() + ',' + getY();
+        var footFire = !!(scriptState.fmFireTiles && scriptState.fmFireTiles[myPos3]);
         if (footFire) { walkTo(getX() + 1, getY()); return 800; }
         var tree = nearestTree();
         if (!tree) {
@@ -5587,11 +5620,23 @@
               scriptState.fmUnreachable = (scriptState.fmUnreachable || 0) + 1;
               if (scriptState.fmUnreachable >= 2) {
                 scriptState.fmUnreachable = 0;
-                var hd = [[1,0],[0,1],[-1,0],[0,-1]][(scriptState.fmHopIdx || 0) % 4];
-                scriptState.fmHopIdx = (scriptState.fmHopIdx || 0) + 1;
-                walkTo(getX() + hd[0] * 24, getY() + hd[1] * 24);
-                scriptState.fmHopQuiet = Date.now() + 8000;   // let the hop FINISH
-                log('Pocket of unreachable trees — region hopping to (' + (getX() + hd[0] * 24) + ',' + (getY() + hd[1] * 24) + ')');
+                // v319b: PROXIMAL ESCAPE FIRST — a 24-tile hop through a pocket
+                // is refused like the tree walks (live: (119,633) boxed by own
+                // fires/trees — even manual 11-tile walks refused). Step to the
+                // nearest ADJACENT open tile first, THEN hop from there.
+                var escDirs = [[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
+                var escaped = false;
+                for (var ei = 0; ei < escDirs.length; ei++) {
+                  var ex = getX() + escDirs[ei][0], ey = getY() + escDirs[ei][1];
+                  var ek = ex + ',' + ey;
+                  if (scriptState.fmFireTiles && scriptState.fmFireTiles[ek]) continue;
+                  walkTo(ex, ey);
+                  log('Boxed — stepping out via (' + ex + ',' + ey + ')');
+                  escaped = true;
+                  break;
+                }
+                if (!escaped) { walkTo(getX(), getY() - 2); }
+                scriptState.fmHopQuiet = Date.now() + 3000;
                 return 2000;
               }
               log('Tree unreachable — marking and moving on');
