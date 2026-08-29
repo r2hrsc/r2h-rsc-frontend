@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v317';
+  var VERSION = 'v318';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5327,7 +5327,19 @@
         var nLogs = countLogs();
         if (scriptState.fmAttempt) {
           var xpNow = fmXp();
-          if (xpNow > (scriptState.fmXp0 || 0)) {
+          // v318: CAPPED-STAT SUCCESS DETECTION — a 99/capped player gains NO
+          // xp, so xp-compare alone never fires (live: shafster fire lit, then
+          // null-item resend spam forever). A FIRE object (97) at the drop tile
+          // IS the success signal.
+          var fireLitHere = false;
+          if (scriptState.fmDropX !== undefined) {
+            var fObjs = findObjects([97], 2);
+            for (var fi = 0; fi < fObjs.length; fi++) {
+              if (Math.abs(fObjs[fi].worldX - scriptState.fmDropX) <= 1 &&
+                  Math.abs(fObjs[fi].worldY - scriptState.fmDropY) <= 1) { fireLitHere = true; break; }
+            }
+          }
+          if (xpNow > (scriptState.fmXp0 || 0) || fireLitHere) {
             scriptState.fmLit++;
             // v311: record the lit tile — never drop on it again this session
             scriptState.fmFireTiles = scriptState.fmFireTiles || {};
@@ -5452,6 +5464,10 @@
         // 2026-08-29 00:17: oak fails stacked logs 2-deep in the bank area.)
         if (scriptState.fmPendingDrop &&
             scriptState.fmPendingDrop.x === px && scriptState.fmPendingDrop.y === py) {
+          // v318: max 2 re-sends at one ground log — beyond that the log is
+          // gone (consumed/looted) and re-sends are null-item spam (live cap)
+          if ((scriptState.fmResends || 0) >= 2) { scriptState.fmPendingDrop = null; scriptState.fmResends = 0; }
+          else {
           var tS0 = getInventoryIndex(TINDERBOX);
           if (tS0 >= 0) {
             sendRaw(250, 346, function(stream, Z) {
@@ -5462,12 +5478,15 @@
             });
             scriptState.fmAttempt = Date.now();
             scriptState.fmQuiet = Date.now() + 4000;
+            scriptState.fmResends = (scriptState.fmResends || 0) + 1;
             return 1500;
+          }
           }
         }
         dropItem(slot);
         scriptState.fmDropX = px; scriptState.fmDropY = py;
         scriptState.fmPendingDrop = { x: px, y: py };   // v313: re-use until consumed
+        scriptState.fmResends = 0;
         // v316: DO NOT send the tinderbox-use in the same tick as the drop —
         // the server registers ground items on its next tick, so a same-tick
         // 250 hits "ground item null item" (live log: suspicious for item use
