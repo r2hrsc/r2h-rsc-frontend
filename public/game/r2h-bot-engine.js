@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v327';
+  var VERSION = 'v328';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5489,24 +5489,31 @@
           return false;
         }
         if (fmTileBlocked(px, py)) {
-          // find nearest free tile (8-neighborhood, then ring 2)
-          var freeT = null;
-          var ring = [[1,0],[0,1],[1,1],[-1,0],[0,-1],[-1,-1],[1,-1],[-1,1],
-                      [2,0],[0,2],[-2,0],[0,-2],[2,1],[1,2],[-1,2],[-2,1]];
-          for (var ri = 0; ri < ring.length; ri++) {
-            var cx3 = px + ring[ri][0], cy3 = py + ring[ri][1];
-            if (!fmTileBlocked(cx3, cy3)) { freeT = [cx3, cy3]; break; }
+          // v328: when standing on a burned/blocked tile, RELOCATE THE LINE —
+          // don't tiptoe to an adjacent tile (at a shoreline those are water:
+          // walks silently refused → engine looped forever with zero server
+          // activity; live 23:52-23:54 Draynor shore after 17 fires). Walk 6
+          // tiles in the current line direction, and if we haven't MOVED in
+          // 8s, rotate the direction (water/wall ahead) and try the next.
+          var ld = [[1,0],[0,1],[-1,0],[0,-1]][(scriptState.fmLineDir || 0) % 4];
+          var movedG = getX() !== (scriptState.fmGX || -99) || getY() !== (scriptState.fmGY || -99);
+          if (movedG) {
+            scriptState.fmGX = getX(); scriptState.fmGY = getY();
+            scriptState.fmGT = Date.now();
+            scriptState.fmGSent = 0;
           }
-          if (freeT) {
-            walkTo(freeT[0], freeT[1]);
-            if (!scriptState.fmFreeTried || scriptState.fmFreeTried !== freeT[0] + ',' + freeT[1]) {
-              scriptState.fmFreeTried = freeT[0] + ',' + freeT[1];
-              log('Fire tile occupied — moving to (' + freeT[0] + ',' + freeT[1] + ')');
+          var stuckG = Date.now() - (scriptState.fmGT || 0) > 8000;
+          if (!scriptState.fmGSent || stuckG) {
+            if (stuckG) {
+              scriptState.fmLineDir = (scriptState.fmLineDir || 0) + 1;
+              ld = [[1,0],[0,1],[-1,0],[0,-1]][(scriptState.fmLineDir || 0) % 4];
+              log('Relocation walk refused — turning to dir ' + scriptState.fmLineDir % 4);
             }
-            return 1000;
+            scriptState.fmGSent = 1;
+            scriptState.fmGT = Date.now();
+            scriptState.fmGX = getX(); scriptState.fmGY = getY();
+            walkTo(getX() + ld[0] * 6, getY() + ld[1] * 6);
           }
-          log('No free fire tile nearby — stepping east');
-          walkTo(px + 1, py);
           return 1200;
         }
         var slot = getInventoryIndex(logId);
