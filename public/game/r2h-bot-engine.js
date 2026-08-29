@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v319';
+  var VERSION = 'v320';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5249,26 +5249,16 @@
       {x:764,y:522}, {x:764,y:546}, {x:765,y:503}, {x:765,y:529}, {x:766,y:456}, {x:766,y:467}, {x:766,y:471}, {x:766,y:488},
       {x:766,y:498}, {x:766,y:515}, {x:766,y:526}, {x:767,y:485}, {x:767,y:522}
     ];
-    // v317b: REGISTRY-PRIMARY tree targeting — the client object array decides
-    // only "does this region have trees at all" (>=1 id 0/1 object within 24);
-    // the TARGET comes from the server registry (nearest unfelled). Kills the
-    // ghost-tree chop problem (stale client coords → server 'null object').
+    // v320: REGISTRY-ONLY tree targeting. The v317b client-array region gate
+    // was itself defeated by ghost arrays: when mc.fl ghosts empty, the gate
+    // said "no trees here" and scouting walked the bot AWAY from real registry
+    // trees (live 2026-08-29 15:47: Catherby — walked (522,504)→(541,505) past
+    // 7 real trees, zero chops). The registry IS the truth: target the nearest
+    // unfelled registry tree, however far. A stump visit costs ≤8s (server
+    // no-ops chops, felled-mark moves on) — walking away from trees costs the
+    // whole run.
     function nearestTree() {
-      var mc = getMC();
       var px2 = getX(), py2 = getY();
-      var regionHasTrees = false;
-      if (mc && mc.co && mc.fl && mc.dp && mc.dn) {
-        var n2 = Number(mc.co || 0);
-        for (var i2 = 0; i2 < n2 && i2 < 500 && !regionHasTrees; i2++) {
-          var id2 = Number(mc.fl.data[i2]);
-          if (id2 === 0 || id2 === 1) {
-            var wx2 = Number(mc.dp.data[i2]) + Number(mc.du || 0);
-            var wy2 = Number(mc.dn.data[i2]) + Number(mc.dd || 0);
-            if (Math.abs(wx2 - px2) + Math.abs(wy2 - py2) <= 24) regionHasTrees = true;
-          }
-        }
-      }
-      if (!regionHasTrees) return null;   // dead region → scouting moves on
       var bestR = null, bestRD = Infinity;
       for (var i3 = 0; i3 < FM_TREES.length; i3++) {
         var t3 = FM_TREES[i3];
@@ -5557,7 +5547,33 @@
         var footFire = !!(scriptState.fmFireTiles && scriptState.fmFireTiles[myPos3]);
         if (footFire) { walkTo(getX() + 1, getY()); return 800; }
         var tree = nearestTree();
+        var treeDist = tree ? Math.abs(tree.worldX - getX()) + Math.abs(tree.worldY - getY()) : Infinity;
         if (!tree) {
+          // ALL registry trees felled-marked (long run) → wait for respawn:
+          // clear marks every ~60s and retry. Never wander off.
+          if (Date.now() - (scriptState.felledClearT || 0) > 60000) {
+            scriptState.felledClearT = Date.now();
+            scriptState.fmFelled = {};
+            log('All registry trees marked felled — clearing marks (respawn)');
+          }
+          return 2000;
+        }
+        if (treeDist >= 40) {
+          // nearest real tree is far (sparse area) → walk straight to it
+          if (!scriptState.fmFarT || scriptState.fmFarT !== tree.worldX + ',' + tree.worldY) {
+            scriptState.fmFarT = tree.worldX + ',' + tree.worldY;
+            scriptState.fmTreeSent = 0;
+            walkTo(tree.worldX, tree.worldY);
+            log('Nearest tree ' + scriptState.fmFarT + ' is ' + treeDist + ' tiles — walking to it');
+            return 2000;
+          }
+          if (Date.now() - (scriptState.fmTreeWalkT || 0) > 4000) {
+            scriptState.fmTreeWalkT = Date.now();
+            walkTo(tree.worldX, tree.worldY);
+          }
+          return 2000;
+        }
+        if (false) {
           // v317: SCOUTING — no unfelled tree in scan range → move a FULL REGION
           // away (≥24 tiles = fresh client object-array load; small steps keep
           // the stale region). Expanding cross, 24-tile radius steps.
