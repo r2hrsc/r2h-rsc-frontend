@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v310';
+  var VERSION = 'v311';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -4989,6 +4989,9 @@
           var xpNow = fmXp();
           if (xpNow > (scriptState.fmXp0 || 0)) {
             scriptState.fmLit++;
+            // v311: record the lit tile — never drop on it again this session
+            scriptState.fmFireTiles = scriptState.fmFireTiles || {};
+            scriptState.fmFireTiles[scriptState.fmDropX + ',' + scriptState.fmDropY] = 1;
             if (scriptState.fmLit % 5 === 0) log('Fires lit: ' + scriptState.fmLit + ' (fails ' + (scriptState.fmFail || 0) + ')');
             scriptState.fmAttempt = 0;
             scriptState.fmLastXpT = Date.now();
@@ -5034,6 +5037,41 @@
         }
         if (!hasKit(TINDERBOX)) { log('Tinderbox lost — stopping'); stopBot(); return 1000; }
         var px = getX(), py = getY();
+        // v311: FIRE-TILE GUARD — you may NOT drop a log on a burning tile
+        // ("You can't light a fire here" / server rejects the drop target).
+        // A tile is fire-blocked if (a) we lit a fire on it this session
+        // (fmFireTiles — client object arrays ghost, position-tracked instead),
+        // or (b) an object id 97 is visible at it. If blocked, spiral-search a
+        // FREE adjacent tile and walk there first.
+        function fmTileBlocked(x, y) {
+          if (scriptState.fmFireTiles && scriptState.fmFireTiles[x + ',' + y]) return true;
+          var objs = findObjects([97], 1);
+          for (var oi = 0; oi < objs.length; oi++) {
+            if (objs[oi].worldX === x && objs[oi].worldY === y) return true;
+          }
+          return false;
+        }
+        if (fmTileBlocked(px, py)) {
+          // find nearest free tile (8-neighborhood, then ring 2)
+          var freeT = null;
+          var ring = [[1,0],[0,1],[1,1],[-1,0],[0,-1],[-1,-1],[1,-1],[-1,1],
+                      [2,0],[0,2],[-2,0],[0,-2],[2,1],[1,2],[-1,2],[-2,1]];
+          for (var ri = 0; ri < ring.length; ri++) {
+            var cx3 = px + ring[ri][0], cy3 = py + ring[ri][1];
+            if (!fmTileBlocked(cx3, cy3)) { freeT = [cx3, cy3]; break; }
+          }
+          if (freeT) {
+            walkTo(freeT[0], freeT[1]);
+            if (!scriptState.fmFreeTried || scriptState.fmFreeTried !== freeT[0] + ',' + freeT[1]) {
+              scriptState.fmFreeTried = freeT[0] + ',' + freeT[1];
+              log('Fire tile occupied — moving to (' + freeT[0] + ',' + freeT[1] + ')');
+            }
+            return 1000;
+          }
+          log('No free fire tile nearby — stepping east');
+          walkTo(px + 1, py);
+          return 1200;
+        }
         var slot = getInventoryIndex(logId);
         if (slot < 0) {
           // no log in inventory AND no attempt pending — the count was ghost;
