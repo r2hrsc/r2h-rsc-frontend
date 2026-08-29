@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v326';
+  var VERSION = 'v327';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5351,9 +5351,15 @@
             scriptState.fmAttempt = 0;
             scriptState.fmLastXpT = Date.now();
             scriptState.fmXPAtLast = xpNow;
-            // server already walked us east on success; only self-step if
-            // somehow still on the fire tile (xp-path race)
-            if (!movedOffDrop) { scriptState.fmSelfMoved = true; walkTo(getX() + 1, getY()); }
+            // server already walked the player on success; only self-step if
+            // somehow still on the fire tile (xp-path race). Follow the line's
+            // CURRENT direction (a turned line keeps its heading — hard-east
+            // forced it back into the water).
+            if (!movedOffDrop) {
+              scriptState.fmSelfMoved = true;
+              var sd = [[1,0],[0,1],[-1,0],[0,-1]][(scriptState.fmLineDir || 0) % 4];
+              walkTo(getX() + sd[0], getY() + sd[1]);
+            }
             return 800;
           }
           if (Date.now() - scriptState.fmAttempt > 8000) {
@@ -5412,19 +5418,20 @@
             scriptState.fmTileFails = scriptState.fmTileFails || {};
             scriptState.fmTileFails[tileKey] = (scriptState.fmTileFails[tileKey] || 0) + 1;
             if (scriptState.fmTileFails[tileKey] >= 2 && (scriptState.fmLit || 0) > 0) {
-              log('Tile ' + tileKey + ' refuses lights — relocating fire line');
+              // v327: line blocked (water/wall/fires ahead) — TURN the line:
+              // rotate direction (S→W→N→E), mark current tile burned, hop 4 in
+              // the new direction. Standing still and re-dropping east forever
+              // was the shoreline dead-end (live 23:32: Draynor shore y=643,
+              // east = lake, 3 logs held).
+              log('Line blocked at ' + tileKey + ' — turning');
               scriptState.fmFireTiles = scriptState.fmFireTiles || {};
-              scriptState.fmFireTiles[tileKey] = 1;   // treat as burned
+              scriptState.fmFireTiles[tileKey] = 1;
               scriptState.fmPendingDrop = null;
-              walkTo(getX() + 2, getY());
-              return 1200;
-            }
-            if (scriptState.fmFail % 5 === 0) {
-              // 5 straight fails: tile refusing (fire below/shoreline) — abandon,
-              // step to a fresh tile (east, else south — shore-end safe)
-              walkTo(getX() + 1, getY());
-              if (scriptState.fmFail % 10 === 0) walkTo(getX(), getY() + 1);
-              log('Tile refusing lights (fails ' + scriptState.fmFail + ') — stepping on');
+              var turn = [[0,1],[-1,0],[0,-1],[1,0]][(scriptState.fmLineDir || 1) % 4];
+              scriptState.fmLineDir = (scriptState.fmLineDir || 1) + 1;
+              walkTo(getX() + turn[0] * 4, getY() + turn[1] * 4);
+              scriptState.fmFail = 0;
+              return 1500;
             }
             return 600;
           }
@@ -5435,6 +5442,19 @@
         // 45s without a gain while in light phase → the drops aren't landing →
         // no real logs left → mode transition.
         if (Date.now() - (scriptState.fmLastXpT || 0) > 45000) {
+          // v327: XP stalled but LOGS STILL IN INVENTORY = we are STUCK
+          // (shoreline dead-end etc.), NOT out of logs — never bank with logs.
+          if (nLogs > 0) {
+            log('Stuck with ' + nLogs + ' logs — relocating fire line');
+            scriptState.fmFireTiles = scriptState.fmFireTiles || {};
+            scriptState.fmFireTiles[getX() + ',' + getY()] = 1;
+            scriptState.fmLastXpT = Date.now();
+            scriptState.fmFail = 0;
+            var hop = [[1,0],[0,1],[-1,0],[0,-1]][(scriptState.fmLineHop || 0) % 4];
+            scriptState.fmLineHop = (scriptState.fmLineHop || 0) + 1;
+            walkTo(getX() + hop[0] * 6, getY() + hop[1] * 6);
+            return 2000;
+          }
           if (FM_MODE === 'chop') { scriptState.phase = 'chop'; return 400; }
           scriptState.fmBankTrips = (scriptState.fmBankTrips || 0) + 1;
           if (scriptState.fmBankTrips > 1 && (fmXp() || 0) === (scriptState.fmXPAtBank || 0)) {
