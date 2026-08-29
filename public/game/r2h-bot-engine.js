@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v313';
+  var VERSION = 'v314';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5022,6 +5022,21 @@
               log('12 failed lights, 0 fires — logs cannot light (level? tile?) — stopping');
               stopBot(); return 2000;
             }
+            // v314: TILE-CLASS ESCAPE — this TILE refuses lights (indoor object /
+            // scenery on tile — "can't light here"). 2 fails on one tile with
+            // fires working elsewhere = relocate the line: step east twice and
+            // drop there. Don't grind the same dead tile.
+            var tileKey = scriptState.fmPendingDrop ? scriptState.fmPendingDrop.x + ',' + scriptState.fmPendingDrop.y : getX() + ',' + getY();
+            scriptState.fmTileFails = scriptState.fmTileFails || {};
+            scriptState.fmTileFails[tileKey] = (scriptState.fmTileFails[tileKey] || 0) + 1;
+            if (scriptState.fmTileFails[tileKey] >= 2 && (scriptState.fmLit || 0) > 0) {
+              log('Tile ' + tileKey + ' refuses lights — relocating fire line');
+              scriptState.fmFireTiles = scriptState.fmFireTiles || {};
+              scriptState.fmFireTiles[tileKey] = 1;   // treat as burned
+              scriptState.fmPendingDrop = null;
+              walkTo(getX() + 2, getY());
+              return 1200;
+            }
             if (scriptState.fmFail % 5 === 0) {
               // 5 straight fails: tile refusing (fire below/shoreline) — abandon,
               // step to a fresh tile (east, else south — shore-end safe)
@@ -5267,32 +5282,35 @@
         return 1200;
       }
 
-      // ══ TO LIGHT AREA (bank mode): try the terrain offset tile, but if the
-      // walk stalls >12s, LIGHT WHERE WE STAND — fire lines work anywhere
-      // fire-free; the step-east logic walks the line outward from here.
-      // (User-reported: bot withdrew logs then idled at the bank forever —
-      // blocked offset tile, no stall fallback.) ══
+      // ══ TO LIGHT AREA (bank mode): walk to the bank's verified OUTDOOR anchor.
+      // You CANNOT light fires indoors (server rejects: any non-wall object on
+      // the tile = "can't light" — bank interiors always have them). If the
+      // anchor walk stalls, DO NOT fall back to lighting where we stand — that
+      // place may be inside the bank building (live 2026-08-29 00:29: oak log
+      // dropped at (441,492) INSIDE Catherby bank, zero lights). Instead keep
+      // nudging toward the anchor; the light phase's tile-class detector also
+      // relocates outdoors if a drop ever happens inside. ══
       if (scriptState.phase === 'toLightArea') {
         var bt2 = BANK_REGISTRY[bankName];
         var off = FM_LIGHT_OFFSETS[bankName] || [-4, 8];
         var lx = bt2[0] + off[0], ly = bt2[1] + off[1];
         var dL = Math.max(Math.abs(lx - getX()), Math.abs(ly - getY()));
         if (dL <= 2) { scriptState.phase = 'light'; return 400; }
-        // stall detection on THIS walk
+        // stall handling: alternate the direct walk with a step toward the bank
+        // tile first (indoor exits route through the entrance)
         if (scriptState.fmAreaX === getX() && scriptState.fmAreaY === getY()) {
           scriptState.fmAreaStall = (scriptState.fmAreaStall || 0) + 1;
         } else {
           scriptState.fmAreaStall = 0;
           scriptState.fmAreaX = getX(); scriptState.fmAreaY = getY();
         }
-        if ((scriptState.fmAreaStall || 0) >= 8) {
-          log('Light area unreachable — lighting here instead');
-          scriptState.phase = 'light';
-          return 400;
-        }
         if (Date.now() - (scriptState.fmAreaT || 0) > 2500) {
           scriptState.fmAreaT = Date.now();
-          walkTo(lx, ly);
+          if ((scriptState.fmAreaStall || 0) >= 4 && Math.max(Math.abs(bt2[0] - getX()), Math.abs(bt2[1] - getY())) > 3) {
+            walkTo(bt2[0], bt2[1]);   // stalled mid-route: re-enter via the bank tile
+          } else {
+            walkTo(lx, ly);
+          }
         }
         return 1200;
       }
