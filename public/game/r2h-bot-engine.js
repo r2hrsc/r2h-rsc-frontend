@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v314';
+  var VERSION = 'v315';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -4879,10 +4879,12 @@
     var logId = LOG_TYPES[cfg.fmLogs] || LOG_NORMAL;
     var bankName = cfg.fmBank || 'Auto (nearest)';   // v309: auto-detect default
     var FM_LIGHT_OFFSETS = {
+      // Rig-probed anchors (2026-08-29): Catherby SOUTH IS OCEAN at y≥500 —
+      // (bank−4,+8) landed in water; west road (432,496) verified walkable.
       'Draynor': [-4, 8], 'Edgeville': [-4, 8], 'Varrock West': [-4, 8],
       'Varrock East': [4, 8], 'Falador East': [-4, 8], 'Falador West': [-4, 8],
       'Seers': [4, 8], 'Ardougne North': [-4, 8], 'Ardougne South': [-4, 8],
-      'Yanille': [-4, 8], 'Al-Kharid': [-4, 8], 'Catherby': [-4, 8]
+      'Yanille': [-4, 8], 'Al-Kharid': [-4, 8], 'Catherby': [-8, 2]
     };
 
     function fmXp() {
@@ -5296,18 +5298,32 @@
         var lx = bt2[0] + off[0], ly = bt2[1] + off[1];
         var dL = Math.max(Math.abs(lx - getX()), Math.abs(ly - getY()));
         if (dL <= 2) { scriptState.phase = 'light'; return 400; }
-        // stall handling: alternate the direct walk with a step toward the bank
-        // tile first (indoor exits route through the entrance)
+        // stall handling: when stalled NEAR/AT the bank tile we are INSIDE the
+        // building — the direct anchor walk is wall-blocked (client refuses
+        // silently). Route out through the ENTRANCE first: every bank's door
+        // faces the anchor side (south for +8 offsets). Two-stage: exit tile
+        // (bt2 + due-south 5) → anchor.
         if (scriptState.fmAreaX === getX() && scriptState.fmAreaY === getY()) {
           scriptState.fmAreaStall = (scriptState.fmAreaStall || 0) + 1;
         } else {
           scriptState.fmAreaStall = 0;
           scriptState.fmAreaX = getX(); scriptState.fmAreaY = getY();
         }
+        var chebBank2 = Math.max(Math.abs(bt2[0] - getX()), Math.abs(bt2[1] - getY()));
         if (Date.now() - (scriptState.fmAreaT || 0) > 2500) {
           scriptState.fmAreaT = Date.now();
-          if ((scriptState.fmAreaStall || 0) >= 4 && Math.max(Math.abs(bt2[0] - getX()), Math.abs(bt2[1] - getY())) > 3) {
-            walkTo(bt2[0], bt2[1]);   // stalled mid-route: re-enter via the bank tile
+          if ((scriptState.fmAreaStall || 0) >= 2 && chebBank2 <= 6) {
+            // INSIDE the bank: exit via the south entrance tile first
+            var exitY = bt2[1] + 5;
+            if (Math.abs(getY() - exitY) <= 1 && Math.abs(getX() - bt2[0]) > 2) {
+              walkTo(bt2[0], exitY);          // at exit row but off-column — align
+            } else if (getY() < exitY) {
+              walkTo(getX() === bt2[0] ? bt2[0] : (getX() + (bt2[0] > getX() ? 1 : -1)), exitY);
+            } else {
+              walkTo(lx, ly);                 // already outside → anchor
+            }
+          } else if ((scriptState.fmAreaStall || 0) >= 4) {
+            walkTo(bt2[0], bt2[1]);           // stalled mid-route far away — re-approach bank
           } else {
             walkTo(lx, ly);
           }
