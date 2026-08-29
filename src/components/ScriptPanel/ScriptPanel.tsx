@@ -457,6 +457,8 @@ export interface ScriptConfig {
   fmLogs?: string;
   fmMode?: string;    // 'bank' | 'chop'
   fmBank?: string;
+  smeltBar?: string;
+  smeltFurnace?: string;
   // — Woodcutting —
   treeType?: string;
   treeTypes?: Record<string, boolean>;   // v265: multi-select
@@ -492,7 +494,7 @@ export interface ScriptConfig {
   targetPrayerLevel?: string;
 }
 
-type ConfigType = 'combat' | 'mining' | 'cooking' | 'woodcutting' | 'fishing' | 'magic' | 'thieving' | 'smithing' | 'fletching' | 'firemaking' | 'bones';
+type ConfigType = 'combat' | 'mining' | 'cooking' | 'woodcutting' | 'fishing' | 'magic' | 'thieving' | 'smithing' | 'fletching' | 'firemaking' | 'smelting' | 'bones';
 
 // ═══════════════════════════════════════════════════════════════
 // Option lists
@@ -608,6 +610,7 @@ const THIEVING_IDS  = new Set(['AIOThiever', 'Man']);
 const SMITHING_IDS  = new Set(['SmithingVarrock', 'SmithGearSet', 'CeikPlates', 'K_FastChainLinks', 'AIOSmelter']);
 const FLETCHING_IDS = new Set(['PowerFletcha', 'FletchnBankBows', 'ArrowMaker']);
 const FIREMAKING_IDS = new Set(['Firemaking', 'AIOFiremaker']);
+const SMELTING_IDS = new Set(['Smelting', 'AIOSmelter', 'Abyte0_ArdSmelter']);
 const BONE_IDS      = new Set(['BuryBone', 'K_BoneyardBury']);
 
 function getConfigType(script: ScriptDef): ConfigType | null {
@@ -621,6 +624,7 @@ function getConfigType(script: ScriptDef): ConfigType | null {
   if (SMITHING_IDS.has(script.id))  return 'smithing';
   if (FLETCHING_IDS.has(script.id)) return 'fletching';
   if (FIREMAKING_IDS.has(script.id)) return 'firemaking';
+  if (SMELTING_IDS.has(script.id))    return 'smelting';
   if (BONE_IDS.has(script.id))      return 'bones';
   return null;
 }
@@ -635,6 +639,8 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
       return { foodType: FOOD_TYPES[0], dropBurnt: false, gauntlets: false, cookSite: 'Auto (nearest)' };
     case 'firemaking':
       return { fmLogs: 'normal', fmMode: 'bank', fmBank: 'Auto (nearest)' };
+    case 'smelting':
+      return { smeltBar: 'iron', smeltFurnace: 'Auto (nearest)' };
     case 'woodcutting':
       return { treeType: 'Normal', treeTypes: { Normal: true, Oak: false, Willow: false, Maple: false, Yew: false, Magic: false }, wcBank: true, bankDestination: 'Auto' };
     case 'fishing':
@@ -1045,6 +1051,28 @@ function FiremakingConfig({ cfg, set }: CfgProps) {
   );
 }
 
+function SmeltingConfig({ cfg, set }: CfgProps) {
+  const BARS = ['bronze', 'iron', 'silver', 'steel', 'gold', 'mithril', 'adamant', 'rune'];
+  const FURNACES = ['Auto (nearest)', 'Al-Kharid', 'Falador', 'Edgeville'];
+  return (
+    <div style={S_PANEL}>
+      <Field label="Bar Type">
+        <select style={S_SELECT} value={cfg.smeltBar ?? 'iron'} onChange={e => set({ smeltBar: e.target.value })}>
+          {BARS.map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
+      </Field>
+      <Field label="Furnace">
+        <select style={S_SELECT} value={cfg.smeltFurnace ?? 'Auto (nearest)'} onChange={e => set({ smeltFurnace: e.target.value })}>
+          {FURNACES.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+      </Field>
+      <div style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+        Ores auto-withdrawn per bar recipe. Stand near the furnace or its bank.
+      </div>
+    </div>
+  );
+}
+
 function WoodcuttingConfig({ cfg, set }: CfgProps) {
   // v265: full engine — multi-select tree types (level-gated at start),
   // bank vs power-chop, auto or manual bank choice.
@@ -1281,6 +1309,7 @@ function ConfigPanel({ type, cfg, set }: { type: ConfigType; cfg: ScriptConfig; 
     case 'mining':      return <MiningConfig cfg={cfg} set={set} />;
     case 'cooking':     return <CookingConfig cfg={cfg} set={set} />;
     case 'firemaking':  return <FiremakingConfig cfg={cfg} set={set} />;
+    case 'smelting':     return <SmeltingConfig cfg={cfg} set={set} />;
     case 'woodcutting': return <WoodcuttingConfig cfg={cfg} set={set} />;
     case 'fishing':     return <FishingConfig cfg={cfg} set={set} />;
     case 'magic':       return <MagicConfig cfg={cfg} set={set} />;

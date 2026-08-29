@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v322';
+  var VERSION = 'v325';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1149,6 +1149,9 @@
     } else if (isFiremakingScript(scriptId)) {
       log('Firemaking: "' + scriptId + '" → v304 firemaking engine');
       tickFn = makeFiremakingScript(runtimeConfig);
+    } else if (SMELTING_SCRIPT_IDS.indexOf(scriptId) >= 0) {
+      log('Smelting: "' + scriptId + '" → v323 smelting engine');
+      tickFn = makeSmeltingScript(runtimeConfig);
     } else if (isFishingScript(scriptId)) {
       // v275: APOS fishing ids → fishing engine; preset the fish type per id.
       // 'CatherbyFishFarm' is INTENTIONALLY excluded (it's in COOKING_IDS —
@@ -5291,6 +5294,11 @@
           log('Note: ' + cfg.fmLogs + ' logs selected, but this server only lights NORMAL logs (authentic FM) — using normal');
         }
         scriptState.fmLit = 0; scriptState.fmFail = 0;
+        scriptState.fmLastXpT = Date.now();   // v324: REQUIRED — the stall gates
+        // compare against fmLastXpT with a `|| Date.now()` fallback; unset =
+        // gate dead forever (live: capped-99 player, fire lit, spam loop, never
+        // returned to chop 18:46-18:47 shafster).
+        scriptState.fmUnresolved = 0;
         scriptState.phase = (FM_MODE === 'chop') ? 'chop' : 'toBankLight';
       }
 
@@ -5333,6 +5341,7 @@
             scriptState.fmPendingDrop = null;
             scriptState.fmResends = 0;
             scriptState.fmRetried = 0;
+            scriptState.fmDelayedSent = 0;
             if (scriptState.fmLit % 5 === 0) log('Fires lit: ' + scriptState.fmLit + ' (fails ' + (scriptState.fmFail || 0) + ')');
             scriptState.fmAttempt = 0;
             scriptState.fmLastXpT = Date.now();
@@ -5361,15 +5370,23 @@
                 return 1500;
               }
             }
-            // retried already and STILL on the tile → unresolved: step east,
-            // clear state, move on to the next log/tree
+            // retried already and STILL on the tile → unresolved. The fire
+            // USUALLY lit (capped xp + blocked east-walk = both success signals
+            // blind). v324: mark the tile burned, wipe ALL drop state, refresh
+            // fmLastXpT, and GO CHOP — never idle in light with ghost logs.
             scriptState.fmFail++;
             scriptState.fmAttempt = 0;
             scriptState.fmPendingDrop = null;
             scriptState.fmRetried = 0;
-            scriptState.fmSelfMoved = true;
-            log('Light unresolved — moving on (fails ' + (scriptState.fmFail || 0) + ')');
-            walkTo(getX() + 1, getY());
+            scriptState.fmResends = 0;
+            scriptState.fmSelfMoved = false;
+            scriptState.fmLastXpT = Date.now();
+            scriptState.fmFireTiles = scriptState.fmFireTiles || {};
+            scriptState.fmFireTiles[getX() + ',' + getY()] = 1;
+            scriptState.fmUnresolved = (scriptState.fmUnresolved || 0) + 1;
+            scriptState.fmDelayedSent = 0;
+            log('Light unresolved (' + scriptState.fmUnresolved + ') — tile marked, back to chopping');
+            scriptState.phase = 'chop';
             return 1200;
           }
           if (false) {
@@ -5412,7 +5429,7 @@
         // this session: logs=27 forever while XP climbed). Truth = XP stalls:
         // 45s without a gain while in light phase → the drops aren't landing →
         // no real logs left → mode transition.
-        if (Date.now() - (scriptState.fmLastXpT || Date.now()) > 45000) {
+        if (Date.now() - (scriptState.fmLastXpT || 0) > 45000) {
           if (FM_MODE === 'chop') { scriptState.phase = 'chop'; return 400; }
           scriptState.fmBankTrips = (scriptState.fmBankTrips || 0) + 1;
           if (scriptState.fmBankTrips > 1 && (fmXp() || 0) === (scriptState.fmXPAtBank || 0)) {
@@ -5425,7 +5442,7 @@
           scriptState.phase = 'toBankLight';
           return 800;
         }
-        if (nLogs === 0 && Date.now() - (scriptState.fmLastXpT || Date.now()) > 8000) {
+        if (nLogs === 0 && Date.now() - (scriptState.fmLastXpT || 0) > 8000) {
           if (FM_MODE === 'chop') { scriptState.phase = 'chop'; return 400; }
           log('Firemaking done: ' + scriptState.fmLit + ' fires lit, ' + (scriptState.fmFail || 0) + ' failed rolls');
           stopBot(); return 1000;
@@ -5507,6 +5524,7 @@
         scriptState.fmPendingDrop = { x: px, y: py };   // v313: re-use until consumed
         scriptState.fmResends = 0;
         scriptState.fmSelfMoved = false;
+        scriptState.fmDelayedSent = 0;
         // v316: DO NOT send the tinderbox-use in the same tick as the drop —
         // the server registers ground items on its next tick, so a same-tick
         // 250 hits "ground item null item" (live log: suspicious for item use
@@ -5515,10 +5533,16 @@
         scriptState.fmDropAt = Date.now();
         return 1200;
       }
-      // v316: drop registered last tick → now send the tinderbox-use
-      if (scriptState.fmPendingDrop && Date.now() - (scriptState.fmDropAt || 0) >= 1000) {
+      // v316→v325: delayed tinderbox-use — fires AT MOST ONCE per drop. The
+      // v316 version re-sent every tick while fmPendingDrop persisted
+      // (undetected success at capped XP), each send REFRESHING fmAttempt so
+      // the light phase's 8s unresolved-escape could never fire → 6 minutes of
+      // null-item spam, no return to chopping (live 18:52-18:59).
+      if (scriptState.fmPendingDrop && !scriptState.fmDelayedSent &&
+          Date.now() - (scriptState.fmDropAt || 0) >= 1000) {
         var tS2 = getInventoryIndex(TINDERBOX);
         if (tS2 >= 0) {
+          scriptState.fmDelayedSent = 1;
           sendRaw(250, 346, function(stream, Z) {
             Z(stream, scriptState.fmPendingDrop.x);
             Z(stream, scriptState.fmPendingDrop.y);
@@ -5812,6 +5836,254 @@
   }
 
   var FIREMAKING_SCRIPT_IDS = ['Firemaking', 'AIOFiremaker', 'fm-burn'];
+  var SMELTING_SCRIPT_IDS = ['Smelting', 'AIOSmelter', 'Abyte0_ArdSmelter'];  // ═══════════════════════════════════════════════════════════════
+  // v323: SMELTING — server-verified (Smelting.java Smelt enum)
+  // Bar table: bronze(tin+copper,L1) iron(L15) silver(L20) steel(iron+2coal,L30)
+  //   gold(L40) mithril(L50: 4 coal) addy(L70: 6 coal) rune(L85: 8 coal)
+  // Wire: use-item-on-furnace = atObject + I9 (same as cooking's range wire).
+  // Ore ids: copper 150, tin 202, iron 151, coal 155, silver 383, gold 152,
+  //   mithril 153, addy 154, rune 409. Bars: 169/170/171/172/173/174/384/408.
+  // Furnaces (SceneryLocs id 118): Al-Kharid (85,679) · Falador (306,546)
+  //   (310,546) · Edgeville (146,254) · Karamja (399,840) · others.
+  // APOS refs: Abyte0_ArdSmelter / Abyte0_Smither patterns.
+  var SMELT_BAR_TABLE = {
+    bronze: { lvl: 1,  xp: 25,  primary: 202, pAmt: 1, coal: 0, bar: 169 },   // tin + copper
+    iron:   { lvl: 15, xp: 50,  primary: 151, pAmt: 1, coal: 0, bar: 170 },
+    silver: { lvl: 20, xp: 54,  primary: 383, pAmt: 1, coal: 0, bar: 384 },
+    steel:  { lvl: 30, xp: 70,  primary: 151, pAmt: 1, coal: 2, bar: 171 },   // iron + 2 coal
+    gold:   { lvl: 40, xp: 90,  primary: 152, pAmt: 1, coal: 0, bar: 172 },
+    mithril:{ lvl: 50, xp: 120, primary: 153, pAmt: 1, coal: 4, bar: 173 },
+    adamant:{ lvl: 70, xp: 150, primary: 154, pAmt: 1, coal: 6, bar: 174 },
+    rune:   { lvl: 85, xp: 200, primary: 409, pAmt: 1, coal: 8, bar: 408 }
+  };
+  // bronze needs BOTH tin(202) AND copper(150) — handled as primary=202 + secondary=150
+  SMELT_BAR_TABLE.bronze.secondary = 150; SMELT_BAR_TABLE.bronze.sAmt = 1;
+
+  var SMELT_FURNACES = [
+    { name: 'Al-Kharid', x: 85,  y: 679, bank: 'Al-Kharid' },
+    { name: 'Falador',   x: 306, y: 546, bank: 'Falador West' },
+    { name: 'Edgeville', x: 146, y: 254, bank: 'Edgeville' }
+  ];
+  var SMELT_BAR_IDS = [169,170,171,172,173,174,384,408];
+
+  function makeSmeltingScript(runtimeConfig) {
+    var cfg = runtimeConfig || {};
+    var barKey = cfg.smeltBar || 'iron';
+    var bar = SMELT_BAR_TABLE[barKey] || SMELT_BAR_TABLE.iron;
+    var furnaceName = cfg.smeltFurnace || 'Auto (nearest)';
+    var hammerNeeded = false;   // smelting needs no hammer
+
+    function smCount(id) {
+      var mc = getMC();
+      var cu = Number(mc.cU || 0);
+      var n = 0, nAll = 0;
+      for (var i = 0; i < 30; i++) {
+        var it = getInventoryId(i);
+        if (!it) continue;
+        if (it === id) { nAll++; if (i < cu) n++; }
+      }
+      return n > 0 ? n : nAll;
+    }
+    function smHasBar() {
+      for (var i = 0; i < SMELT_BAR_IDS.length; i++) if (smCount(SMELT_BAR_IDS[i]) > 0) return true;
+      return false;
+    }
+    function smXp() {
+      var mc = getMC();
+      return mc && mc.kN && mc.kN.data ? Number(mc.kN.data[13]) : 0;   // SMITHING = 13
+    }
+
+    return function() {
+      if (!isLoggedIn()) return 5000;
+
+      // ══ INIT ══
+      if (scriptState.phase === 'init' || !scriptState.phase) {
+        var lvl = getStatBase(13);
+        if (furnaceName === 'Auto (nearest)') {
+          var bestF = null, bestFD = Infinity;
+          for (var i = 0; i < SMELT_FURNACES.length; i++) {
+            var f2 = SMELT_FURNACES[i];
+            var d2 = Math.abs(f2.x - getX()) + Math.abs(f2.y - getY());
+            if (d2 < bestFD) { bestFD = d2; bestF = f2; }
+          }
+          furnaceName = bestF ? bestF.name : 'Al-Kharid';
+          scriptState.smFurnace = bestF;
+          log('Smelting furnace auto-detected: ' + furnaceName + ' (' + bestFD + ' tiles)');
+        } else {
+          for (var j = 0; j < SMELT_FURNACES.length; j++) {
+            if (SMELT_FURNACES[j].name === furnaceName) { scriptState.smFurnace = SMELT_FURNACES[j]; break; }
+          }
+        }
+        if (lvl < bar.lvl) {
+          log('Need Smithing level ' + bar.lvl + ' for ' + barKey + ' bars (you are ' + lvl + ') — stopping');
+          stopBot(); return 2000;
+        }
+        log('Smelting v323: ' + barKey + ' bars @ ' + furnaceName + ' (lvl ' + lvl + ')');
+        scriptState.smBars = 0;
+        scriptState.smXp0 = smXp();
+        scriptState.phase = 'toBankOre';
+      }
+      var furn = scriptState.smFurnace || SMELT_FURNACES[0];
+
+      // ══ FATIGUE / SLEEP ══
+      if (getIsSleeping()) {
+        if (!scriptState.sleepTyping) {
+          scriptState.sleepTyping = true;
+          var sw = 'asleep';
+          for (var ci = 0; ci < sw.length; ci++) window.__r2hTypeChar(sw[ci]);
+          setTimeout(function() {
+            window.__r2hTypeSpecial('Enter');
+            scriptState.sleepTyping = false;
+          }, 500);
+        }
+        return 2000;
+      }
+      if (getFatigue() >= 96) {
+        var bag = getInventoryIndex(SLEEPING_BAG);
+        if (bag >= 0) { log('Fatigue — sleeping'); useItem(bag); return 3000; }
+      }
+
+      // ══ TO BANK (ore resupply) ══
+      if (scriptState.phase === 'toBankOre') {
+        var bt = BANK_REGISTRY[furn.bank];
+        if (!bt) { log('Unknown bank ' + furn.bank); stopBot(); return 2000; }
+        var chebB = Math.max(Math.abs(bt[0] - getX()), Math.abs(bt[1] - getY()));
+        if (chebB <= 3) { scriptState.phase = 'smBankTalk'; scriptState.smBankMiss = 0; return 500; }
+        if (Date.now() - (scriptState.smWalkT || 0) > 2500) {
+          scriptState.smWalkT = Date.now();
+          walkTo(bt[0], bt[1]);
+        }
+        return 1200;
+      }
+
+      // ══ BANK: deposit bars, withdraw ores ══
+      if (scriptState.phase === 'smBankTalk') {
+        var BANKER_IDS = [95, 224, 268, 485, 540, 617];
+        if (isInBank()) { scriptState.phase = 'smBank'; scriptState.smWdIdx = 0; scriptState.smWdSent = 0; return 400; }
+        // dialogue open? answer it (cooking machine: talk → IMMEDIATE phase
+        // change → option retries every 2s until bank opens)
+        if (Date.now() - (scriptState.smOptT || 0) > 2000) {
+          scriptState.smOptT = Date.now();
+          optionAnswer(0);
+        }
+        var banker = findNpcs(BANKER_IDS, 4);
+        if (banker.length > 0) {
+          if (Date.now() - (scriptState.smTalkT || 0) > 12000) {
+            scriptState.smTalkT = Date.now();
+            log('Talking to banker');
+            talkToNpc(banker[0].serverIndex);
+          }
+          return 1500;
+        }
+        scriptState.smBankMiss = (scriptState.smBankMiss || 0) + 1;
+        if (scriptState.smBankMiss > 8) { log('No banker found — stopping'); stopBot(); return 2000; }
+        return 1500;
+      }
+      if (scriptState.phase === 'smBank') {
+        if (!isInBank()) { scriptState.phase = 'smBankTalk'; return 600; }
+        // deposit bars first
+        for (var bi = 0; bi < SMELT_BAR_IDS.length; bi++) {
+          var bid = SMELT_BAR_IDS[bi];
+          if (smCount(bid) > 0) {
+            depositItem(bid, 0xFFFFFF);   // all
+            return 1200;
+          }
+        }
+        // withdraw ores (one request type per visit — cooking discipline)
+        var trips = [];
+        trips.push([bar.primary, Math.floor(27 / (bar.pAmt + bar.coal + (bar.sAmt || 0))) * bar.pAmt]);
+        if (bar.coal > 0) trips.push([155, Math.floor(27 / (bar.pAmt + bar.coal)) * bar.coal]);
+        if (bar.secondary) trips.push([bar.secondary, Math.floor(27 / (bar.sAmt + 1))]);
+        if (!scriptState.smWdIdx) scriptState.smWdIdx = 0;
+        if (scriptState.smWdIdx < trips.length) {
+          var wd = trips[scriptState.smWdIdx];
+          if (!scriptState.smWdSent) {
+            withdrawItem(wd[0], Math.max(1, Math.min(27, wd[1])));
+            scriptState.smWdSent = Date.now();
+            return 2000;
+          }
+          if (Date.now() - scriptState.smWdSent > 2500) {
+            scriptState.smWdIdx++;
+            scriptState.smWdSent = 0;
+          }
+          return 1200;
+        }
+        // check what we actually got
+        var oreHave = smCount(bar.primary);
+        var coalHave = bar.coal > 0 ? smCount(155) : 999;
+        if (oreHave === 0 && coalHave === 0) {
+          log('Bank has no ores — done. Bars smelted: ' + (scriptState.smBars || 0));
+          closeBank(); stopBot(); return 1000;
+        }
+        if (oreHave === 0 && coalHave > 0 && bar.coal > 0) {
+          // have coal but no primary — iron edge: server auto-picks coal-smelt for iron L30+
+          log('Only coal in bank — done (no primary ore)');
+          closeBank(); stopBot(); return 1000;
+        }
+        scriptState.smWdIdx = 0;
+        scriptState.phase = 'toFurnace';
+        closeBank();
+        return 1000;
+      }
+
+      // ══ TO FURNACE ══
+      if (scriptState.phase === 'toFurnace') {
+        var chebF = Math.max(Math.abs(furn.x - getX()), Math.abs(furn.y - getY()));
+        if (chebF <= 2) { scriptState.phase = 'smelt'; scriptState.smTries = 0; scriptState.smLastXpT = Date.now(); return 500; }
+        // stall discipline (FM lessons): send-once, re-send only after 10s no-move
+        var movedS = getX() !== (scriptState.smWX || -99) || getY() !== (scriptState.smWY || -99);
+        if (movedS) {
+          scriptState.smWX = getX(); scriptState.smWY = getY();
+          scriptState.smWT = Date.now();
+        }
+        if (!scriptState.smSent || Date.now() - scriptState.smWT > 10000) {
+          scriptState.smSent = 1;
+          scriptState.smWT = Date.now();
+          scriptState.smWX = getX(); scriptState.smWY = getY();
+          // furnace ADJACENT approach (never the furnace tile — blocked):
+          var adx = getX() < furn.x ? furn.x - 1 : furn.x + 1;
+          walkTo(adx, furn.y);
+        }
+        return 1200;
+      }
+
+      // ══ SMELT (use primary ore on furnace; server consumes + auto coal) ══
+      if (scriptState.phase === 'smelt') {
+        var xpNow = smXp();
+        if (xpNow > (scriptState.smXpPrev || 0)) {
+          scriptState.smBars++;
+          scriptState.smXpPrev = xpNow;
+          scriptState.smLastXpT = Date.now();
+          if (scriptState.smBars % 5 === 0) log('Bars: ' + scriptState.smBars);
+        }
+        var oreNow = smCount(bar.primary);
+        var coalNow = smCount(155);
+        var canSmelt = oreNow >= bar.pAmt && (bar.coal === 0 || coalNow >= bar.coal);
+        if (bar.secondary) canSmelt = oreNow >= 1 && smCount(bar.secondary) >= (bar.sAmt || 1);
+        if (!canSmelt) {
+          log('Out of ores — banking');
+          scriptState.phase = 'toBankOre';
+          scriptState.smSent = 0;
+          return 800;
+        }
+        // XP stall → out of ores server-side (ghost counts) → bank
+        if (Date.now() - scriptState.smLastXpT > 20000) {
+          log('No XP for 20s — ores exhausted server-side, banking');
+          scriptState.phase = 'toBankOre';
+          scriptState.smSent = 0;
+          return 800;
+        }
+        var oSlot = getInventoryIndex(bar.primary);
+        if (oSlot < 0) { scriptState.phase = 'toBankOre'; return 800; }
+        useItemOnObject(oSlot, furn.x, furn.y);
+        return 2500;   // batch progression: server smelts all in one use
+      }
+      log('Smelting: unknown phase ' + scriptState.phase);
+      return 2000;
+    };
+  }
+
+
   function isFiremakingScript(id) {
     return FIREMAKING_SCRIPT_IDS.indexOf(id) >= 0;
   }
