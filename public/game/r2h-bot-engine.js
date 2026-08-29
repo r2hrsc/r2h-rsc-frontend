@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v320';
+  var VERSION = 'v322';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5604,6 +5604,9 @@
         scriptState.fmScoutStep = 0;   // trees found — reset scouting
         var tCheb = Math.max(Math.abs(tree.worldX - getX()), Math.abs(tree.worldY - getY()));
         if (Date.now() < (scriptState.fmHopQuiet || 0)) return 1500;   // hop in flight
+        // v322: cheb==1 means ADJACENT to the tree = chop range. But walking
+        // TO the tree tile itself is always refused (trees block) — target an
+        // adjacent tile when routing (handled below via fmTreeSent walk dest).
         if (tCheb > 1) {
           // v317: ONE walk per target, then WAIT for arrival (position change).
           // Re-sending every 2.5s cancelled the server's own walk (resetAll)
@@ -5619,43 +5622,45 @@
             scriptState.fmTreeSent = 1;
             scriptState.fmTreeWalkT = Date.now();
             scriptState.fmTWX = getX(); scriptState.fmTWY = getY();
-            walkTo(tree.worldX, tree.worldY);
+            // v322: walk to the tree's NEAREST ADJACENT tile (S/E preference),
+            // never the tree tile (blocked). Chop lands from adjacent.
+            var adjDx = getX() < tree.worldX ? 1 : (getX() > tree.worldX ? -1 : 0);
+            var adjDy = getY() < tree.worldY ? 1 : (getY() > tree.worldY ? -1 : 0);
+            var adjX = tree.worldX, adjY = tree.worldY;
+            if (adjDx !== 0) adjX = tree.worldX + (adjDx > 0 ? -1 : 1);   // step toward player side
+            else if (adjDy !== 0) adjY = tree.worldY + (adjDy > 0 ? -1 : 1);
+            walkTo(adjX, adjY);
           }
           // still far after 3 stalls → mark felled, next tree
           if (stalled) {
-            scriptState.fmTreeStalls = (scriptState.fmTreeStalls || 0) + 1;
-            if (scriptState.fmTreeStalls >= 3) {
-              scriptState.fmFelled = scriptState.fmFelled || {};
-              scriptState.fmFelled[tree.worldX + ',' + tree.worldY] = 1;
-              scriptState.fmTreeSent = 0; scriptState.fmTreeStalls = 0;
-              // v317c: POCKET ESCAPE — 3+ consecutive unreachable trees means
-              // the whole direction is walled (client pathfinder refuses
-              // unreachable destinations SILENTLY — live at (100,630): every
-              // tree N/E unreachable, player never moved a tile). Hop a full
-              // region (24 tiles, rotating direction) to escape the pocket.
-              scriptState.fmUnreachable = (scriptState.fmUnreachable || 0) + 1;
-              if (scriptState.fmUnreachable >= 2) {
-                scriptState.fmUnreachable = 0;
-                // v319b: PROXIMAL ESCAPE FIRST — a 24-tile hop through a pocket
-                // is refused like the tree walks (live: (119,633) boxed by own
-                // fires/trees — even manual 11-tile walks refused). Step to the
-                // nearest ADJACENT open tile first, THEN hop from there.
-                var escDirs = [[1,0],[0,1],[-1,0],[0,-1],[1,1],[-1,1],[1,-1],[-1,-1]];
-                var escaped = false;
-                for (var ei = 0; ei < escDirs.length; ei++) {
-                  var ex = getX() + escDirs[ei][0], ey = getY() + escDirs[ei][1];
-                  var ek = ex + ',' + ey;
-                  if (scriptState.fmFireTiles && scriptState.fmFireTiles[ek]) continue;
-                  walkTo(ex, ey);
-                  log('Boxed — stepping out via (' + ex + ',' + ey + ')');
-                  escaped = true;
-                  break;
-                }
-                if (!escaped) { walkTo(getX(), getY() - 2); }
-                scriptState.fmHopQuiet = Date.now() + 3000;
-                return 2000;
-              }
-              log('Tree unreachable — marking and moving on');
+            // v321: ONE 10s stall = unreachable (terrain refuses the walk
+            // SILENTLY — live: Catherby, walks to (514,514)/(544,502) refused
+            // from (525,504), bot stood an entire 5-min test). Mark + next.
+            scriptState.fmFelled = scriptState.fmFelled || {};
+            scriptState.fmFelled[tree.worldX + ',' + tree.worldY] = 1;
+            scriptState.fmTreeSent = 0; scriptState.fmTreeStalls = 0;
+            scriptState.fmUnreachable = (scriptState.fmUnreachable || 0) + 1;
+            log('Tree ' + tree.worldX + ',' + tree.worldY + ' unreachable (walk refused) — next candidate');
+            // v322: SESSION-ROT DETECTOR — if the player hasn't moved a single
+            // tile across 4 refused walks, the client session is walk-dead
+            // (documented long-session degradation). Stop cleanly; a page
+            // refresh restores it. Grinding marks every tree for nothing.
+            if (scriptState.fmTWX === getX() && scriptState.fmTWY === getY()) {
+              scriptState.fmRotStreak = (scriptState.fmRotStreak || 0) + 1;
+            } else {
+              scriptState.fmRotStreak = 0;
+            }
+            if ((scriptState.fmRotStreak || 0) >= 4) {
+              log('Client session walk-dead (4 refused walks, no movement) — refresh the page and restart. Stopping.');
+              stopBot(); return 3000;
+            }
+            if (scriptState.fmUnreachable >= 3) {
+              scriptState.fmUnreachable = 0;
+              var hd = [[1,0],[0,1],[-1,0],[0,-1]][(scriptState.fmHopIdx || 0) % 4];
+              scriptState.fmHopIdx = (scriptState.fmHopIdx || 0) + 1;
+              walkTo(getX() + hd[0] * 12, getY() + hd[1] * 12);
+              scriptState.fmHopQuiet = Date.now() + 4000;
+              log('3 unreachable trees — short hop ' + hd.join(','));
             }
           }
           return 1000;
