@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v335';
+  var VERSION = 'v336';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6318,6 +6318,11 @@
             if (wdGot < 27) {
               log('Bank low: withdrew ' + wdGot + ' bars (had 27 requested)');
             }
+            var barsNeed2 = Math.max(1, SMITH_BARS_PER[itemName] || 1);
+            if (wdGot < barsNeed2) {
+              log('Not enough bars for ' + itemName + ' (' + wdGot + ' in inv, ' + barsNeed2 + ' needed) and bank dry — done. Items smithed: ' + (scriptState.smMade || 0));
+              closeBank(); stopBot(); return 1000;
+            }
             scriptState.phase = 'shToAnvil';
             scriptState.shSent = 0;
             scriptState.shBankOpenedAt = 0;
@@ -6360,6 +6365,13 @@
       //   armour (no chainlegs): Chain Body 0, Plate Body 1, Plate Legs 2,
       //     Plate Skirt 3, Chain Top 4 (custom), Plate Top 5 (custom)
       //   count: Make 1 / 5 / 10 / All(3)
+      var SMITH_BARS_PER = {
+        'Dagger': 1, 'Throwing Knife': 1, 'Sword': 1, 'Long Sword': 2, 'Scimitar': 2,
+        '2-handed Sword': 3, 'Axe': 1, 'Battle Axe': 3, 'Mace': 1,
+        'Medium Helmet': 1, 'Large Helmet': 2, 'Square Shield': 2, 'Kite Shield': 3,
+        'Chain Body': 3, 'Plate Body': 5, 'Plate Legs': 3, 'Plate Skirt': 3,
+        'Plate Top': 5, 'Chain Top': 3, 'Arrowheads': 1
+      };
       var SMITH_MENU_ANSWERS = {
         'Dagger':            [0, 0],
         'Throwing Knife':    [0, 1],
@@ -6392,10 +6404,15 @@
         return [0, 0];   // Dagger default
       }
       if (scriptState.phase === 'shSmith') {
-        if (smCount(barId) === 0) {
-          log('Out of bars — banking');
+        var barsNeeded = Math.max(1, SMITH_BARS_PER[itemName] || 1);
+        if (smCount(barId) < barsNeeded) {
+          // v336: RECIPE-AWARE gate — 1 bar left + 3-bar item = cannot smith
+          // (server: 'You need 3 bars'; the old ===0 gate looped the anvil use
+          // forever on partial bar loads — live 01:26 shafster mithril)
+          log(smCount(barId) + ' bar(s) left, ' + itemName + ' needs ' + barsNeeded + ' — banking');
           scriptState.phase = 'shToBank';
           scriptState.shWdSent = 0;
+          scriptState.shBankOpenedAt = 0;
           return 800;
         }
         var xpNow = smithXp();
