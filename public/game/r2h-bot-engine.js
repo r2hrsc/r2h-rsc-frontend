@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v343';
+  var VERSION = 'v344';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6062,6 +6062,17 @@
         // tile (refreshes client arrays) and start over.
         var banker = findNpcs(BANKER_IDS, 10) /* wide: post-walk arrays shrink */;
         if (banker.length > 0) {
+          // v344 STATIONARY GATE — movement CANCELS dialogue server-side. The
+          // talk packet lands (Bankers.onTalkNpc logged) but the menu never
+          // spawns; our answers hit a null menuHandler and are silently
+          // dropped (no null-reply log = menu never existed). Live pattern:
+          // trip 1 (stationary post-login) works, trips 2+ (just walked in,
+          // final steps still executing) all fail. Wait for a stable position.
+          if (getX() !== (scriptState.smStillX || -99) || getY() !== (scriptState.smStillY || -99)) {
+            scriptState.smStillX = getX(); scriptState.smStillY = getY();
+            scriptState.smStillT = Date.now();
+          }
+          if (Date.now() - (scriptState.smStillT || 0) < 1500) return 600;   // still moving
           if (!scriptState.smTalkT || Date.now() - scriptState.smTalkT > 8000) {
             scriptState.smTalkT = Date.now();
             scriptState.smAnsTries = 0;
@@ -6082,10 +6093,10 @@
             return 1200;
           }
           if ((scriptState.smAnsTries || 0) >= 3) {
-            // stuck — nudge position to refresh client NPC arrays, restart cycle
-            log('Bank not opening — nudging to refresh client state');
+            // stuck — pure re-talk (NO walking: movement cancels the dialogue
+            // we're waiting for; the v343 nudge walk was self-defeating)
+            log('Bank not opening — re-talking');
             scriptState.smTalkT = 0;
-            walkTo(getX() + 1, getY());
             return 2500;
           }
           return 1200;
@@ -6311,8 +6322,14 @@
         // opened, walked to anvil dry — live 01:01-01:08 shafster).
         // Discipline now: talk → wait 2s for the menu → answer(0) ONCE →
         // if no bank in 6s, re-talk. No answers without a preceding talk.
-        var banker = findNpcs(BANKER_IDS, 4);
+        var banker = findNpcs(BANKER_IDS, 10);
         if (banker.length > 0) {
+          // v344 STATIONARY GATE (see smelting) — movement cancels dialogue
+          if (getX() !== (scriptState.shStillX || -99) || getY() !== (scriptState.shStillY || -99)) {
+            scriptState.shStillX = getX(); scriptState.shStillY = getY();
+            scriptState.shStillT = Date.now();
+          }
+          if (Date.now() - (scriptState.shStillT || 0) < 1500) return 600;   // still moving
           if (!scriptState.shTalkT || Date.now() - scriptState.shTalkT > 6000) {
             scriptState.shTalkT = Date.now();
             scriptState.shAnswered = 0;
