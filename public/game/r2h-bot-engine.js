@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v340';
+  var VERSION = 'v341';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5957,7 +5957,20 @@
         log('Smelting v323: ' + barKey + ' bars @ ' + furnaceName + ' (lvl ' + lvl + ')');
         scriptState.smBars = 0;
         scriptState.smXp0 = smXp();
-        scriptState.phase = 'toBankOre';
+        // v341: START-TIME INVENTORY CHECK (v306 cooking / v331 smithing
+        // pattern) — ores already in inventory → straight to the furnace;
+        // bank first only when empty-handed (live: user smelted a full inv of
+        // rune ore while the script kept banking-tripping for more)
+        var startOre = smCount(bar.primary);
+        var startCoal = smCount(155);
+        var startSec = bar.secondary ? smCount(bar.secondary) : 999;
+        if (startOre >= bar.pAmt && (bar.coal === 0 || startCoal >= bar.coal) &&
+            (!bar.secondary || startSec >= (bar.sAmt || 1))) {
+          log(startOre + ' ore(s) in inventory — starting at the furnace');
+          scriptState.phase = 'toFurnace';
+        } else {
+          scriptState.phase = 'toBankOre';
+        }
       }
       var furn = scriptState.smFurnace || SMELT_FURNACES[0];
 
