@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v344';
+  var VERSION = 'v345';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6060,55 +6060,43 @@
         // Discipline: talk → wait 1.8s → answer; if no bank in 3.5s RE-ANSWER
         // (server drops the first when the walk settles); 3 cycles → walk 1
         // tile (refreshes client arrays) and start over.
-        var banker = findNpcs(BANKER_IDS, 10) /* wide: post-walk arrays shrink */;
+        // v345: WC's PROVEN bank machine (sealed v274 — user-verified all day:
+        // 'all the other scripts have been fine'). Talk → IMMEDIATELY move to
+        // the option phase → RETRY optionAnswer(0) EVERY 2s until the bank
+        // opens; re-talk only after 12s. No once-only guards, no stationary
+        // gates, no answer caps — the retry loop IS the fix (an eaten first
+        // answer used to dead-end trips 2+).
+        var banker = findNpcs(BANKER_IDS, 10);
         if (banker.length > 0) {
-          // v344 STATIONARY GATE — movement CANCELS dialogue server-side. The
-          // talk packet lands (Bankers.onTalkNpc logged) but the menu never
-          // spawns; our answers hit a null menuHandler and are silently
-          // dropped (no null-reply log = menu never existed). Live pattern:
-          // trip 1 (stationary post-login) works, trips 2+ (just walked in,
-          // final steps still executing) all fail. Wait for a stable position.
-          if (getX() !== (scriptState.smStillX || -99) || getY() !== (scriptState.smStillY || -99)) {
-            scriptState.smStillX = getX(); scriptState.smStillY = getY();
-            scriptState.smStillT = Date.now();
-          }
-          if (Date.now() - (scriptState.smStillT || 0) < 1500) return 600;   // still moving
-          if (!scriptState.smTalkT || Date.now() - scriptState.smTalkT > 8000) {
-            scriptState.smTalkT = Date.now();
-            scriptState.smAnsTries = 0;
-            // v340: fresh visit state (stale smWdIdx skipped withdraws on visit 2+)
+          if (scriptState.phase === 'smBankTalk') {
             scriptState.smWdIdx = 0;
             scriptState.smWdSent = 0;
             log('Talking to banker');
             talkToNpc(banker[0].serverIndex);
-            return 1500;
+            scriptState.smBankTimer = Date.now();
+            scriptState.smTalkStart = Date.now();
+            scriptState.phase = 'smBankOption';
+            return 2000;
           }
-          var waited = Date.now() - scriptState.smTalkT;
-          if (waited > 1800 && (scriptState.smAnsTries || 0) < 3 &&
-              Date.now() - (scriptState.smAnsT || 0) > 3500) {
-            scriptState.smAnsTries = (scriptState.smAnsTries || 0) + 1;
-            scriptState.smAnsT = Date.now();
-            optionAnswer(0);
-            log('Bank answer attempt ' + scriptState.smAnsTries);
-            return 1200;
-          }
-          if ((scriptState.smAnsTries || 0) >= 3) {
-            // stuck — pure re-talk (NO walking: movement cancels the dialogue
-            // we're waiting for; the v343 nudge walk was self-defeating)
-            log('Bank not opening — re-talking');
-            scriptState.smTalkT = 0;
-            return 2500;
-          }
-          return 1200;
         }
-        // no banker visible: nudge toward the bank tile + rotate scan
+        // no banker visible: walk to the bank tile and keep scanning
+        var btN = BANK_REGISTRY[furn.bank];
+        if (btN) walkTo(btN[0], btN[1]);
         scriptState.smBankMiss = (scriptState.smBankMiss || 0) + 1;
-        if (scriptState.smBankMiss % 3 === 1) {
-          var btN = BANK_REGISTRY[furn.bank];
-          if (btN) walkTo(btN[0], btN[1]);
-        }
         if (scriptState.smBankMiss > 12) { log('No banker found — stopping'); stopBot(); return 2000; }
-        return 2000;
+        return 1500;
+      }
+      if (scriptState.phase === 'smBankOption') {
+        if (isInBank()) { scriptState.phase = 'smBank'; scriptState.smWdIdx = 0; scriptState.smWdSent = 0; scriptState.smBankOpenedAt = 0; return 500; }
+        if (Date.now() - scriptState.smBankTimer > 2000) {
+          optionAnswer(0);
+          scriptState.smBankTimer = Date.now();
+        }
+        if (Date.now() - (scriptState.smTalkStart || 0) > 12000) {
+          log('Bank not opening — retrying talk');
+          scriptState.phase = 'smBankTalk';
+        }
+        return 1500;
       }
       if (scriptState.phase === 'smBank') {
         if (!isInBank()) { scriptState.phase = 'smBankTalk'; return 600; }
@@ -6324,29 +6312,35 @@
         // if no bank in 6s, re-talk. No answers without a preceding talk.
         var banker = findNpcs(BANKER_IDS, 10);
         if (banker.length > 0) {
-          // v344 STATIONARY GATE (see smelting) — movement cancels dialogue
-          if (getX() !== (scriptState.shStillX || -99) || getY() !== (scriptState.shStillY || -99)) {
-            scriptState.shStillX = getX(); scriptState.shStillY = getY();
-            scriptState.shStillT = Date.now();
-          }
-          if (Date.now() - (scriptState.shStillT || 0) < 1500) return 600;   // still moving
-          if (!scriptState.shTalkT || Date.now() - scriptState.shTalkT > 6000) {
-            scriptState.shTalkT = Date.now();
-            scriptState.shAnswered = 0;
-            log('Talking to banker');
-            talkToNpc(banker[0].serverIndex);
-            return 1500;
-          }
-          if (scriptState.shTalkT && !scriptState.shAnswered &&
-              Date.now() - scriptState.shTalkT > 2000) {
-            scriptState.shAnswered = 1;
-            optionAnswer(0);   // "I'd like to access my bank account please"
-            return 1200;
-          }
-          return 1200;
+          // v345: WC's PROVEN machine — talk once, then RETRY the answer
+          // every 2s until the bank opens; re-talk after 12s (an eaten first
+          // answer used to dead-end trips 2+ — the retry loop is the fix)
+          scriptState.shTalkT = Date.now();
+          scriptState.shAnswered = 0;
+          scriptState.shWdIdx = 0;
+          scriptState.shWdSent = 0;
+          scriptState.shWdFails = 0;
+          log('Talking to banker');
+          talkToNpc(banker[0].serverIndex);
+          scriptState.shBankTimer = Date.now();
+          scriptState.shTalkStart = Date.now();
+          scriptState.phase = 'shBankOption';
+          return 2000;
         }
         scriptState.shMiss = (scriptState.shMiss || 0) + 1;
         if (scriptState.shMiss > 8) { log('No banker — stopping'); stopBot(); return 2000; }
+        return 1500;
+      }
+      if (scriptState.phase === 'shBankOption') {
+        if (isInBank()) { scriptState.phase = 'shBank'; scriptState.shBankOpenedAt = 0; return 400; }
+        if (Date.now() - scriptState.shBankTimer > 2000) {
+          optionAnswer(0);
+          scriptState.shBankTimer = Date.now();
+        }
+        if (Date.now() - (scriptState.shTalkStart || 0) > 12000) {
+          log('Bank not opening — retrying talk');
+          scriptState.phase = 'shBankTalk';
+        }
         return 1500;
       }
 
