@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v339';
+  var VERSION = 'v340';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6044,6 +6044,12 @@
           if (!scriptState.smTalkT || Date.now() - scriptState.smTalkT > 6000) {
             scriptState.smTalkT = Date.now();
             scriptState.smAnswered = 0;
+            // v340: fresh visit state — a stale smWdIdx from the PREVIOUS visit
+            // made the machine skip the withdraws entirely on visit 2+ (talks
+            // paired 5s apart + 40s gaps = bank open→skip→furnace→bank loop;
+            // live 02:16 shafster Falador)
+            scriptState.smWdIdx = 0;
+            scriptState.smWdSent = 0;
             log('Talking to banker');
             talkToNpc(banker[0].serverIndex);
             return 1500;
