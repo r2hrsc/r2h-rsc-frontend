@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v337';
+  var VERSION = 'v339';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5979,17 +5979,57 @@
         if (bag >= 0) { log('Fatigue — sleeping'); useItem(bag); return 3000; }
       }
 
+      // ══ v337b: graph-routed travel (WC walkToward port) ══
+      function smWalkToward(destX, destY, onArrive, arriveDist) {
+        var chebFar = Math.max(Math.abs(destX - getX()), Math.abs(destY - getY()));
+        if (chebFar <= (arriveDist || 3)) { onArrive(); return 400; }
+        if (chebFar <= 12) { walkTo(destX, destY); return 1200; }
+        var dkey = destX + ',' + destY;
+        if (scriptState._smHopDest !== dkey) { scriptState._smHopDest = dkey; scriptState._smHop = null; }
+        var hop = scriptState._smHop;
+        var atHop = hop && Math.max(Math.abs(hop.x - getX()), Math.abs(hop.y - getY())) <= 1;
+        var hopStale = hop && Date.now() - (scriptState._smHopTs || 0) > 25000;
+        if (!hop || atHop || hopStale) {
+          var route = webwalkRouteNoGates(getX(), getY(), destX, destY);
+          hop = { x: destX, y: destY };
+          if (route && route.length >= 2) {
+            var bestIdx = 0, bestD = Infinity;
+            for (var ri = 0; ri < route.length; ri++) {
+              var rd = Math.abs(route[ri].x - getX()) + Math.abs(route[ri].y - getY());
+              if (rd < bestD) { bestD = rd; bestIdx = ri; }
+            }
+            if (bestIdx < route.length - 1) hop = { x: route[bestIdx + 1].x, y: route[bestIdx + 1].y };
+          }
+          scriptState._smHop = hop;
+          scriptState._smHopTs = Date.now();
+        }
+        var now = Date.now();
+        var moved = (getX() !== (scriptState._smSendX || -9999) || getY() !== (scriptState._smSendY || -9999));
+        if (!scriptState._smLastWalk || now - scriptState._smLastWalk > 3500 || (scriptState._smSent && !moved)) {
+          walkTo(scriptState._smSent && !moved ? hop.x + 1 : hop.x, hop.y);
+          scriptState._smLastWalk = now;
+          scriptState._smSent = true;
+          scriptState._smSendX = getX(); scriptState._smSendY = getY();
+        }
+        var px3 = getX(), py3 = getY();
+        if (px3 !== (scriptState._smLastPX || -9999) || py3 !== (scriptState._smLastPY || -9999)) {
+          scriptState._smLastPX = px3; scriptState._smLastPY = py3;
+          scriptState._smWalkStart = now;
+        } else if (now - scriptState._smWalkStart > 45000) {
+          log('STUCK walking to (' + destX + ',' + destY + ') for 45s — stopping');
+          stopBot(); return 2000;
+        }
+        return 1500;
+      }
+
       // ══ TO BANK (ore resupply) ══
       if (scriptState.phase === 'toBankOre') {
         var bt = BANK_REGISTRY[furn.bank];
         if (!bt) { log('Unknown bank ' + furn.bank); stopBot(); return 2000; }
-        var chebB = Math.max(Math.abs(bt[0] - getX()), Math.abs(bt[1] - getY()));
-        if (chebB <= 3) { scriptState.phase = 'smBankTalk'; scriptState.smBankMiss = 0; return 500; }
-        if (Date.now() - (scriptState.smWalkT || 0) > 2500) {
-          scriptState.smWalkT = Date.now();
-          walkTo(bt[0], bt[1]);
-        }
-        return 1200;
+        return smWalkToward(bt[0], bt[1], function() {
+          scriptState.phase = 'smBankTalk';
+          scriptState.smBankMiss = 0;
+        });
       }
 
       // ══ BANK: deposit bars, withdraw ores ══
