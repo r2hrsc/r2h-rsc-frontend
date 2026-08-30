@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v345';
+  var VERSION = 'v346';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6033,9 +6033,17 @@
         if (px3 !== (scriptState._smLastPX || -9999) || py3 !== (scriptState._smLastPY || -9999)) {
           scriptState._smLastPX = px3; scriptState._smLastPY = py3;
           scriptState._smWalkStart = now;
-        } else if (now - scriptState._smWalkStart > 45000) {
-          log('STUCK walking to (' + destX + ',' + destY + ') for 45s — stopping');
-          stopBot(); return 2000;
+        } else if (now - scriptState._smWalkStart > 10000) {
+          // v346: 10s no-move — rotate the furnace neighbor and re-approach
+          // (terrain-refused approach tiles are per-neighbor)
+          scriptState.smNbrIdx = (scriptState.smNbrIdx || 0) + 1;
+          scriptState._smHop = null;
+          scriptState._smWalkStart = now;
+          log('Approach refused — trying next furnace neighbor');
+          if ((scriptState.smNbrIdx || 0) > 10) {
+            log('STUCK approaching furnace — stopping');
+            stopBot(); return 2000;
+          }
         }
         return 1500;
       }
@@ -6145,13 +6153,33 @@
         return 1000;
       }
 
-      // ══ TO FURNACE — v337 graph-routed, adjacent arrival ══
+      // ══ TO FURNACE — v346 NEIGHBOR-PROBE ARRIVAL: the fixed x±1,furn.y
+      // adjacent tile is sometimes terrain-refused (live Falador: walk to
+      // (307,546) refused from 5 tiles out, engine re-walked forever, smelt
+      // never started). Arrive at CHEB<=2 of the furnace (any side — the use
+      // packet worked from (307,545)/(308,545) live), and if the final walk
+      // refuses, try each 8-neighbor in turn. ══
       if (scriptState.phase === 'toFurnace') {
-        var adx2 = getX() < furn.x ? furn.x - 1 : furn.x + 1;
-        return smWalkToward(adx2, furn.y, function() {
+        var chebF2 = Math.max(Math.abs(furn.x - getX()), Math.abs(furn.y - getY()));
+        if (chebF2 <= 2) {
           scriptState.phase = 'smelt';
           scriptState.smTries = 0;
           scriptState.smLastXpT = Date.now();
+          return 500;
+        }
+        // pick the neighbor closest to us; rotate on stall
+        var NBR = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+        var ni = (scriptState.smNbrIdx || 0) % 8;
+        var n2 = NBR[ni];
+        var tx2 = furn.x + n2[0], ty2 = furn.y + n2[1];
+        var before2 = getX() + ',' + getY();
+        return smWalkToward(tx2, ty2, function() {
+          // arrived at this neighbor
+          if (Math.max(Math.abs(furn.x - getX()), Math.abs(furn.y - getY())) <= 2) {
+            scriptState.phase = 'smelt';
+            scriptState.smTries = 0;
+            scriptState.smLastXpT = Date.now();
+          }
         }, 2);
       }
 
