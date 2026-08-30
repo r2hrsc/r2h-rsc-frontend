@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v336';
+  var VERSION = 'v337';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6067,25 +6067,14 @@
         return 1000;
       }
 
-      // ══ TO FURNACE ══
+      // ══ TO FURNACE — v337 graph-routed, adjacent arrival ══
       if (scriptState.phase === 'toFurnace') {
-        var chebF = Math.max(Math.abs(furn.x - getX()), Math.abs(furn.y - getY()));
-        if (chebF <= 2) { scriptState.phase = 'smelt'; scriptState.smTries = 0; scriptState.smLastXpT = Date.now(); return 500; }
-        // stall discipline (FM lessons): send-once, re-send only after 10s no-move
-        var movedS = getX() !== (scriptState.smWX || -99) || getY() !== (scriptState.smWY || -99);
-        if (movedS) {
-          scriptState.smWX = getX(); scriptState.smWY = getY();
-          scriptState.smWT = Date.now();
-        }
-        if (!scriptState.smSent || Date.now() - scriptState.smWT > 10000) {
-          scriptState.smSent = 1;
-          scriptState.smWT = Date.now();
-          scriptState.smWX = getX(); scriptState.smWY = getY();
-          // furnace ADJACENT approach (never the furnace tile — blocked):
-          var adx = getX() < furn.x ? furn.x - 1 : furn.x + 1;
-          walkTo(adx, furn.y);
-        }
-        return 1200;
+        var adx2 = getX() < furn.x ? furn.x - 1 : furn.x + 1;
+        return smWalkToward(adx2, furn.y, function() {
+          scriptState.phase = 'smelt';
+          scriptState.smTries = 0;
+          scriptState.smLastXpT = Date.now();
+        }, 2);
       }
 
       // ══ SMELT (use primary ore on furnace; server consumes + auto coal) ══

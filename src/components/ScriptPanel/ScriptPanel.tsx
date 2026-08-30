@@ -1053,7 +1053,7 @@ function FiremakingConfig({ cfg, set }: CfgProps) {
 
 function SmeltingConfig({ cfg, set }: CfgProps) {
   const BARS = ['bronze', 'iron', 'silver', 'steel', 'gold', 'mithril', 'adamant', 'rune'];
-  const FURNACES = ['Auto (nearest)', 'Al-Kharid', 'Falador', 'Edgeville'];
+  const FURNACES = ['Auto (nearest)', 'Al-Kharid', 'Falador', 'Ardougne'];
   return (
     <div style={S_PANEL}>
       <Field label="Bar Type">
