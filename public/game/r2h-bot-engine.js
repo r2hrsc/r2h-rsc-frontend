@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v332';
+  var VERSION = 'v333';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6230,7 +6230,11 @@
       if (scriptState.phase === 'shBankTalk') {
         var BANKER_IDS = [95, 224, 268, 485, 540, 617];
         if (isInBank()) { scriptState.phase = 'shBank'; return 400; }
-        if (Date.now() - (scriptState.shOptT || 0) > 2000) {
+        // v333: only answer the dialogue when one is plausibly open — the
+        // banker talk was >6s ago and the bank hasn't opened yet (answering
+        // with no menu open = server 'menu reply with null reply' spam)
+        if (Date.now() - (scriptState.shTalkT || 0) > 3000 &&
+            Date.now() - (scriptState.shOptT || 0) > 2000) {
           scriptState.shOptT = Date.now();
           optionAnswer(0);
         }
@@ -6273,9 +6277,27 @@
             return 2000;
           }
           if (Date.now() - scriptState.shWdSent > 2500) {
-            if (smCount(barId) === 0) {
-              log('Bank out of ' + barName + ' bars — done. Items smithed: ' + (scriptState.smMade || 0));
-              closeBank(); stopBot(); return 1000;
+            // v333: withdraw landed? withdraw amount NEVER exceeds 32767 and
+            // the ID is def-verified; if the count did not rise the bank
+            // session died (bank closed server-side) — RE-OPEN it, never
+            // walk to the anvil with zero bars (live 00:44: null-reply loop).
+            var wdGot = smCount(barId);
+            if (wdGot === 0) {
+              scriptState.shWdFails = (scriptState.shWdFails || 0) + 1;
+              if (scriptState.shWdFails >= 3) {
+                // really empty? try once more with count=1 to distinguish
+                log('Withdraws failing — bank may be out of ' + barName + ' bars');
+                scriptState.shWdFails = 0;
+                closeBank();
+                scriptState.phase = 'shBankTalk';
+                scriptState.shMiss = 0;
+                return 1000;
+              }
+              scriptState.shWdSent = 0;   // resend withdraw (bank still open)
+              return 2000;
+            }
+            if (wdGot < 27) {
+              log('Bank low: withdrew ' + wdGot + ' bars (had 27 requested)');
             }
             scriptState.phase = 'shToAnvil';
             scriptState.shSent = 0;
