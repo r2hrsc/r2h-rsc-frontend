@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v330';
+  var VERSION = 'v331';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6185,7 +6185,17 @@
           log('No hammer in inventory — bring a hammer (id 168). Stopping.');
           stopBot(); return 2000;
         }
-        scriptState.phase = 'shToBank';
+        // v331: START-TIME INVENTORY CHECK (v306 cooking pattern) — bars in
+        // hand → straight to the anvil; bank only when short (live: restart
+        // with a full bar load walked back to the bank and re-withdrew)
+        var startBars = smCount(barId);
+        if (startBars >= 2) {
+          log(startBars + ' ' + barName + ' bars in inventory — starting at the anvil');
+          scriptState.phase = 'shToAnvil';
+          scriptState.shSent = 0;
+        } else {
+          scriptState.phase = 'shToBank';
+        }
       }
       var anvil = scriptState.smAnvil;
 
