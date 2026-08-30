@@ -569,14 +569,14 @@ const THIEVE_TARGETS = [
 const SMITH_CATEGORIES = ['Weapon', 'Armour', 'Missile Heads'];
 const SMITH_SUBTYPES: Record<string, string[]> = {
   'Weapon':       ['Dagger', 'Throwing Knife', 'Sword', 'Axe', 'Mace'],
-  'Armour':       ['Medium Helmet', 'Large Helmet', 'Square Shield', 'Kite Shield', 'Chain Body', 'Chain Legs', 'Plate Body', 'Plate Legs', 'Plate Skirt'],
+  'Armour':       ['Medium Helmet', 'Large Helmet', 'Square Shield', 'Kite Shield', 'Chain Body', 'Plate Body', 'Plate Legs', 'Plate Skirt', 'Plate Top'],
   'Missile Heads': ['Arrowheads'],
 };
 const SMITH_SPECIFIC: Record<string, string[]> = {
   'Dagger': ['Dagger'],
   'Throwing Knife': ['Throwing Knife'],
-  'Sword': ['Short Sword', 'Long Sword', 'Scimitar', '2h Sword'],
-  'Axe': ['Hatchet', 'Battle Axe'],
+  'Sword': ['Sword', 'Long Sword', 'Scimitar', '2-handed Sword'],
+  'Axe': ['Axe', 'Battle Axe'],
   'Mace': ['Mace'],
   'Medium Helmet': ['Medium Helmet'],
   'Large Helmet': ['Large Helmet'],

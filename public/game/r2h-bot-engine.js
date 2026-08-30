@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v331';
+  var VERSION = 'v332';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6307,6 +6307,48 @@
       }
 
       // SMITH: use bar on anvil, answer menus
+      // v332 MENU MAP (server Smithing.java, this config: members=true,
+      // chain-legs=false, custom-sprites on adds tops):
+      //   menu1 Weapon: Dagger 0, Throwing Knife 1, Sword 2, Axe 3, Mace 4
+      //   menu1 Armour: Helmet 0, Shield 1, Armour 2
+      //   sword: Short 0 / Long 1 / Scimitar 2 / 2h 3
+      //   axe: Hatchet 0 / Battle 1
+      //   helmet: Medium 0 / Large 1
+      //   shield: Square 0 / Kite 1
+      //   armour (no chainlegs): Chain Body 0, Plate Body 1, Plate Legs 2,
+      //     Plate Skirt 3, Chain Top 4 (custom), Plate Top 5 (custom)
+      //   count: Make 1 / 5 / 10 / All(3)
+      var SMITH_MENU_ANSWERS = {
+        'Dagger':            [0, 0],
+        'Throwing Knife':    [0, 1],
+        'Sword':             [0, 2, 0],
+        'Long Sword':        [0, 2, 1],
+        'Scimitar':          [0, 2, 2],
+        '2-handed Sword':    [0, 2, 3],
+        'Axe':               [0, 3, 0],
+        'Battle Axe':        [0, 3, 1],
+        'Mace':              [0, 4],
+        'Medium Helmet':     [1, 0, 0],
+        'Large Helmet':      [1, 0, 1],
+        'Square Shield':     [1, 1, 0],
+        'Kite Shield':       [1, 1, 1],
+        'Chain Body':        [1, 2, 0],
+        'Plate Body':        [1, 2, 1],
+        'Plate Legs':        [1, 2, 2],
+        'Plate Skirt':       [1, 2, 3],
+        'Chain Top':         [1, 2, 4],
+        'Plate Top':         [1, 2, 5],
+        'Arrowheads':        [2, 0]
+      };
+      function smithAnswers(item) {
+        var a = SMITH_MENU_ANSWERS[item];
+        if (a) return a;
+        // fuzzy: substring match
+        for (var k in SMITH_MENU_ANSWERS) {
+          if (item && k.toLowerCase().indexOf(String(item).toLowerCase()) >= 0) return SMITH_MENU_ANSWERS[k];
+        }
+        return [0, 0];   // Dagger default
+      }
       if (scriptState.phase === 'shSmith') {
         if (smCount(barId) === 0) {
           log('Out of bars — banking');
@@ -6333,17 +6375,15 @@
           }
           return 1200;
         }
-        if (scriptState.smMenuStep <= 3) {
+        var answers = smithAnswers(itemName);
+        if (scriptState.smMenuStep <= answers.length) {
           if (Date.now() - lastAct > 1600) {
-            var opt;
-            if (scriptState.smMenuStep === 1) opt = category;                       // Weapon / Armour
-            else if (scriptState.smMenuStep === 2) opt = 0;                          // Dagger (first in weapon list)
-            else opt = 3;                                                             // Make All
-            optionAnswer(opt);
+            optionAnswer(answers[scriptState.smMenuStep - 1]);
             scriptState.smMenuAt = Date.now();
             scriptState.smMenuStep++;
-            if (scriptState.smMenuStep > 3) {
-              scriptState.smMenuStep = 0;   // batch will run; re-use when bars remain
+            if (scriptState.smMenuStep > answers.length) {
+              optionAnswer(3);   // Make All — follows the item menu directly
+              scriptState.smMenuStep = 0;
               scriptState.smWaitT = Date.now();
             }
           }
