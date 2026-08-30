@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v342';
+  var VERSION = 'v343';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6054,35 +6054,50 @@
       if (scriptState.phase === 'smBankTalk') {
         var BANKER_IDS = [95, 224, 268, 485, 540, 617];
         if (isInBank()) { scriptState.phase = 'smBank'; scriptState.smWdIdx = 0; scriptState.smWdSent = 0; return 400; }
-        // v334 same strict machine as smithing: talk → +2s → answer ONCE →
-        // re-talk after 6s if the bank still hasn't opened (the retry-every-2s
-        // version answered before the first talk existed → null-reply spam)
-        var banker = findNpcs(BANKER_IDS, 4);
+        // v343 ROBUST BANK REOPEN — live-proven failure: return trip talks land
+        // + 237 answer accepted but the bank NEVER opens (no 206 possible);
+        // post-walk client NPC arrays also rot ('No targets found' spam).
+        // Discipline: talk → wait 1.8s → answer; if no bank in 3.5s RE-ANSWER
+        // (server drops the first when the walk settles); 3 cycles → walk 1
+        // tile (refreshes client arrays) and start over.
+        var banker = findNpcs(BANKER_IDS, 10) /* wide: post-walk arrays shrink */;
         if (banker.length > 0) {
-          if (!scriptState.smTalkT || Date.now() - scriptState.smTalkT > 6000) {
+          if (!scriptState.smTalkT || Date.now() - scriptState.smTalkT > 8000) {
             scriptState.smTalkT = Date.now();
-            scriptState.smAnswered = 0;
-            // v340: fresh visit state — a stale smWdIdx from the PREVIOUS visit
-            // made the machine skip the withdraws entirely on visit 2+ (talks
-            // paired 5s apart + 40s gaps = bank open→skip→furnace→bank loop;
-            // live 02:16 shafster Falador)
+            scriptState.smAnsTries = 0;
+            // v340: fresh visit state (stale smWdIdx skipped withdraws on visit 2+)
             scriptState.smWdIdx = 0;
             scriptState.smWdSent = 0;
             log('Talking to banker');
             talkToNpc(banker[0].serverIndex);
             return 1500;
           }
-          if (scriptState.smTalkT && !scriptState.smAnswered &&
-              Date.now() - scriptState.smTalkT > 2000) {
-            scriptState.smAnswered = 1;
+          var waited = Date.now() - scriptState.smTalkT;
+          if (waited > 1800 && (scriptState.smAnsTries || 0) < 3 &&
+              Date.now() - (scriptState.smAnsT || 0) > 3500) {
+            scriptState.smAnsTries = (scriptState.smAnsTries || 0) + 1;
+            scriptState.smAnsT = Date.now();
             optionAnswer(0);
+            log('Bank answer attempt ' + scriptState.smAnsTries);
             return 1200;
+          }
+          if ((scriptState.smAnsTries || 0) >= 3) {
+            // stuck — nudge position to refresh client NPC arrays, restart cycle
+            log('Bank not opening — nudging to refresh client state');
+            scriptState.smTalkT = 0;
+            walkTo(getX() + 1, getY());
+            return 2500;
           }
           return 1200;
         }
+        // no banker visible: nudge toward the bank tile + rotate scan
         scriptState.smBankMiss = (scriptState.smBankMiss || 0) + 1;
-        if (scriptState.smBankMiss > 8) { log('No banker found — stopping'); stopBot(); return 2000; }
-        return 1500;
+        if (scriptState.smBankMiss % 3 === 1) {
+          var btN = BANK_REGISTRY[furn.bank];
+          if (btN) walkTo(btN[0], btN[1]);
+        }
+        if (scriptState.smBankMiss > 12) { log('No banker found — stopping'); stopBot(); return 2000; }
+        return 2000;
       }
       if (scriptState.phase === 'smBank') {
         if (!isInBank()) { scriptState.phase = 'smBankTalk'; return 600; }
