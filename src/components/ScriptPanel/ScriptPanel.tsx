@@ -1362,7 +1362,7 @@ export default function ScriptPanel({ open, onStartScript, onStopScript, activeS
 
   // Filter scripts: by tab category OR search query
   const visibleScripts = useMemo(() => {
-    let result = SCRIPTS;
+    let result = SCRIPTS.filter(s => !s.hidden);   // v335: hidden = unported duplicates
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(s =>
@@ -1539,7 +1539,7 @@ export default function ScriptPanel({ open, onStartScript, onStopScript, activeS
 
       {/* Footer */}
       <div style={{ padding: '6px 12px', borderTop: '1px solid #222', fontSize: 8.5, color: '#444', textAlign: 'center' }}>
-        {SCRIPTS.length} scripts from APOS/IdleRSC
+        {SCRIPTS.filter(s => !s.hidden).length} scripts · {SCRIPTS.length - SCRIPTS.filter(s => !s.hidden).length} in archive
       </div>
     </div>
   );
