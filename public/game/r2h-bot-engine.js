@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v329';
+  var VERSION = 'v330';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6021,7 +6021,7 @@
         for (var bi = 0; bi < SMELT_BAR_IDS.length; bi++) {
           var bid = SMELT_BAR_IDS[bi];
           if (smCount(bid) > 0) {
-            depositItem(bid, 0xFFFFFF);   // all
+            depositItem(bid, Math.min(smCount(bid), 32767));   // real count — never 0xFFFF (reads as -1 server-side)
             return 1200;
           }
         }
@@ -6250,7 +6250,12 @@
           if (i2 >= Number(getMC().cU || 0)) continue;
           if (KEEP.indexOf(it) < 0) { dep = it; break; }
         }
-        if (dep >= 0) { depositItem(dep, 0xFFFFFF); return 1200; }
+        if (dep >= 0) {
+          var depN = 0;
+          for (var di = 0; di < 30; di++) { if (getInventoryId(di) === dep) depN++; }
+          depositItem(dep, Math.max(1, Math.min(depN, 32767)));
+          return 1200;
+        }
         if (smCount(barId) < 27) {
           if (!scriptState.shWdSent) {
             withdrawItem(barId, 27);
