@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v328';
+  var VERSION = 'v329';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1157,6 +1157,9 @@
     } else if (SMELTING_SCRIPT_IDS.indexOf(scriptId) >= 0) {
       log('Smelting: "' + scriptId + '" → v323 smelting engine');
       tickFn = makeSmeltingScript(runtimeConfig);
+    } else if (SMITHING_SCRIPT_IDS.indexOf(scriptId) >= 0) {
+      log('Smithing: "' + scriptId + '" → v329 smithing engine');
+      tickFn = makeSmithingScript(runtimeConfig);
     } else if (isFishingScript(scriptId)) {
       // v275: APOS fishing ids → fishing engine; preset the fish type per id.
       // 'CatherbyFishFarm' is INTENTIONALLY excluded (it's in COOKING_IDS —
@@ -5868,7 +5871,8 @@
   }
 
   var FIREMAKING_SCRIPT_IDS = ['Firemaking', 'AIOFiremaker', 'fm-burn'];
-  var SMELTING_SCRIPT_IDS = ['Smelting', 'AIOSmelter', 'Abyte0_ArdSmelter'];  // ═══════════════════════════════════════════════════════════════
+  var SMELTING_SCRIPT_IDS = ['Smelting', 'AIOSmelter', 'Abyte0_ArdSmelter'];
+  var SMITHING_SCRIPT_IDS = ['SmithingVarrock', 'SmithGearSet', 'CeikPlates', 'K_FastChainLinks'];  // ═══════════════════════════════════════════════════════════════
   // v323: SMELTING — server-verified (Smelting.java Smelt enum)
   // Bar table: bronze(tin+copper,L1) iron(L15) silver(L20) steel(iron+2coal,L30)
   //   gold(L40) mithril(L50: 4 coal) addy(L70: 6 coal) rune(L85: 8 coal)
@@ -6115,6 +6119,227 @@
     };
   }
 
+
+  // ═══════════════════════════════════════════════════════════════
+  // v329: SMITHING (anvil) — server-verified (Smithing.java)
+  // Wire: use bar ON ANVIL (object 50) → server multi-menus:
+  //   1st: Make Weapon(0) / Make Armour(1) / ... / Cancel(last)
+  //   2nd: per-category list — Weapon: Dagger(0) is FIRST option
+  //   3rd (BATCH): Make 1 / Make 5 / Make 10 / Make All(3)
+  // Requires hammer (168) in inventory. getSmithingDef = barType*24+toMake.
+  // Varrock anvils: (102,520)/(105,518) west of east bank (102,512).
+  var SMITH_BAR_IDS = { Bronze: 169, Iron: 170, Steel: 171, Mithril: 173, Adamantite: 174, Runite: 408 };
+  var SMITH_ANVILS = [
+    { name: 'Varrock East', x: 102, y: 520, bank: 'Varrock East' },
+    { name: 'Seers',        x: 511, y: 451, bank: 'Seers' }
+  ];
+
+  function makeSmithingScript(runtimeConfig) {
+    var cfg = runtimeConfig || {};
+    var barName = cfg.smithBarType || 'Bronze';
+    var barId = SMITH_BAR_IDS[barName] || 169;
+    var itemName = cfg.specificItem || cfg.itemSubType || 'Dagger';
+    // menu indices (server Smithing.java): Weapon submenu → Dagger always 0.
+    // Category: Weapon=0 (firstMenu option 0 for non-steel bars), Armour=1.
+    var category = cfg.itemCategory === 'Armour' ? 1 : 0;
+    var HAMMER = 168;
+
+    function smCount(id) {
+      var mc = getMC();
+      var cu = Number(mc.cU || 0);
+      var n = 0, nAll = 0;
+      for (var i = 0; i < 30; i++) {
+        var it = getInventoryId(i);
+        if (!it) continue;
+        if (it === id) { nAll++; if (i < cu) n++; }
+      }
+      return n > 0 ? n : nAll;
+    }
+    function smithXp() {
+      var mc = getMC();
+      return mc && mc.kN && mc.kN.data ? Number(mc.kN.data[13]) : 0;
+    }
+    function anvilFor() {
+      // nearest anvil
+      var best = null, bd = Infinity;
+      for (var i = 0; i < SMITH_ANVILS.length; i++) {
+        var a = SMITH_ANVILS[i];
+        var d = Math.abs(a.x - getX()) + Math.abs(a.y - getY());
+        if (d < bd) { bd = d; best = a; }
+      }
+      return best;
+    }
+
+    return function() {
+      if (!isLoggedIn()) return 5000;
+
+      // INIT
+      if (scriptState.phase === 'init' || !scriptState.phase) {
+        var lvl = getStatBase(13);
+        scriptState.smAnvil = anvilFor();
+        scriptState.smMade = 0;
+        scriptState.smMenuStep = 0;
+        scriptState.smXpPrev = smithXp();
+        log('Smithing v329: ' + barName + ' ' + itemName + ' @ ' + scriptState.smAnvil.name + ' (lvl ' + lvl + ')');
+        if (getInventoryIndex(HAMMER) < 0) {
+          log('No hammer in inventory — bring a hammer (id 168). Stopping.');
+          stopBot(); return 2000;
+        }
+        scriptState.phase = 'shToBank';
+      }
+      var anvil = scriptState.smAnvil;
+
+      // FATIGUE
+      if (getIsSleeping()) {
+        if (!scriptState.sleepTyping) {
+          scriptState.sleepTyping = true;
+          var sw = 'asleep';
+          for (var ci = 0; ci < sw.length; ci++) window.__r2hTypeChar(sw[ci]);
+          setTimeout(function() { window.__r2hTypeSpecial('Enter'); scriptState.sleepTyping = false; }, 500);
+        }
+        return 2000;
+      }
+      if (getFatigue() >= 96) {
+        var bag = getInventoryIndex(SLEEPING_BAG);
+        if (bag >= 0) { log('Fatigue — sleeping'); useItem(bag); return 3000; }
+      }
+
+      // TO BANK (withdraw bars)
+      if (scriptState.phase === 'shToBank') {
+        var bt = BANK_REGISTRY[anvil.bank];
+        var chebB = Math.max(Math.abs(bt[0] - getX()), Math.abs(bt[1] - getY()));
+        if (chebB <= 3) { scriptState.phase = 'shBankTalk'; scriptState.shMiss = 0; return 500; }
+        if (Date.now() - (scriptState.shWalkT || 0) > 2500) {
+          scriptState.shWalkT = Date.now();
+          walkTo(bt[0], bt[1]);
+        }
+        return 1200;
+      }
+
+      // BANK TALK
+      if (scriptState.phase === 'shBankTalk') {
+        var BANKER_IDS = [95, 224, 268, 485, 540, 617];
+        if (isInBank()) { scriptState.phase = 'shBank'; return 400; }
+        if (Date.now() - (scriptState.shOptT || 0) > 2000) {
+          scriptState.shOptT = Date.now();
+          optionAnswer(0);
+        }
+        var banker = findNpcs(BANKER_IDS, 4);
+        if (banker.length > 0) {
+          if (Date.now() - (scriptState.shTalkT || 0) > 12000) {
+            scriptState.shTalkT = Date.now();
+            log('Talking to banker');
+            talkToNpc(banker[0].serverIndex);
+          }
+          return 1500;
+        }
+        scriptState.shMiss = (scriptState.shMiss || 0) + 1;
+        if (scriptState.shMiss > 8) { log('No banker — stopping'); stopBot(); return 2000; }
+        return 1500;
+      }
+
+      // BANK: deposit items, withdraw bars
+      if (scriptState.phase === 'shBank') {
+        if (!isInBank()) { scriptState.phase = 'shBankTalk'; return 600; }
+        // deposit all smithed items (everything except hammer/tinderbox/bag/bars)
+        var KEEP = [HAMMER, 166, 1263, barId];
+        var dep = -1;
+        for (var i2 = 0; i2 < 30; i2++) {
+          var it = getInventoryId(i2);
+          if (!it) continue;
+          if (i2 >= Number(getMC().cU || 0)) continue;
+          if (KEEP.indexOf(it) < 0) { dep = it; break; }
+        }
+        if (dep >= 0) { depositItem(dep, 0xFFFFFF); return 1200; }
+        if (smCount(barId) < 27) {
+          if (!scriptState.shWdSent) {
+            withdrawItem(barId, 27);
+            scriptState.shWdSent = Date.now();
+            return 2000;
+          }
+          if (Date.now() - scriptState.shWdSent > 2500) {
+            if (smCount(barId) === 0) {
+              log('Bank out of ' + barName + ' bars — done. Items smithed: ' + (scriptState.smMade || 0));
+              closeBank(); stopBot(); return 1000;
+            }
+            scriptState.phase = 'shToAnvil';
+            scriptState.shSent = 0;
+            closeBank();
+            return 1000;
+          }
+          return 1200;
+        }
+        scriptState.phase = 'shToAnvil';
+        scriptState.shSent = 0;
+        closeBank();
+        return 1000;
+      }
+
+      // TO ANVIL
+      if (scriptState.phase === 'shToAnvil') {
+        var chebA = Math.max(Math.abs(anvil.x - getX()), Math.abs(anvil.y - getY()));
+        if (chebA <= 2) { scriptState.phase = 'shSmith'; scriptState.smMenuStep = 0; return 500; }
+        var movedS = getX() !== (scriptState.shWX || -99) || getY() !== (scriptState.shWY || -99);
+        if (movedS) { scriptState.shWX = getX(); scriptState.shWY = getY(); scriptState.shWT = Date.now(); scriptState.shSent = 0; }
+        if (!scriptState.shSent || Date.now() - scriptState.shWT > 10000) {
+          scriptState.shSent = 1;
+          scriptState.shWT = Date.now();
+          scriptState.shWX = getX(); scriptState.shWY = getY();
+          var adx = getX() < anvil.x ? anvil.x - 1 : anvil.x + 1;
+          walkTo(adx, anvil.y);
+        }
+        return 1200;
+      }
+
+      // SMITH: use bar on anvil, answer menus
+      if (scriptState.phase === 'shSmith') {
+        if (smCount(barId) === 0) {
+          log('Out of bars — banking');
+          scriptState.phase = 'shToBank';
+          scriptState.shWdSent = 0;
+          return 800;
+        }
+        var xpNow = smithXp();
+        if (xpNow > (scriptState.smXpPrev || 0)) {
+          scriptState.smMade++;
+          scriptState.smXpPrev = xpNow;
+          if (scriptState.smMade % 5 === 0) log('Smithed: ' + scriptState.smMade);
+        }
+        // menu machine: step 0 = use bar on anvil, then answer sequence
+        // [category, item, count] with 1.6s spacing (server menus need time)
+        var lastAct = scriptState.smMenuAt || 0;
+        if (scriptState.smMenuStep === 0) {
+          if (Date.now() - lastAct > 2500) {
+            var slot = getInventoryIndex(barId);
+            if (slot < 0) { scriptState.phase = 'shToBank'; return 800; }
+            useItemOnObject(slot, anvil.x, anvil.y);
+            scriptState.smMenuAt = Date.now();
+            scriptState.smMenuStep = 1;
+          }
+          return 1200;
+        }
+        if (scriptState.smMenuStep <= 3) {
+          if (Date.now() - lastAct > 1600) {
+            var opt;
+            if (scriptState.smMenuStep === 1) opt = category;                       // Weapon / Armour
+            else if (scriptState.smMenuStep === 2) opt = 0;                          // Dagger (first in weapon list)
+            else opt = 3;                                                             // Make All
+            optionAnswer(opt);
+            scriptState.smMenuAt = Date.now();
+            scriptState.smMenuStep++;
+            if (scriptState.smMenuStep > 3) {
+              scriptState.smMenuStep = 0;   // batch will run; re-use when bars remain
+              scriptState.smWaitT = Date.now();
+            }
+          }
+          return 1200;
+        }
+        return 1500;
+      }
+      log('Smithing: unknown phase ' + scriptState.phase);
+      return 2000;
+    };
+  }
 
   function isFiremakingScript(id) {
     return FIREMAKING_SCRIPT_IDS.indexOf(id) >= 0;
