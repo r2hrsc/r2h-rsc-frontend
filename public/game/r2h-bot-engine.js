@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v341';
+  var VERSION = 'v342';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5979,17 +5979,22 @@
         if (!scriptState.sleepTyping) {
           scriptState.sleepTyping = true;
           var sw = 'asleep';
-          for (var ci = 0; ci < sw.length; ci++) window.__r2hTypeChar(sw[ci]);
-          setTimeout(function() {
-            window.__r2hTypeSpecial('Enter');
-            scriptState.sleepTyping = false;
-          }, 500);
+          if (typeof window.__r2hTypeChar === 'function') {
+            for (var ci = 0; ci < sw.length; ci++) window.__r2hTypeChar(sw[ci]);
+            setTimeout(function() {
+              if (typeof window.__r2hTypeSpecial === 'function') window.__r2hTypeSpecial('Enter');
+              scriptState.sleepTyping = false;
+            }, 500);
+          } else { scriptState.sleepTyping = false; }
         }
         return 2000;
       }
       if (getFatigue() >= 96) {
         var bag = getInventoryIndex(SLEEPING_BAG);
         if (bag >= 0) { log('Fatigue — sleeping'); useItem(bag); return 3000; }
+        // v342: no bag + exhausted = stop cleanly (was: fall through forever)
+        log('Exhausted with no sleeping bag — stopping. Bring a sleeping bag.');
+        stopBot(); return 3000;
       }
 
       // ══ v337b: graph-routed travel (WC walkToward port) ══
@@ -6265,6 +6270,8 @@
       if (getFatigue() >= 96) {
         var bag = getInventoryIndex(SLEEPING_BAG);
         if (bag >= 0) { log('Fatigue — sleeping'); useItem(bag); return 3000; }
+        log('Exhausted with no sleeping bag — stopping. Bring a sleeping bag.');
+        stopBot(); return 3000;
       }
 
       // TO BANK (withdraw bars)
