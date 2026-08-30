@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v333';
+  var VERSION = 'v334';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5996,20 +5996,25 @@
       if (scriptState.phase === 'smBankTalk') {
         var BANKER_IDS = [95, 224, 268, 485, 540, 617];
         if (isInBank()) { scriptState.phase = 'smBank'; scriptState.smWdIdx = 0; scriptState.smWdSent = 0; return 400; }
-        // dialogue open? answer it (cooking machine: talk → IMMEDIATE phase
-        // change → option retries every 2s until bank opens)
-        if (Date.now() - (scriptState.smOptT || 0) > 2000) {
-          scriptState.smOptT = Date.now();
-          optionAnswer(0);
-        }
+        // v334 same strict machine as smithing: talk → +2s → answer ONCE →
+        // re-talk after 6s if the bank still hasn't opened (the retry-every-2s
+        // version answered before the first talk existed → null-reply spam)
         var banker = findNpcs(BANKER_IDS, 4);
         if (banker.length > 0) {
-          if (Date.now() - (scriptState.smTalkT || 0) > 12000) {
+          if (!scriptState.smTalkT || Date.now() - scriptState.smTalkT > 6000) {
             scriptState.smTalkT = Date.now();
+            scriptState.smAnswered = 0;
             log('Talking to banker');
             talkToNpc(banker[0].serverIndex);
+            return 1500;
           }
-          return 1500;
+          if (scriptState.smTalkT && !scriptState.smAnswered &&
+              Date.now() - scriptState.smTalkT > 2000) {
+            scriptState.smAnswered = 1;
+            optionAnswer(0);
+            return 1200;
+          }
+          return 1200;
         }
         scriptState.smBankMiss = (scriptState.smBankMiss || 0) + 1;
         if (scriptState.smBankMiss > 8) { log('No banker found — stopping'); stopBot(); return 2000; }
@@ -6229,23 +6234,29 @@
       // BANK TALK
       if (scriptState.phase === 'shBankTalk') {
         var BANKER_IDS = [95, 224, 268, 485, 540, 617];
-        if (isInBank()) { scriptState.phase = 'shBank'; return 400; }
-        // v333: only answer the dialogue when one is plausibly open — the
-        // banker talk was >6s ago and the bank hasn't opened yet (answering
-        // with no menu open = server 'menu reply with null reply' spam)
-        if (Date.now() - (scriptState.shTalkT || 0) > 3000 &&
-            Date.now() - (scriptState.shOptT || 0) > 2000) {
-          scriptState.shOptT = Date.now();
-          optionAnswer(0);
-        }
+        if (isInBank()) { scriptState.phase = 'shBank'; scriptState.shBankOpenedAt = 0; return 400; }
+        // v334 STRICT TALK→ANSWER MACHINE — the v333 guard had a first-tick
+        // hole: shTalkT unset → `now - 0 > 3000` true → answered BEFORE any
+        // talk existed (server: 'menu reply with null reply' spam, bank never
+        // opened, walked to anvil dry — live 01:01-01:08 shafster).
+        // Discipline now: talk → wait 2s for the menu → answer(0) ONCE →
+        // if no bank in 6s, re-talk. No answers without a preceding talk.
         var banker = findNpcs(BANKER_IDS, 4);
         if (banker.length > 0) {
-          if (Date.now() - (scriptState.shTalkT || 0) > 12000) {
+          if (!scriptState.shTalkT || Date.now() - scriptState.shTalkT > 6000) {
             scriptState.shTalkT = Date.now();
+            scriptState.shAnswered = 0;
             log('Talking to banker');
             talkToNpc(banker[0].serverIndex);
+            return 1500;
           }
-          return 1500;
+          if (scriptState.shTalkT && !scriptState.shAnswered &&
+              Date.now() - scriptState.shTalkT > 2000) {
+            scriptState.shAnswered = 1;
+            optionAnswer(0);   // "I'd like to access my bank account please"
+            return 1200;
+          }
+          return 1200;
         }
         scriptState.shMiss = (scriptState.shMiss || 0) + 1;
         if (scriptState.shMiss > 8) { log('No banker — stopping'); stopBot(); return 2000; }
@@ -6255,6 +6266,14 @@
       // BANK: deposit items, withdraw bars
       if (scriptState.phase === 'shBank') {
         if (!isInBank()) { scriptState.phase = 'shBankTalk'; return 600; }
+        // v334: SETTLE GATE — large banks (page 2+, live: 76 slots) deliver a
+        // bigger contents packet; acting the instant lD flips races it and the
+        // withdraw can be dropped. Wait 1.2s after open before any action.
+        if (!scriptState.shBankOpenedAt) {
+          scriptState.shBankOpenedAt = Date.now();
+          return 1200;
+        }
+        if (Date.now() - scriptState.shBankOpenedAt < 1200) return 500;
         // deposit all smithed items (everything except hammer/tinderbox/bag/bars)
         var KEEP = [HAMMER, 166, 1263, barId];
         var dep = -1;
@@ -6301,6 +6320,7 @@
             }
             scriptState.phase = 'shToAnvil';
             scriptState.shSent = 0;
+            scriptState.shBankOpenedAt = 0;
             closeBank();
             return 1000;
           }
