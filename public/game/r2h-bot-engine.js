@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v351';
+  var VERSION = 'v353';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6643,7 +6643,7 @@
   };
   var FLETCH_BANKS = ['Draynor', 'Varrock West', 'Varrock East', 'Seers', 'Edgeville',
                       'Falador West', 'Falador East', 'Ardougne North', 'Ardougne South', 'Yanille', 'Catherby'];
-  var FLETCHING_SCRIPT_IDS = ['PowerFletcha', 'FletchnBankBows', 'ArrowMaker', 'Fletching'];
+  var FLETCHING_SCRIPT_IDS = ['AIOFletcher', 'PowerFletcha', 'FletchnBankBows', 'ArrowMaker', 'Fletching'];
   var KNIFE_ID = 13;
   var BOW_STRING_ID = 676;
 
@@ -6655,7 +6655,7 @@
     var L = FLETCH_LOGS[logKey];
     var logId = L.logId;
     var stringBows = cfg.fletchString === true && product !== 'shafts';   // optional stringing (bows only)
-    var bankName = cfg.fletchBank || 'Draynor';
+    var bankName = cfg.fletchBank || 'Auto (nearest)';   // v352: auto-detect nearest bank (smelter pattern)
     var powerMode = cfg.fletchMode === 'power';          // drop products, no banking
 
     // product ids for THIS recipe
@@ -6685,6 +6685,18 @@
         if (lvl < reqLvl) {
           log('Need Fletching ' + reqLvl + ' for ' + bowKey + ' (you are ' + lvl + ') — stopping');
           stopBot(); return 2000;
+        }
+        // v352: AUTO BANK — nearest BANK_REGISTRY tile (smelter's furnace
+        // auto-detect pattern, sealed since v347)
+        if (bankName === 'Auto (nearest)') {
+          var bestB = null, bestBD = Infinity;
+          for (var bk in BANK_REGISTRY) {
+            var bpt = BANK_REGISTRY[bk];
+            var bd2 = Math.abs(bpt[0] - getX()) + Math.abs(bpt[1] - getY());
+            if (bd2 < bestBD) { bestBD = bd2; bestB = bk; }
+          }
+          bankName = bestB || 'Draynor';
+          log('Fletching bank auto-detected: ' + bankName + ' (' + bestBD + ' tiles)');
         }
         var knife = getInventoryIndex(KNIFE_ID);
         if (knife < 0) {
@@ -6757,19 +6769,20 @@
         useItemOnItem(knifeSlot, logSlot);
         scriptState.flMenuAt = Date.now();
         scriptState.phase = 'flMenu';
-        return 1200;
+        return 700;   // v353: APOS-proven 700ms menu spawn wait (PowerFletcha sleep(700))
       }
       if (scriptState.phase === 'flMenu') {
         // wait for the server menu, then answer ONCE; batch handles the rest
-        if (Date.now() - (scriptState.flMenuAt || 0) > 1200) {
+        // v353: 700ms = APOS PowerFletcha's proven timing (was 1200 — too slow)
+        if (Date.now() - (scriptState.flMenuAt || 0) > 700) {
           optionAnswer(menuIdx);
           scriptState.flMenuAt = Date.now();
           scriptState.phase = 'flBatch';
           scriptState.flLastCount = flCount(logId);
           scriptState.flLastMove = Date.now();
-          return 1500;
+          return 1200;
         }
-        return 600;
+        return 400;
       }
       if (scriptState.phase === 'flBatch') {
         // batch progression: server cuts whole inventory; watch log count fall
@@ -6989,12 +7002,13 @@
           scriptState.flWdSent = Date.now();
           return 2000;
         }
-        if (Date.now() - scriptState.flWdSent > 4000) {
+        if (Date.now() - scriptState.flWdSent > 3000) {   // v353: 4s→3s (post-v350 withdraws land fast)
           var got = flCount(wdId);
           if (got === 0) {
             scriptState.flWdFails = (scriptState.flWdFails || 0) + 1;
-            log('Withdraw of ' + wdId + ' not landing (' + scriptState.flWdFails + '/6)');
-            if (scriptState.flWdFails >= 6) {
+            var wdMax = scriptState.flDryLoad ? 3 : 6;   // reopen pass stops sooner
+            log('Withdraw of ' + wdId + ' not landing (' + scriptState.flWdFails + '/' + wdMax + ')');
+            if (scriptState.flWdFails >= wdMax) {
               if (!scriptState.flDryLoad) {
                 log('Dry load — reopening bank and retrying');
                 scriptState.flDryLoad = 1;

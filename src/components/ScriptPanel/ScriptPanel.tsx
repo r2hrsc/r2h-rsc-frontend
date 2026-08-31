@@ -612,7 +612,7 @@ const FISHING_IDS   = new Set(['AIOFisher', 'CatherbyLobs', 'ColeslawGuildFisher
 const MAGIC_IDS     = new Set(['AIOMagic', 'AlchWheat', 'K_TeleWines', 'K_NoBank_Superheat']);
 const THIEVING_IDS  = new Set(['AIOThiever', 'Man']);
 const SMITHING_IDS  = new Set(['SmithingVarrock', 'SmithGearSet', 'CeikPlates', 'K_FastChainLinks', 'AIOSmelter']);
-const FLETCHING_IDS = new Set(['PowerFletcha', 'FletchnBankBows', 'ArrowMaker']);
+const FLETCHING_IDS = new Set(['AIOFletcher', 'PowerFletcha', 'FletchnBankBows', 'ArrowMaker']);
 const FIREMAKING_IDS = new Set(['Firemaking', 'AIOFiremaker']);
 const SMELTING_IDS = new Set(['Smelting', 'AIOSmelter', 'Abyte0_ArdSmelter']);
 const BONE_IDS      = new Set(['BuryBone', 'K_BoneyardBury']);
@@ -656,7 +656,7 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
     case 'smithing':
       return { smithBarType: BAR_TYPES[0], itemCategory: SMITH_CATEGORIES[0], itemSubType: SMITH_SUBTYPES[SMITH_CATEGORIES[0]][0], specificItem: 'Dagger', quantity: 'all' };
     case 'fletching':
-      return { bowType: BOW_TYPES[0] };
+      return { bowType: BOW_TYPES[0], fletchBank: 'Auto (nearest)', fletchMode: 'bank', fletchString: false };
     case 'bones':
       return { targetPrayerLevel: '99' };
   }
@@ -1294,8 +1294,8 @@ function FletchingConfig({ cfg, set }: CfgProps) {
         </select>
       </Field>
       <Field label="Bank">
-        <select style={S_SELECT} value={cfg.fletchBank ?? 'Draynor'} onChange={e => set({ fletchBank: e.target.value })}>
-          {['Draynor', 'Varrock West', 'Varrock East', 'Seers', 'Edgeville', 'Falador West', 'Falador East', 'Ardougne North', 'Ardougne South', 'Yanille', 'Catherby'].map(b => <option key={b} value={b}>{b}</option>)}
+        <select style={S_SELECT} value={cfg.fletchBank ?? 'Auto (nearest)'} onChange={e => set({ fletchBank: e.target.value })}>
+          {['Auto (nearest)', 'Draynor', 'Varrock West', 'Varrock East', 'Seers', 'Edgeville', 'Falador West', 'Falador East', 'Ardougne North', 'Ardougne South', 'Yanille', 'Catherby'].map(b => <option key={b} value={b}>{b}</option>)}
         </select>
       </Field>
       <Field label="Mode">

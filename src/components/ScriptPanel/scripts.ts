@@ -57,11 +57,12 @@ export const SCRIPTS: ScriptDef[] = [
   { id: 'K_Paladins', name: 'Paladins (Thieve+Fight)', author: 'Kaila', description: 'Thieves from Paladins in the Ardougne Castle.', categories: ['Skilling', 'Combat'], fileName: 'K_Paladins' },
 
   // ═══ SKILLING ═══
+  { id: 'AIOFletcher', name: 'AIO Fletcher', author: 'R2H (Dvorak/Searos port)', description: 'All-in-one fletching: cut any bow or arrow shafts from any log (knife on logs), optional stringing, auto-detected nearest bank or power-drop mode.', categories: ['Skilling'], fileName: 'PowerFletcha' },
   { id: 'AIOMiner', name: 'AIO Miner', author: 'kkoemets', description: 'An all-in-one Mining script. Enjoys the game and mines ores.', categories: ['Skilling'], fileName: 'AIOMiner' },
   { id: 'Woodcutting', name: 'Woodcutting', author: 'Searos & Kaila, Seatta', description: 'An all-in-one Woodcutting script.', categories: ['Skilling'], fileName: 'Woodcutting' },
-  { id: 'PowerFletcha', name: 'Power Fletch', author: 'Dvorak', description: 'Cuts, fletches and drops bows of any log type.', categories: ['Skilling'], fileName: 'PowerFletcha' },
-  { id: 'FletchnBankBows', name: 'Fletch & Bank Bows', author: 'Searos', description: 'Fletches and banks bows.', categories: ['Skilling'], fileName: 'FletchnBankBows' },
-  { id: 'ArrowMaker', name: 'Arrow Maker', author: 'Searos', description: 'Make headless arrows or tipped arrows of any type.', categories: ['Skilling'], fileName: 'ArrowMaker' },
+  { id: 'PowerFletcha', hidden: true, name: 'Power Fletch', author: 'Dvorak', description: 'Cuts, fletches and drops bows of any log type.', categories: ['Skilling'], fileName: 'PowerFletcha' },
+  { id: 'FletchnBankBows', hidden: true, name: 'Fletch & Bank Bows', author: 'Searos', description: 'Fletches and banks bows.', categories: ['Skilling'], fileName: 'FletchnBankBows' },
+  { id: 'ArrowMaker', hidden: true, name: 'Arrow Maker', author: 'Searos', description: 'Make headless arrows or tipped arrows of any type.', categories: ['Skilling'], fileName: 'ArrowMaker' },
   { id: 'AIOCooker', name: 'AIO Cooker', author: 'Dvorak & Kaila', description: 'Catherby — withdraws raw food, cooks, banks.', categories: ['Skilling'], fileName: 'AIOCooker' },
   { id: 'Firemaking', name: 'Firemaker', author: 'R2H', description: 'Drops and lights logs in a fire line. Bring tinderbox + logs.', categories: ['Skilling'], fileName: 'Firemaking' },
   { id: 'Smelting', name: 'AIO Smelter', author: 'Abyte0 (port)', description: 'Withdraw ores, smelt any bar at the furnace, bank, repeat.', categories: ['Skilling'], fileName: 'AIOSmelter' },
