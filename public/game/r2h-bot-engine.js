@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v346';
+  var VERSION = 'v347';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -5879,8 +5879,12 @@
   // Wire: use-item-on-furnace = atObject + I9 (same as cooking's range wire).
   // Ore ids: copper 150, tin 202, iron 151, coal 155, silver 383, gold 152,
   //   mithril 153, addy 154, rune 409. Bars: 169/170/171/172/173/174/384/408.
-  // Furnaces (SceneryLocs id 118): Al-Kharid (85,679) · Falador (306,546)
-  //   (310,546) · Edgeville (146,254) · Karamja (399,840) · others.
+  // Furnaces (SceneryLocs id 118 — verified v341 ground-truth doc):
+  //   Al-Kharid (85,679) · Falador (306,546) · Ardougne (591,590)
+  // v347: REMOVED 'Edgeville' (146,254) — NO furnace exists there (v341
+  // lesson; it silently fell back to Al-Kharid). ADDED Ardougne — the UI
+  // (ScriptPanel FURNACES list) has offered it all along and its bank
+  // ('Ardougne North' [581,574]) exists in BANK_REGISTRY.
   // APOS refs: Abyte0_ArdSmelter / Abyte0_Smither patterns.
   var SMELT_BAR_TABLE = {
     bronze: { lvl: 1,  xp: 25,  primary: 202, pAmt: 1, coal: 0, bar: 169 },   // tin + copper
@@ -5898,7 +5902,7 @@
   var SMELT_FURNACES = [
     { name: 'Al-Kharid', x: 85,  y: 679, bank: 'Al-Kharid' },
     { name: 'Falador',   x: 306, y: 546, bank: 'Falador West' },
-    { name: 'Edgeville', x: 146, y: 254, bank: 'Edgeville' }
+    { name: 'Ardougne',  x: 591, y: 590, bank: 'Ardougne North' }
   ];
   var SMELT_BAR_IDS = [169,170,171,172,173,174,384,408];
 
@@ -5910,15 +5914,20 @@
     var hammerNeeded = false;   // smelting needs no hammer
 
     function smCount(id) {
-      var mc = getMC();
-      var cu = Number(mc.cU || 0);
-      var n = 0, nAll = 0;
-      for (var i = 0; i < 30; i++) {
-        var it = getInventoryId(i);
-        if (!it) continue;
-        if (it === id) { nAll++; if (i < cu) n++; }
+      // v347 GHOST-SLOT FIX — root cause of the trip-2 deadlock (rig 8/31
+      // 21:51): count ONLY slots < cU. The old `n>0 ? n : nAll` returned the
+      // GHOST count from stale slots beyond cU whenever the real count hit 0 —
+      // after depositing the bars, smCount(170)=25 forever (cU=1, ghost 170s
+      // in slots 1..25), smBank re-sent depositItem(170,25) every tick, the
+      // server no-opped, and the engine silently parked in the bank forever.
+      // Smithing's deposit loop has skipped >=cU slots since v329 — that guard
+      // is why it multi-trips fine. Same fix applied to both scripts.
+      var cu = Number(getMC().cU || 0);
+      var n = 0;
+      for (var i = 0; i < cu; i++) {
+        if (getInventoryId(i) === id) n++;
       }
-      return n > 0 ? n : nAll;
+      return n;
     }
     function smHasBar() {
       for (var i = 0; i < SMELT_BAR_IDS.length; i++) if (smCount(SMELT_BAR_IDS[i]) > 0) return true;
@@ -5954,7 +5963,7 @@
           log('Need Smithing level ' + bar.lvl + ' for ' + barKey + ' bars (you are ' + lvl + ') — stopping');
           stopBot(); return 2000;
         }
-        log('Smelting v323: ' + barKey + ' bars @ ' + furnaceName + ' (lvl ' + lvl + ')');
+        log('Smelting v347: ' + barKey + ' bars @ ' + furnaceName + ' (lvl ' + lvl + ')');
         scriptState.smBars = 0;
         scriptState.smXp0 = smXp();
         // v341: START-TIME INVENTORY CHECK (v306 cooking / v331 smithing
@@ -6116,7 +6125,14 @@
             return 1200;
           }
         }
-        // withdraw ores (one request type per visit — cooking discipline)
+        // withdraw ores — v347 VERIFIED WITHDRAW MACHINE (smithing v333
+        // discipline): the old code sent each withdraw once and declared
+        // "Bank has no ores" off a single 0-read — one dropped packet or a
+        // ghost-count read STOPPED the bot after exactly one cycle. Now:
+        // send → wait 2.5s → if the count is still 0, RE-SEND (up to 3);
+        // still 0 after 3 → close + RE-OPEN the bank (WC machine) and retry
+        // the whole load once; only a second consecutive dry run is a real
+        // empty bank. Real counts only — smCount is ghost-proof since v347.
         var trips = [];
         trips.push([bar.primary, Math.floor(27 / (bar.pAmt + bar.coal + (bar.sAmt || 0))) * bar.pAmt]);
         if (bar.coal > 0) trips.push([155, Math.floor(27 / (bar.pAmt + bar.coal)) * bar.coal]);
@@ -6130,6 +6146,27 @@
             return 2000;
           }
           if (Date.now() - scriptState.smWdSent > 2500) {
+            var got = smCount(wd[0]);
+            if (got === 0) {
+              scriptState.smWdFails = (scriptState.smWdFails || 0) + 1;
+              log('Withdraw of ' + wd[0] + ' not landing (' + scriptState.smWdFails + '/3)');
+              if (scriptState.smWdFails >= 3) {
+                // one dry load ≠ empty bank: close, reopen, retry once
+                if (!scriptState.smDryLoad) {
+                  log('Dry load — reopening bank and retrying before declaring empty');
+                  scriptState.smDryLoad = 1;
+                  scriptState.smWdIdx = 0; scriptState.smWdFails = 0;
+                  closeBank();
+                  scriptState.phase = 'smBankTalk';
+                  return 1000;
+                }
+                log('Bank has no ores after reopen — done. Bars smelted: ' + (scriptState.smBars || 0));
+                closeBank(); stopBot(); return 1000;
+              }
+              scriptState.smWdSent = 0;   // resend same withdraw (bank still open)
+              return 2000;
+            }
+            scriptState.smWdFails = 0;
             scriptState.smWdIdx++;
             scriptState.smWdSent = 0;
           }
@@ -6245,15 +6282,14 @@
     var HAMMER = 168;
 
     function smCount(id) {
-      var mc = getMC();
-      var cu = Number(mc.cU || 0);
-      var n = 0, nAll = 0;
-      for (var i = 0; i < 30; i++) {
-        var it = getInventoryId(i);
-        if (!it) continue;
-        if (it === id) { nAll++; if (i < cu) n++; }
+      // v347 GHOST-SLOT FIX (same as smelting's — see that comment): count
+      // ONLY slots < cU; slots >= cU are stale ghost ids after deposits.
+      var cu = Number(getMC().cU || 0);
+      var n = 0;
+      for (var i = 0; i < cu; i++) {
+        if (getInventoryId(i) === id) n++;
       }
-      return n > 0 ? n : nAll;
+      return n;
     }
     function smithXp() {
       var mc = getMC();
