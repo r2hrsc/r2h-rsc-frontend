@@ -486,6 +486,10 @@ export interface ScriptConfig {
   smithBarType?: string;
   itemCategory?: string;
   itemSubType?: string;
+  // — Fletching —
+  fletchBank?: string;
+  fletchMode?: string;
+  fletchString?: boolean;
   specificItem?: string;
   quantity?: string;
   // — Fletching —
@@ -1289,6 +1293,26 @@ function FletchingConfig({ cfg, set }: CfgProps) {
           {BOW_TYPES.map(b => <option key={b} value={b}>{b}</option>)}
         </select>
       </Field>
+      <Field label="Bank">
+        <select style={S_SELECT} value={cfg.fletchBank ?? 'Draynor'} onChange={e => set({ fletchBank: e.target.value })}>
+          {['Draynor', 'Varrock West', 'Varrock East', 'Seers', 'Edgeville', 'Falador West', 'Falador East', 'Ardougne North', 'Ardougne South', 'Yanille', 'Catherby'].map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
+      </Field>
+      <Field label="Mode">
+        <select style={S_SELECT} value={cfg.fletchMode ?? 'bank'} onChange={e => set({ fletchMode: e.target.value })}>
+          <option value="bank">Bank products</option>
+          <option value="power">Power (drop)</option>
+        </select>
+      </Field>
+      <Field label="String Bows">
+        <select style={S_SELECT} value={cfg.fletchString ? 'yes' : 'no'} onChange={e => set({ fletchString: e.target.value === 'yes' })}>
+          <option value="no">No (cut only)</option>
+          <option value="yes">Yes (cut + string)</option>
+        </select>
+      </Field>
+      <div style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+        Needs knife (13). String mode uses bow strings (676) from the bank.
+      </div>
     </div>
   );
 }

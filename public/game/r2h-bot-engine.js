@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v347';
+  var VERSION = 'v351';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -626,11 +626,13 @@
     }
   }
 
-  // ─── Item-on-item (fletching, gem cutting, firemaking) ───
-  // Opcode 91: putShort(slot1), putShort(slot2)
-
+  // ─── Item-on-item (fletching, gem cutting) ───
+  // v348 WIRE FIX: Payload177Parser has NO case 91 — opcode 91 was silently
+  // dropped by this server (the legacy fletch-bow/craft-gems stubs never
+  // worked). P177 truth (server source verified): case 240 (friend 377) →
+  // ITEM_USE_ITEM, body = putShort(slot1), putShort(slot2) — same shape.
   function useItemOnItem(slot1, slot2) {
-    return sendRaw(91, 346, function(stream, Z) {
+    return sendRaw(240, 377, function(stream, Z) {
       Z(stream, slot1);
       Z(stream, slot2);
     });
@@ -1160,6 +1162,9 @@
     } else if (SMITHING_SCRIPT_IDS.indexOf(scriptId) >= 0) {
       log('Smithing: "' + scriptId + '" → v329 smithing engine');
       tickFn = makeSmithingScript(runtimeConfig);
+    } else if (FLETCHING_SCRIPT_IDS.indexOf(scriptId) >= 0) {
+      log('Fletching: "' + scriptId + '" → v348 fletching engine');
+      tickFn = makeFletchingScript(runtimeConfig);
     } else if (isFishingScript(scriptId)) {
       // v275: APOS fishing ids → fishing engine; preset the fish type per id.
       // 'CatherbyFishFarm' is INTENTIONALLY excluded (it's in COOKING_IDS —
@@ -6598,6 +6603,431 @@
       log('Smithing: unknown phase ' + scriptState.phase);
       return 2000;
     };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // v348: FLETCHING — server-verified (Fletching.java + ItemLogCutDef.xml
+  // + ItemBowStringDef.xml, all read from live server source 8/31).
+  //   knife 13 on log → multi() menu → BATCH cuts whole inventory (one use
+  //   per load, no count menu). Stringing = bow string 676 on unstrung bow,
+  //   NO menu, batch = min(bows, strings).
+  //   Menu (this server, MORE_SHAFTS_PER_BETTER_LOG=false):
+  //     normal logs(14):  [0]=arrow shafts [1]=shortbow [2]=longbow
+  //     oak/willow/maple/yew/magic: [0]=shortbow [1]=longbow (server remaps
+  //     type+=1 — PowerFletcha's "Coleslaw fix"; we branch per log instead).
+  //   APOS refs: PowerFletcha.java (drop loop) / FletchnBankBows.java
+  //   (withdraw 29 logs, fletch all, deposit, optional string 15+15).
+  // Wire: useItemOnItem = P177 240/377 ITEM_USE_ITEM (v348 fix, above).
+  var FLETCH_LOGS = {
+    normal: { logId: 14,  shaftLvl: 1,  shortLvl: 5,  longLvl: 10, shortU: 277, longU: 276 },
+    oak:    { logId: 632, shaftLvl: 15, shortLvl: 20, longLvl: 25, shortU: 659, longU: 658 },
+    willow: { logId: 633, shaftLvl: 30, shortLvl: 35, longLvl: 40, shortU: 661, longU: 660 },
+    maple:  { logId: 634, shaftLvl: 45, shortLvl: 50, longLvl: 55, shortU: 663, longU: 662 },
+    yew:    { logId: 635, shaftLvl: 60, shortLvl: 65, longLvl: 70, shortU: 665, longU: 664 },
+    magic:  { logId: 636, shaftLvl: 75, shortLvl: 80, longLvl: 85, shortU: 667, longU: 666 }
+  };
+  var FLETCH_BOW_TABLE = {   // bowName → [logKey, product('short'|'long'), answerIdx per menu]
+    'Arrow Shafts':   ['normal', 'shafts', 0],
+    'Shortbow':       ['normal', 'short',  1],
+    'Longbow':        ['normal', 'long',   2],
+    'Oak Shortbow':   ['oak',    'short',  0],
+    'Oak Longbow':    ['oak',    'long',   1],
+    'Willow Shortbow':['willow', 'short',  0],
+    'Willow Longbow': ['willow', 'long',   1],
+    'Maple Shortbow': ['maple',  'short',  0],
+    'Maple Longbow':  ['maple',  'long',   1],
+    'Yew Shortbow':   ['yew',    'short',  0],
+    'Yew Longbow':    ['yew',    'long',   1],
+    'Magic Shortbow': ['magic',  'short',  0],
+    'Magic Longbow':  ['magic',  'long',   1]
+  };
+  var FLETCH_BANKS = ['Draynor', 'Varrock West', 'Varrock East', 'Seers', 'Edgeville',
+                      'Falador West', 'Falador East', 'Ardougne North', 'Ardougne South', 'Yanille', 'Catherby'];
+  var FLETCHING_SCRIPT_IDS = ['PowerFletcha', 'FletchnBankBows', 'ArrowMaker', 'Fletching'];
+  var KNIFE_ID = 13;
+  var BOW_STRING_ID = 676;
+
+  function makeFletchingScript(runtimeConfig) {
+    var cfg = runtimeConfig || {};
+    var bowKey = cfg.bowType || 'Shortbow';
+    var spec = FLETCH_BOW_TABLE[bowKey] || FLETCH_BOW_TABLE['Shortbow'];
+    var logKey = spec[0], product = spec[1], menuIdx = spec[2];
+    var L = FLETCH_LOGS[logKey];
+    var logId = L.logId;
+    var stringBows = cfg.fletchString === true && product !== 'shafts';   // optional stringing (bows only)
+    var bankName = cfg.fletchBank || 'Draynor';
+    var powerMode = cfg.fletchMode === 'power';          // drop products, no banking
+
+    // product ids for THIS recipe
+    var unstrungId = product === 'short' ? L.shortU : L.longU;
+    var strungId = FLETCH_STRUNG_ID(unstrungId);
+    var shaftId = 280;
+
+    function flCount(id) {
+      // v347 ghost-slot rule: ONLY slots < cU
+      var cu = Number(getMC().cU || 0);
+      var n = 0;
+      for (var i = 0; i < cu; i++) if (getInventoryId(i) === id) n++;
+      return n;
+    }
+    function flXp() {
+      var mc = getMC();
+      return mc && mc.kN && mc.kN.data ? Number(mc.kN.data[9]) : 0;   // FLETCHING = 9
+    }
+
+    return function() {
+      if (!isLoggedIn()) return 5000;
+
+      // ══ INIT ══
+      if (scriptState.phase === 'init' || !scriptState.phase) {
+        var lvl = getStatBase(9);
+        var reqLvl = product === 'shafts' ? L.shaftLvl : (product === 'short' ? L.shortLvl : L.longLvl);
+        if (lvl < reqLvl) {
+          log('Need Fletching ' + reqLvl + ' for ' + bowKey + ' (you are ' + lvl + ') — stopping');
+          stopBot(); return 2000;
+        }
+        var knife = getInventoryIndex(KNIFE_ID);
+        if (knife < 0) {
+          log('No knife (id 13) in inventory — bring a knife. Stopping.');
+          stopBot(); return 2000;
+        }
+        if (stringBows && getInventoryIndex(BOW_STRING_ID) >= 0 && flCount(logId) === 0 && flCount(BOW_STRING_ID) > 0) {
+          // strings in hand, no logs — resume straight to stringing
+          log('Strings in inventory — starting in string mode');
+          scriptState.phase = 'flString';
+          scriptState.flStrDone = 0;
+          return 800;
+        }
+        log('Fletching v348: ' + bowKey + ' @ ' + bankName + (powerMode ? ' (power)' : ' (bank)') + (stringBows ? ' +string' : '') + ' (lvl ' + lvl + ')');
+        scriptState.flMade = 0;
+        scriptState.flXp0 = flXp();
+        // v341-pattern start-time inventory check: logs in hand → cut first
+        if (flCount(logId) > 0) {
+          log(flCount(logId) + ' log(s) in inventory — starting at the knife');
+          scriptState.phase = 'flCut';
+          scriptState.flSent = 0;
+        } else {
+          scriptState.phase = 'flToBank';
+        }
+        return 1200;
+      }
+
+      // ══ FATIGUE / SLEEP ══
+      if (getIsSleeping()) {
+        if (!scriptState.sleepTyping) {
+          scriptState.sleepTyping = true;
+          var sw = 'asleep';
+          if (typeof window.__r2hTypeChar === 'function') {
+            for (var ci = 0; ci < sw.length; ci++) window.__r2hTypeChar(sw[ci]);
+            setTimeout(function() {
+              if (typeof window.__r2hTypeSpecial === 'function') window.__r2hTypeSpecial('Enter');
+              scriptState.sleepTyping = false;
+            }, 500);
+          } else { scriptState.sleepTyping = false; }
+        }
+        return 2000;
+      }
+      if (getFatigue() >= 96) {
+        var bag = getInventoryIndex(SLEEPING_BAG);
+        if (bag >= 0) { log('Fatigue — sleeping'); useItem(bag); return 3000; }
+        log('Exhausted with no sleeping bag — stopping. Bring a sleeping bag.');
+        stopBot(); return 3000;
+      }
+
+      // ══ CUT: knife on log, answer menu, batch consumes all logs ══
+      if (scriptState.phase === 'flCut') {
+        var logsNow = flCount(logId);
+        if (logsNow === 0) {
+          // batch done — products in inventory
+          if (powerMode) {
+            scriptState.phase = 'flDrop';
+            scriptState.flSent = 0;
+            return 400;
+          }
+          if (stringBows) {
+            scriptState.phase = 'flNeedString';   // get strings from bank
+            return 400;
+          }
+          scriptState.phase = 'flToBank';
+          return 400;
+        }
+        var knifeSlot = getInventoryIndex(KNIFE_ID);
+        var logSlot = getInventoryIndex(logId);
+        if (knifeSlot < 0 || logSlot < 0) { scriptState.phase = 'flToBank'; return 800; }
+        useItemOnItem(knifeSlot, logSlot);
+        scriptState.flMenuAt = Date.now();
+        scriptState.phase = 'flMenu';
+        return 1200;
+      }
+      if (scriptState.phase === 'flMenu') {
+        // wait for the server menu, then answer ONCE; batch handles the rest
+        if (Date.now() - (scriptState.flMenuAt || 0) > 1200) {
+          optionAnswer(menuIdx);
+          scriptState.flMenuAt = Date.now();
+          scriptState.phase = 'flBatch';
+          scriptState.flLastCount = flCount(logId);
+          scriptState.flLastMove = Date.now();
+          return 1500;
+        }
+        return 600;
+      }
+      if (scriptState.phase === 'flBatch') {
+        // batch progression: server cuts whole inventory; watch log count fall
+        var logsNow2 = flCount(logId);
+        if (logsNow2 !== (scriptState.flLastCount || 0)) {
+          scriptState.flMade += (scriptState.flLastCount || 0) - logsNow2;
+          scriptState.flLastCount = logsNow2;
+          scriptState.flLastMove = Date.now();
+        }
+        if (logsNow2 === 0) {
+          log('Cut done — ' + (scriptState.flMade || 0) + ' log(s) processed');
+          if (powerMode) { scriptState.phase = 'flDrop'; return 400; }
+          if (stringBows) { scriptState.phase = 'flNeedString'; return 400; }
+          scriptState.phase = 'flToBank';
+          return 400;
+        }
+        // stall guard: logs not falling — re-knife (server cadence ~12s/cut
+        // under BATCH_PROGRESSION; rig-measured 8/31 — keep the window above it)
+        if (Date.now() - (scriptState.flLastMove || 0) > 20000) {
+          log('Cut stalled — re-using knife');
+          scriptState.phase = 'flCut';
+          return 600;
+        }
+        return 1200;
+      }
+
+      // ══ STRING (bow string on unstrung bow — NO menu, batch per pair) ══
+      if (scriptState.phase === 'flNeedString') {
+        // at bank logic handled in flBank; here: do we have strings + bows?
+        var bows = flCount(unstrungId);
+        var strings = flCount(BOW_STRING_ID);
+        if (bows > 0 && strings > 0) { scriptState.phase = 'flString'; return 400; }
+        if (bows === 0) { scriptState.phase = 'flToBank'; return 400; }   // nothing to string
+        scriptState.phase = 'flToBank';   // need strings
+        return 400;
+      }
+      if (scriptState.phase === 'flString') {
+        var bows2 = flCount(unstrungId);
+        var str2 = flCount(BOW_STRING_ID);
+        if (bows2 === 0 || str2 === 0) {
+          log('Stringing done (' + (scriptState.flStrDone || 0) + ' strung)');
+          scriptState.phase = 'flToBank';
+          return 400;
+        }
+        var bSlot = getInventoryIndex(unstrungId);
+        var sSlot = getInventoryIndex(BOW_STRING_ID);
+        if (bSlot < 0 || sSlot < 0) { scriptState.phase = 'flToBank'; return 800; }
+        useItemOnItem(bSlot, sSlot);
+        scriptState.flStrLast = Date.now();
+        scriptState.flStrLastCount = bows2;
+        scriptState.phase = 'flStrBatch';
+        return 1500;
+      }
+      if (scriptState.phase === 'flStrBatch') {
+        var bows3 = flCount(unstrungId);
+        if (bows3 !== (scriptState.flStrLastCount || 0)) {
+          scriptState.flStrDone = (scriptState.flStrDone || 0) + ((scriptState.flStrLastCount || 0) - bows3);
+          scriptState.phase = 'flString';   // next pair (batch may have finished)
+          return 800;
+        }
+        if (Date.now() - (scriptState.flStrLast || 0) > 8000) {
+          log('String stalled — retrying');
+          scriptState.phase = 'flString';
+          return 600;
+        }
+        return 1200;
+      }
+
+      // ══ POWER MODE: drop everything except knife/bag ══
+      if (scriptState.phase === 'flDrop') {
+        var KEEP = [KNIFE_ID, SLEEPING_BAG];
+        var cu2 = Number(getMC().cU || 0);
+        var dropSlot = -1;
+        for (var di = 0; di < cu2; di++) {
+          var iid = getInventoryId(di);
+          if (iid && KEEP.indexOf(iid) < 0) { dropSlot = di; break; }
+        }
+        if (dropSlot < 0) {
+          log('Dropped all products');
+          scriptState.phase = 'flToBank';
+          return 400;
+        }
+        dropItem(dropSlot);
+        return 700;
+      }
+
+      // ══ v337b: graph-routed travel (WC walkToward port — same as smelting's) ══
+      function flWalkToward(destX, destY, onArrive, arriveDist) {
+        var chebFar = Math.max(Math.abs(destX - getX()), Math.abs(destY - getY()));
+        if (chebFar <= (arriveDist || 3)) { onArrive(); return 400; }
+        if (chebFar <= 12) { walkTo(destX, destY); return 1200; }
+        var dkey = destX + ',' + destY;
+        if (scriptState._flHopDest !== dkey) { scriptState._flHopDest = dkey; scriptState._flHop = null; }
+        var hop = scriptState._flHop;
+        var atHop = hop && Math.max(Math.abs(hop.x - getX()), Math.abs(hop.y - getY())) <= 1;
+        var hopStale = hop && Date.now() - (scriptState._flHopTs || 0) > 25000;
+        if (!hop || atHop || hopStale) {
+          var route = webwalkRouteNoGates(getX(), getY(), destX, destY);
+          hop = { x: destX, y: destY };
+          if (route && route.length >= 2) {
+            var bestIdx = 0, bestD = Infinity;
+            for (var ri = 0; ri < route.length; ri++) {
+              var rd = Math.abs(route[ri].x - getX()) + Math.abs(route[ri].y - getY());
+              if (rd < bestD) { bestD = rd; bestIdx = ri; }
+            }
+            if (bestIdx < route.length - 1) hop = { x: route[bestIdx + 1].x, y: route[bestIdx + 1].y };
+          }
+          scriptState._flHop = hop;
+          scriptState._flHopTs = Date.now();
+        }
+        var now = Date.now();
+        var moved = (getX() !== (scriptState._flSendX || -9999) || getY() !== (scriptState._flSendY || -9999));
+        if (!scriptState._flLastWalk || now - scriptState._flLastWalk > 3500 || (scriptState._flSent && !moved)) {
+          walkTo(scriptState._flSent && !moved ? hop.x + 1 : hop.x, hop.y);
+          scriptState._flLastWalk = now;
+          scriptState._flSent = true;
+          scriptState._flSendX = getX(); scriptState._flSendY = getY();
+        }
+        var px = getX(), py = getY();
+        if (px !== (scriptState._flLastPX || -9999) || py !== (scriptState._flLastPY || -9999)) {
+          scriptState._flLastPX = px; scriptState._flLastPY = py;
+          scriptState._flWalkStart = now;
+        } else if (now - scriptState._flWalkStart > 15000) {
+          log('STUCK walking to bank — stopping');
+          stopBot(); return 2000;
+        }
+        return 1500;
+      }
+
+      // ══ BANK MACHINE (WC v274 pattern, verbatim) ══
+      if (scriptState.phase === 'flToBank') {
+        var bt = BANK_REGISTRY[bankName];
+        if (!bt) { log('Unknown bank ' + bankName); stopBot(); return 2000; }
+        var cheb = Math.max(Math.abs(bt[0] - getX()), Math.abs(bt[1] - getY()));
+        if (cheb <= 3) { scriptState.phase = 'flBankTalk'; scriptState.flMiss = 0; return 500; }
+        if (cheb <= 12) { walkTo(bt[0], bt[1]); return 1200; }
+        return flWalkToward(bt[0], bt[1], function() {
+          scriptState.phase = 'flBankTalk';
+          scriptState.flMiss = 0;
+        }, 3);
+      }
+      if (scriptState.phase === 'flBankTalk') {
+        var BANKER_IDS = [95, 224, 268, 485, 540, 617];
+        if (isInBank()) { scriptState.phase = 'flBank'; scriptState.flWdIdx = 0; scriptState.flWdSent = 0; scriptState.flWdFails = 0; return 400; }
+        var banker = findNpcs(BANKER_IDS, 10);
+        if (banker.length > 0) {
+          scriptState.flWdIdx = 0;
+          scriptState.flWdSent = 0;
+          log('Talking to banker');
+          talkToNpc(banker[0].serverIndex);
+          scriptState.flBankTimer = Date.now();
+          scriptState.flTalkStart = Date.now();
+          scriptState.phase = 'flBankOption';
+          return 2000;
+        }
+        var btN = BANK_REGISTRY[bankName];
+        if (btN) walkTo(btN[0], btN[1]);
+        scriptState.flMiss = (scriptState.flMiss || 0) + 1;
+        if (scriptState.flMiss > 12) { log('No banker found — stopping'); stopBot(); return 2000; }
+        return 1500;
+      }
+      if (scriptState.phase === 'flBankOption') {
+        if (isInBank()) { scriptState.phase = 'flBank'; scriptState.flWdIdx = 0; scriptState.flWdSent = 0; scriptState.flWdFails = 0; return 500; }
+        if (Date.now() - scriptState.flBankTimer > 2000) {
+          optionAnswer(0);
+          scriptState.flBankTimer = Date.now();
+        }
+        if (Date.now() - (scriptState.flTalkStart || 0) > 12000) {
+          log('Bank not opening — retrying talk');
+          scriptState.phase = 'flBankTalk';
+        }
+        return 1500;
+      }
+      if (scriptState.phase === 'flBank') {
+        if (!isInBank()) { scriptState.phase = 'flBankTalk'; return 600; }
+        // deposit everything except knife + sleeping bag (+ bow strings if stringing)
+        // v350 FIX: skip the deposit scan ENTIRELY while a withdraw is pending —
+        // the scan was re-depositing the just-withdrawn logs before the verify
+        // read them (rig 8/31 23:18: withdraw lands → next tick's scan eats it →
+        // verify reads 0 → false "bank out of inputs"). Gate on flWdSent.
+        if (!scriptState.flWdSent) {
+          var KEEP2 = [KNIFE_ID, SLEEPING_BAG];
+          if (stringBows && flCount(BOW_STRING_ID) > 0) KEEP2.push(BOW_STRING_ID);
+          var cu3 = Number(getMC().cU || 0);
+          var depId = -1, depN = 0;
+          for (var di2 = 0; di2 < cu3; di2++) {
+            var it2 = getInventoryId(di2);
+            if (!it2 || KEEP2.indexOf(it2) >= 0) continue;
+            depId = it2; break;
+          }
+          if (depId >= 0) {
+            for (var di3 = 0; di3 < cu3; di3++) if (getInventoryId(di3) === depId) depN++;
+            log('Depositing ' + depN + ' x ' + depId);
+            depositItem(depId, Math.min(depN, 32767));
+            return 1200;
+          }
+        }
+        // withdraw logic: logs (or unstrung bows/strings when stringing)
+        var wdId = logId, wdAmt = 27;
+        if (stringBows) {
+          var bowsB = flCount(unstrungId);
+          var strsB = flCount(BOW_STRING_ID);
+          if (bowsB === 0 && strsB === 0) {
+            // neither — withdraw unstrung bows first if bank has them, else logs
+            wdId = unstrungId; wdAmt = 14;
+          } else if (bowsB === 0 && strsB > 0) {
+            wdId = unstrungId; wdAmt = Math.min(14, strsB);
+          } else {
+            wdId = logId;
+          }
+        }
+        // v347 verified-withdraw discipline (fletching variant, rig-tuned 8/31:
+        // Draynor withdraws were observed landing up to ~24s late — well past
+        // the smelter's 3x2.5s window; widen to 6 tries x 4s + dry-load reopen)
+        if (!scriptState.flWdSent) {
+          withdrawItem(wdId, wdAmt);
+          scriptState.flWdSent = Date.now();
+          return 2000;
+        }
+        if (Date.now() - scriptState.flWdSent > 4000) {
+          var got = flCount(wdId);
+          if (got === 0) {
+            scriptState.flWdFails = (scriptState.flWdFails || 0) + 1;
+            log('Withdraw of ' + wdId + ' not landing (' + scriptState.flWdFails + '/6)');
+            if (scriptState.flWdFails >= 6) {
+              if (!scriptState.flDryLoad) {
+                log('Dry load — reopening bank and retrying');
+                scriptState.flDryLoad = 1;
+                scriptState.flWdIdx = 0; scriptState.flWdFails = 0;
+                closeBank();
+                scriptState.phase = 'flBankTalk';
+                return 1000;
+              }
+              log('Bank out of inputs — done. Items fletched: ' + (scriptState.flMade || 0));
+              closeBank(); stopBot(); return 1000;
+            }
+            scriptState.flWdSent = 0;
+            return 2000;
+          }
+          scriptState.flWdFails = 0;
+          scriptState.flWdSent = 0;
+          scriptState.phase = 'flCut';   // head back to the knife
+          closeBank();
+          return 1000;
+        }
+        return 1200;
+      }
+
+      log('Fletching: unknown phase ' + scriptState.phase);
+      return 2000;
+    };
+  }
+
+  // strung bow id per unstrung id (ItemBowStringDef.xml, 12 entries verified)
+  function FLETCH_STRUNG_ID(unstrungId) {
+    var m = { 277:189, 276:188, 659:649, 658:648, 661:651, 660:650,
+              663:653, 662:652, 665:655, 664:654, 667:657, 666:656 };
+    return m[unstrungId] || 0;
   }
 
   function isFiremakingScript(id) {
