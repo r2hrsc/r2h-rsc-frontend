@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v367';
+  var VERSION = 'v377';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -923,27 +923,44 @@
   function findObjects(objectIds, maxDist) {
     var mc = getMC();
     if (!mc) return [];
-    var count = mc[F.gameObjectCount] || 0;
-    var ox = mc[F.gameObjectX], oy = mc[F.gameObjectY], oid = mc[F.gameObjectId];
-    if (!ox || !oy || !oid || !ox.data) return [];
-
+    // v374: MERGE both field triples. F.* (co/dp/dn/fl) is right for rocks/
+    // trees, but at the Ardougne market fl was TRUTHY-BUT-STALE (returned
+    // nothing while cn/cx/cw held all six stalls — rig-probed 9/1). A simple
+    // `||` fallback never fired because fl exists. Scan both, dedupe.
+    var results = [];
+    var seen = {};
+    var playerX = getX(), playerY = getY();
+    var rx = (mc[F.regionX] || Number(mc.du || 0));
+    var ry = (mc[F.regionY] || Number(mc.dd || 0));
+    var triples = [];
+    if (mc[F.gameObjectId] && mc[F.gameObjectX] && mc[F.gameObjectY]) {
+      triples.push({ id: mc[F.gameObjectId], x: mc[F.gameObjectX], y: mc[F.gameObjectY], count: mc[F.gameObjectCount] });
+    }
+    if (mc.cn && mc.cx && mc.cw) {
+      triples.push({ id: mc.cn, x: mc.cx, y: mc.cw, count: null });
+    }
     var typeFilter = null;
     if (objectIds && objectIds.length > 0) {
       typeFilter = {};
       objectIds.forEach(function(id) { typeFilter[id] = true; });
     }
-
-    var playerX = getX(), playerY = getY();
-    var results = [];
-    for (var i = 0; i < count; i++) {
-      var id = oid.data[i] || 0;
-      if (id === 0) continue;
-      if (typeFilter && !typeFilter[id]) continue;
-      var wx = (ox.data[i] || 0) + (mc[F.regionX] || 0);
-      var wy = (oy.data[i] || 0) + (mc[F.regionY] || 0);
-      var dist = Math.abs(wx - playerX) + Math.abs(wy - playerY);
-      if (maxDist !== undefined && dist > maxDist) continue;
-      results.push({ worldX: wx, worldY: wy, id: id, dist: dist });
+    for (var t = 0; t < triples.length; t++) {
+      var tr = triples[t];
+      if (!tr.id || !tr.id.data || !tr.x || !tr.x.data) continue;
+      var count = Number(tr.count) || tr.id.data.length;
+      for (var i = 0; i < count; i++) {
+        var id = tr.id.data[i] || 0;
+        if (id === 0) continue;
+        if (typeFilter && !typeFilter[id]) continue;
+        var wx = (tr.x.data[i] || 0) + rx;
+        var wy = ((tr.y.data[i] || 0)) + ry;
+        var dist = Math.abs(wx - playerX) + Math.abs(wy - playerY);
+        if (maxDist !== undefined && dist > maxDist) continue;
+        var key = id + '@' + wx + ',' + wy;
+        if (seen[key]) continue;
+        seen[key] = 1;
+        results.push({ worldX: wx, worldY: wy, id: id, dist: dist });
+      }
     }
     results.sort(function(a, b) { return a.dist - b.dist; });
     return results;
@@ -7499,6 +7516,23 @@
   };
   var THIEVE_FOOD = [373, 370, 367, 546, 359, 357, 364, 362, 355, 350, 138, 132];  // best-first (lobster..meat)
   var JUNK_IDS = [140];   // empty jugs (hero loot)
+  // v368→v374 STALLS — SERVER-TRUTH ids AND coords (SceneryLocs.json, the
+  // authoritative spawn table; live client object array cross-checked 9/1).
+  // The APOS name→coord table is SHUFFLED vs this server (their "gem" coords
+  // are our spice stall etc.) and APOS stall ids are +1 off (322-327 → ours
+  // 323-328; tea is 1183 both sides). Steal → empty id 341 → respawn
+  // (tea/bakers 5s, silk 8s, fur 15s, silver 30s, spice 80s, gem 180s).
+  // Stalls are 2x2 — stand tile +1,+1.
+  var THIEVE_STALLS = {
+    'Tea Stall (Varrock)':      { id: 1183, x: 91,  y: 518, lvl: 5,  xp: 16,  res: 5 },
+    'Bakers Stall (Ardougne)':  { id: 323,  x: 566, y: 594, lvl: 5,  xp: 16,  res: 5 },
+    'Silk Stall (Ardougne)':    { id: 324,  x: 551, y: 583, lvl: 20, xp: 24,  res: 8 },
+    'Fur Stall (Ardougne)':     { id: 325,  x: 555, y: 593, lvl: 35, xp: 36,  res: 15 },
+    'Silver Stall (Ardougne)':  { id: 326,  x: 544, y: 590, lvl: 50, xp: 54,  res: 30 },
+    'Spice Stall (Ardougne)':   { id: 327,  x: 551, y: 599, lvl: 65, xp: 81,  res: 80 },
+    'Gem Stall (Ardougne)':     { id: 328,  x: 560, y: 588, lvl: 75, xp: 16,  res: 180 }
+  };
+  // 'All Stalls (Ardougne)': rotate best-first through the Ardougne market
   var THIEVING_SCRIPT_IDS = ['AIOThiever', 'Man'];
 
   function makeThievingScript(runtimeConfig) {
@@ -7506,11 +7540,21 @@
     // UI target names map 1:1 onto THIEVE_TABLE keys
     var targetName = cfg.thieveTarget || 'Man';
     // v365: NO silent fallback — v363 quietly thieved Men when a stall/chest
-    // name was selected (stalls aren't implemented yet). A wrong-target bot
-    // running unattended is worse than a clear stop.
+    // name was selected. v368 adds REAL stall support; chests still v2.
     var T = THIEVE_TABLE[targetName];
-    if (!T) {
-      log('Target "' + targetName + '" not supported yet — v1 covers NPC pickpocketing (Man..Hero). Stalls/chests are v2.');
+    var ST = THIEVE_STALLS[targetName] || null;
+    var STALL_ALL = targetName === 'All Stalls (Ardougne)';
+    var stallList = [];
+    if (STALL_ALL) {
+      var order = ['Gem Stall (Ardougne)', 'Spice Stall (Ardougne)', 'Silver Stall (Ardougne)', 'Fur Stall (Ardougne)', 'Silk Stall (Ardougne)', 'Bakers Stall (Ardougne)'];
+      var thLv = getStatBase(17);
+      for (var oi = 0; oi < order.length; oi++) {
+        if (thLv >= THIEVE_STALLS[order[oi]].lvl) stallList.push(THIEVE_STALLS[order[oi]]);
+      }
+      if (stallList.length === 0) stallList = [THIEVE_STALLS['Bakers Stall (Ardougne)']];
+    }
+    if (!T && !ST && !STALL_ALL) {
+      log('Target "' + targetName + '" not supported yet — v1 covers NPC pickpocketing + stalls. Chests are v3.');
       setTimeout(stopBot, 50);
       return function() { return 5000; };
     }
@@ -7548,8 +7592,9 @@
       // ══ INIT ══
       if (scriptState.phase === 'init' || !scriptState.phase) {
         var lvl = getStatBase(17);   // THIEVING = 17
-        if (lvl < T.lvl) {
-          log('Need Thieving ' + T.lvl + ' for ' + targetName + ' (you are ' + lvl + ') — stopping');
+        var needLvl = T ? T.lvl : (ST ? ST.lvl : (STALL_ALL ? 5 : 1));
+        if (lvl < needLvl) {
+          log('Need Thieving ' + needLvl + ' for ' + targetName + ' (you are ' + lvl + ') — stopping');
           stopBot(); return 2000;
         }
         if (!eatAt) eatAt = Math.max(10, Math.floor(getStatBase(3) / 3));   // APOS enforced min 10
@@ -7563,11 +7608,12 @@
           bankName = bestB || 'Draynor';
           log('Thieving bank auto-detected: ' + bankName + ' (' + bestBD + ' tiles)');
         }
-        log('Thieving v363: ' + targetName + ' (lvl ' + lvl + ') eat@' + eatAt +
+        log('Thieving v368: ' + (ST || STALL_ALL ? 'stalls: ' + (STALL_ALL ? stallList.length + ' Ardougne stalls (lvl-filtered)' : targetName) : targetName) +
+            ' (lvl ' + lvl + ') eat@' + eatAt +
             (bankName ? ' bank=' + bankName : ' no banking'));
         scriptState.thTries = 0;
         scriptState.thXp0 = (getMC() && getMC().kN && getMC().kN.data) ? Number(getMC().kN.data[17]) : 0;
-        scriptState.phase = 'thSteal';
+        scriptState.phase = (ST || STALL_ALL) ? 'thStall' : 'thSteal';
         return 1200;
       }
 
@@ -7615,8 +7661,8 @@
         stopBot(); return 2000;
       }
 
-      // ══ COMBAT RETREAT (failed pickpocket → NPC attacks) ══
-      if (scriptState.phase === 'thSteal' && thInCombat()) {
+      // ══ COMBAT RETREAT (failed pickpocket / caught stealing → NPC attacks) ══
+      if ((scriptState.phase === 'thSteal' || scriptState.phase === 'thStall') && thInCombat()) {
         if (!scriptState.thRetreatAt) {
           scriptState.thRetreatAt = Date.now();
           log('Caught! Retreating');
@@ -7819,6 +7865,91 @@
           log('Attempts: ' + scriptState.thTries + (xpNow > scriptState.thXp0 ? ' | xp +' + (xpNow - scriptState.thXp0) : ''));
         }
         return 1300;   // server delay() per attempt; immediate re-try keeps cadence
+      }
+
+      // ══ STALL MODE (v368) — find a STOCKED stall (object present at its
+      // known coords; empty = id 341 cooldown), approach within Cheb ≤1 of the
+      // OBJECT (v362 rule), steal via atObject(242). Caught → guard chases →
+      // the shared retreat branch above handles it. After each steal the
+      // object flips to 341 for `res` seconds — rotate to the next stocked
+      // stall ('All Stalls' walks the market best-first). ══
+      if (scriptState.phase === 'thStall') {
+        var pool = STALL_ALL ? stallList : [ST];
+        // v376: NEAREST-STOCKED-FIRST, not pool order. The market pens are
+        // fenced: spice+silk interconnect, but gem/silver/fur/bakers pens are
+        // gated (rig map 9/1). Pool-order always chased the best stall even
+        // when its pen was unreachable → infinite neighbor rotation. Nearest-
+        // first always converges on a walkable stall; rotation handles the rest.
+        var pick = null;
+        for (var si = 0; si < pool.length; si++) {
+          var st = pool[si];
+          if (getStatBase(17) < st.lvl) continue;
+          var objs = findObjects([st.id], 40);
+          for (var oj = 0; oj < objs.length; oj++) {
+            if (!pick || objs[oj].dist < pick.o.dist) pick = { st: st, o: objs[oj] };
+          }
+        }
+        if (!pick) {
+          // nothing stocked in render — walk toward the highest-xp stall we
+          // can do and wait out its respawn
+          var tgt = pool[0];
+          var dTgt = Math.max(Math.abs(tgt.x - getX()), Math.abs(tgt.y - getY()));
+          if (dTgt > 2) { walkTo(tgt.x + 1, tgt.y + 1); return 1500; }
+          scriptState.thMissN = (scriptState.thMissN || 0) + 1;
+          if (scriptState.thMissN % 10 === 1) log('All stalls on cooldown — waiting');
+          if (scriptState.thMissN > 240) { log('No stocked stall for a long time — stopping'); stopBot(); return 2000; }
+          return 1500;
+        }
+        scriptState.thMissN = 0;
+        var o = pick.o;
+        // v377: 2x2 OBJECT BOUNDS. Stalls occupy anchor..anchor+1 in x and y;
+        // the server's range check is 1 tile from ANY covered tile. v376's
+        // Cheb(anchor) <= 1 gate rejected every legal perimeter stand tile
+        // (they're all Cheb 2 from the anchor) → rotated forever. Adjacency =
+        // within 1 of the bounding box, NOT on it.
+        var inBox = function(px, py) {
+          return px >= o.worldX - 1 && px <= o.worldX + 2 &&
+                 py >= o.worldY - 1 && py <= o.worldY + 2;
+        };
+        var onBox = function(px, py) {
+          return px >= o.worldX && px <= o.worldX + 1 &&
+                 py >= o.worldY && py <= o.worldY + 1;
+        };
+        var dObj = inBox(getX(), getY()) && !onBox(getX(), getY()) ? 1 : 2;
+        if (dObj > 1) {
+          // v375/377: PERIMETER ROTATION (v346 furnace pattern + 2x2 bounds).
+          // The market pens are fenced; walkable stand tiles are the 3x4-ish
+          // ring around the stall. Rotate through the ring until one lands.
+          var ring = [];
+          for (var rdx = -1; rdx <= 2; rdx++) {
+            for (var rdy = -1; rdy <= 2; rdy++) {
+              if (rdx >= 0 && rdx <= 1 && rdy >= 0 && rdy <= 1) continue;   // footprint
+              ring.push([rdx, rdy]);
+            }
+          }
+          var ni = (scriptState._thNbrIdx || 0) % ring.length;
+          if (scriptState._thNbrFor !== o.worldX + ',' + o.worldY) {
+            scriptState._thNbrFor = o.worldX + ',' + o.worldY;
+            scriptState._thNbrIdx = 0; ni = 0;
+            scriptState._thWalkPX = null;
+          }
+          var pxR = getX(), pyR = getY();
+          var movedR = (pxR !== (scriptState._thWalkPX || -9999) || pyR !== (scriptState._thWalkPY || -9999));
+          if (!movedR) {
+            scriptState._thNbrIdx = (scriptState._thNbrIdx + 1) % ring.length;
+            ni = scriptState._thNbrIdx;
+          }
+          scriptState._thWalkPX = pxR; scriptState._thWalkPY = pyR;
+          walkTo(o.worldX + ring[ni][0], o.worldY + ring[ni][1]);
+          return 2500;
+        }
+        atObject(o.worldX, o.worldY);
+        scriptState.thTries++;
+        if (scriptState.thTries % 10 === 0) {
+          var xpS = (getMC() && getMC().kN && getMC().kN.data) ? Number(getMC().kN.data[17]) : 0;
+          log('Steals: ' + scriptState.thTries + (xpS > scriptState.thXp0 ? ' | xp +' + (xpS - scriptState.thXp0) : ''));
+        }
+        return 2500;   // server delay(3) + rotation slack
       }
 
       log('Thieving: unknown phase ' + scriptState.phase);
