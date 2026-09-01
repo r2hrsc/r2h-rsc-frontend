@@ -478,6 +478,7 @@ export interface ScriptConfig {
   talismanId?: string;
   // — Thieving —
   thieveTarget?: string;
+  thieveTargets?: string[];
   thieveFightMode?: string;
   thieveEatHp?: string;
   thieveBank?: string;
@@ -567,14 +568,17 @@ const MAGIC_SPELLS = [
 const BAR_TYPES = ['Bronze', 'Iron', 'Steel', 'Mithril', 'Adamantite', 'Runite'];
 const JEWELRY_TYPES = ['Ring', 'Amulet', 'Necklace'];
 
-const THIEVE_TARGETS = [
+const THIEVE_NPC_TARGETS = [
   'Man', 'Farmer', 'Warrior', 'Workman', 'Rogue',
   'Guard (Ardougne)', 'Guard (Varrock)', 'Knight', 'Watchman',
   'Paladin', 'Gnome', 'Hero',
+];
+const THIEVE_STALL_TARGETS = [
   'All Stalls (Ardougne)', 'Tea Stall (Varrock)', 'Bakers Stall (Ardougne)', 'Silk Stall (Ardougne)',
   'Fur Stall (Ardougne)', 'Silver Stall (Ardougne)', 'Spice Stall (Ardougne)', 'Gem Stall (Ardougne)',
   'Nature Rune Chest', '50 Coin Chest', 'Hemenster Chest',
 ];
+const THIEVE_TARGETS = [...THIEVE_NPC_TARGETS, ...THIEVE_STALL_TARGETS];
 
 const SMITH_CATEGORIES = ['Weapon', 'Armour', 'Missile Heads'];
 const SMITH_SUBTYPES: Record<string, string[]> = {
@@ -1216,11 +1220,28 @@ function MagicConfig({ cfg, set }: CfgProps) {
 }
 
 function ThievingConfig({ cfg, set }: CfgProps) {
+  const picked: string[] = cfg.thieveTargets ?? [cfg.thieveTarget ?? 'Man'];
+  const toggle = (t: string) => {
+    const has = picked.includes(t);
+    const next = has ? picked.filter(p => p !== t) : [...picked, t];
+    if (next.length > 0) set({ thieveTargets: next });
+  };
   return (
     <div style={S_PANEL}>
-      <Field label="Thieving Target">
-        <select style={S_SELECT} value={cfg.thieveTarget} onChange={e => set({ thieveTarget: e.target.value })}>
-          {THIEVE_TARGETS.map(t => <option key={t} value={t}>{t}</option>)}
+      <Field label="NPC Targets (multi-select)">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, maxHeight: 132, overflowY: 'auto', border: '1px solid #444', borderRadius: 4, padding: 4 }}>
+          {THIEVE_NPC_TARGETS.map(t => (
+            <label key={t} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer', color: picked.includes(t) ? 'var(--accent)' : 'inherit' }}>
+              <input type="checkbox" checked={picked.includes(t)} onChange={() => toggle(t)} style={{ accentColor: 'var(--accent)' }} />
+              {t}
+            </label>
+          ))}
+        </div>
+      </Field>
+      <Field label="Stalls / Chests (single)">
+        <select style={S_SELECT} value={cfg.thieveTarget ?? 'None'} onChange={e => set({ thieveTarget: e.target.value === 'None' ? undefined : e.target.value })}>
+          <option value="None">None (NPCs only)</option>
+          {THIEVE_STALL_TARGETS.map(t => <option key={t} value={t}>{t}</option>)}
         </select>
       </Field>
       <div style={{ display: 'flex', gap: 5 }}>

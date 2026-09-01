@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v378';
+  var VERSION = 'v379';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7537,12 +7537,29 @@
 
   function makeThievingScript(runtimeConfig) {
     var cfg = runtimeConfig || {};
-    // UI target names map 1:1 onto THIEVE_TABLE keys
-    var targetName = cfg.thieveTarget || 'Man';
-    // v365: NO silent fallback — v363 quietly thieved Men when a stall/chest
-    // name was selected. v368 adds REAL stall support; chests still v2.
-    var T = THIEVE_TABLE[targetName];
-    var ST = THIEVE_STALLS[targetName] || null;
+    // UI target names map 1:1 onto THIEVE_TABLE keys.
+    // v379 MULTI-TARGET: cfg.thieveTargets = ['Paladin','Hero',...] → union of
+    // ids (each level-gated at use), nearest live NPC across ALL picked types.
+    // Falls back to legacy single thieveTarget. Stalls remain single-select.
+    var targetNames = [];
+    if (cfg.thieveTargets && cfg.thieveTargets.length > 0) {
+      for (var tni = 0; tni < cfg.thieveTargets.length; tni++) {
+        if (THIEVE_TABLE[cfg.thieveTargets[tni]]) targetNames.push(cfg.thieveTargets[tni]);
+      }
+    }
+    if (targetNames.length === 0 && THIEVE_TABLE[cfg.thieveTarget || '']) {
+      targetNames = [cfg.thieveTarget];
+    }
+    var targetName = targetNames.length > 0 ? targetNames.join('+') : null;
+    var T = targetNames.length === 1 ? THIEVE_TABLE[targetNames[0]] : null;
+    var multiIds = [];
+    var multiLvl = 0;
+    for (var tmi = 0; tmi < targetNames.length; tmi++) {
+      var tme = THIEVE_TABLE[targetNames[tmi]];
+      for (var tii = 0; tii < tme.ids.length; tii++) multiIds.push(tme.ids[tii]);
+      if (tme.lvl > multiLvl) multiLvl = tme.lvl;
+    }
+    var ST = THIEVE_STALLS[cfg.thieveTarget || ''] || null;
     var STALL_ALL = targetName === 'All Stalls (Ardougne)';
     var stallList = [];
     if (STALL_ALL) {
@@ -7553,8 +7570,8 @@
       }
       if (stallList.length === 0) stallList = [THIEVE_STALLS['Bakers Stall (Ardougne)']];
     }
-    if (!T && !ST && !STALL_ALL) {
-      log('Target "' + targetName + '" not supported yet — v1 covers NPC pickpocketing + stalls. Chests are v3.');
+    if (!T && targetNames.length === 0 && !ST && !STALL_ALL) {
+      log('Target "' + (cfg.thieveTarget || '') + '" not supported yet — v1 covers NPC pickpocketing + stalls. Chests are v3.');
       setTimeout(stopBot, 50);
       return function() { return 5000; };
     }
@@ -7597,7 +7614,7 @@
       // ══ INIT ══
       if (scriptState.phase === 'init' || !scriptState.phase) {
         var lvl = getStatBase(17);   // THIEVING = 17
-        var needLvl = T ? T.lvl : (ST ? ST.lvl : (STALL_ALL ? 5 : 1));
+        var needLvl = T ? T.lvl : (multiIds.length > 0 ? multiLvl : (ST ? ST.lvl : (STALL_ALL ? 5 : 1)));
         if (lvl < needLvl) {
           log('Need Thieving ' + needLvl + ' for ' + targetName + ' (you are ' + lvl + ') — stopping');
           stopBot(); return 2000;
@@ -7672,16 +7689,23 @@
           scriptState.thRetreatAt = Date.now();
           log('Caught! Retreating');
         }
-        // walk away 6 tiles (combat drops after the 3-round lock, ~1.8s)
+        // v379: send the retreat walk ONCE (re-sending every tick cancels it —
+        // v373 walk-cancel rule; this was the other half of the Ardougne
+        // slowness: every catch-crawl was being canceled mid-tile).
         var rx = getX() + 6, ry = getY();
-        walkTo(rx, ry);
+        if (scriptState.thRetreatTo !== rx + ',' + ry) {
+          scriptState.thRetreatTo = rx + ',' + ry;
+          walkTo(rx, ry);
+        }
         if (Date.now() - scriptState.thRetreatAt > 12000) {
           log('Combat won\'t clear — moving on');
           scriptState.thRetreatAt = 0;
+          scriptState.thRetreatTo = null;
         }
         return 1500;
       }
       scriptState.thRetreatAt = 0;
+      scriptState.thRetreatTo = null;
 
       // ══ DROP JUNK (jugs etc.) ══
       for (var ji = 0; ji < JUNK_IDS.length; ji++) {
@@ -7819,7 +7843,9 @@
         // and v363 chased it forever (the westward death-march). Real crowds
         // never stack on one pixel: any position shared by 2+ target NPCs is
         // a parking slot — skip everyone on it.
-        var found = findNpcs(T.ids, 25);
+        // v379: scan the UNION of all picked target types (multi-select).
+        var scanIds = multiIds.length > 0 ? multiIds : T.ids;
+        var found = findNpcs(scanIds, 25);
         var posCount = {};
         for (var gi = 0; gi < found.length; gi++) {
           var pk = found[gi].pixelX + ',' + found[gi].pixelY;
@@ -7848,6 +7874,7 @@
             scriptState.thApproachIdx = npc.serverIndex;
             scriptState.thApproachD = d;
             scriptState.thApproachAt = Date.now();
+            scriptState.thWalkSent = false;   // v379: new target → fresh walk
           } else {
             if (d < scriptState.thApproachD) {
               scriptState.thApproachD = d;
@@ -7860,9 +7887,30 @@
               return 600;
             }
           }
-          walkTo(npc.worldX, npc.worldY);
-          return 800;
+          // v379 WALK-CANCEL FIX: send the approach walk ONCE and let it run —
+          // v364 re-sent every 800ms which CANCELED the walk before a tile
+          // crossed. Varrock guards (32 adjacent spawns) never noticed; the
+          // scattered Ardougne paladins spent their whole approach canceled.
+          // Resend only if 3s passed without moving.
+          var pxA = getX(), pyA = getY();
+          var movedA = (pxA !== (scriptState.thWalkPX || -9999) || pyA !== (scriptState.thWalkPY || -9999));
+          if (!scriptState.thWalkSent || !movedA) {
+            if (!movedA) {
+              if (Date.now() - (scriptState.thWalkAt || 0) > 3000) {
+                walkTo(npc.worldX, npc.worldY);
+                scriptState.thWalkAt = Date.now();
+                scriptState.thWalkSent = true;
+              }
+            } else {
+              walkTo(npc.worldX, npc.worldY);
+              scriptState.thWalkAt = Date.now();
+              scriptState.thWalkSent = true;
+            }
+          }
+          scriptState.thWalkPX = pxA; scriptState.thWalkPY = pyA;
+          return 900;
         }
+        scriptState.thWalkSent = false;
         thieveNpc(npc.serverIndex);
         scriptState.thTries++;
         if (scriptState.thTries % 25 === 0) {
