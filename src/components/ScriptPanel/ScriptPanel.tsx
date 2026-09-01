@@ -666,7 +666,7 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
     case 'fletching':
       return { bowType: BOW_TYPES[0], fletchBank: 'Auto (nearest)', fletchMode: 'bank', fletchString: false };
     case 'crafting':
-      return { craftMode: 'spin', spinInput: 'flax', gemType: 'Sapphire', craftBank: 'Auto (nearest)', craftDrop: false };
+      return { craftMode: 'flax', gemType: 'Sapphire', craftBank: 'Auto (nearest)', craftDrop: false };
     case 'bones':
       return { targetPrayerLevel: '99' };
   }
@@ -1332,19 +1332,13 @@ function CraftingConfig({ cfg, set }: CfgProps) {
   return (
     <div style={S_PANEL}>
       <Field label="Mode">
-        <select style={S_SELECT} value={cfg.craftMode ?? 'spin'} onChange={e => set({ craftMode: e.target.value })}>
-          <option value="spin">Spin (flax / wool)</option>
+        <select style={S_SELECT} value={cfg.craftMode ?? 'flax'} onChange={e => set({ craftMode: e.target.value })}>
+          <option value="flax">Spin Flax → Bow Strings</option>
+          <option value="wool">Spin Wool → Balls of Wool</option>
           <option value="gems">Cut Gems (chisel)</option>
         </select>
       </Field>
-      {(cfg.craftMode ?? 'spin') === 'spin' ? (
-        <Field label="Spin Input">
-          <select style={S_SELECT} value={cfg.spinInput ?? 'flax'} onChange={e => set({ spinInput: e.target.value })}>
-            <option value="flax">Flax → Bow String</option>
-            <option value="wool">Wool → Ball of Wool</option>
-          </select>
-        </Field>
-      ) : (
+      {cfg.craftMode === 'gems' && (
         <Field label="Gem Type">
           <select style={S_SELECT} value={cfg.gemType ?? 'Sapphire'} onChange={e => set({ gemType: e.target.value })}>
             {GEMS.map(g => <option key={g} value={g}>{g}</option>)}

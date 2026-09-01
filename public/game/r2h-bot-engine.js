@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v358';
+  var VERSION = 'v359';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7082,8 +7082,17 @@
 
   function makeCraftingScript(runtimeConfig) {
     var cfg = runtimeConfig || {};
-    var mode = cfg.craftMode === 'gems' ? 'gems' : 'spin';       // spin | gems
-    var spinInput = cfg.spinInput === 'wool' ? WOOL_ID : FLAX_ID; // 675 | 145
+    // v359: flax and wool are SEPARATE first-class modes (user direction 9/1:
+    // a player with BOTH materials needs an unambiguous selection — the old
+    // combined 'spin'+spinInput sub-field stranded the other material when
+    // the selected one ran dry). Legacy 'spin' configs still map correctly.
+    var mode;
+    if (cfg.craftMode === 'gems') mode = 'gems';
+    else if (cfg.craftMode === 'wool') mode = 'wool';
+    else if (cfg.craftMode === 'flax') mode = 'flax';
+    else mode = (cfg.spinInput === 'wool') ? 'wool' : 'flax';   // legacy 'spin'
+    var isSpin = (mode === 'flax' || mode === 'wool');
+    var spinInput = mode === 'wool' ? WOOL_ID : FLAX_ID;   // 145 | 675
     var spinOut = spinInput === FLAX_ID ? 676 : 207;
     var spinLvl = spinInput === FLAX_ID ? 10 : 1;
     var gemName = cfg.gemType || 'Sapphire';
@@ -7130,8 +7139,8 @@
           log('Crafting bank auto-detected: ' + bankName + ' (' + bestBD + ' tiles)');
         }
         var wheel = CRAFT_WHEELS[0];
-        log('Crafting v355: ' + (mode === 'gems' ? 'cut ' + gemName + ' gems' : 'spin ' + (spinInput === FLAX_ID ? 'flax' : 'wool')) +
-            (mode === 'spin' ? ' @ ' + wheel.name + ' wheel' : ' @ bank') +
+        log('Crafting v359: ' + (mode === 'gems' ? 'cut ' + gemName + ' gems' : 'spin ' + (mode === 'wool' ? 'wool' : 'flax')) +
+            (isSpin ? ' @ ' + wheel.name + ' wheel' : ' @ bank') +
             (powerMode ? ' (power)' : ' (bank)') + ' (lvl ' + lvl + ')');
         scriptState.crMade = 0;
         // v341-pattern start-time inventory check: inputs in hand → work first
@@ -9038,6 +9047,18 @@ return 1000;
       Y(mc.c);
     } catch (e) {}
   }
+
+  // v359: ALWAYS-ON idle keepalive — the game client's own idle-logout (its
+  // d4 mouse-stillness counter, ~4500 ticks ≈ 2min) fires even with NO bot
+  // running. v358 only reset it inside bot ticks, so the moment a script
+  // finished (e.g. crafting 'bank out of inputs'), the client logged YOU out
+  // ~2min later → auto-reconnect burned its 1 retry → relogged → idled out
+  // again → Google auth screen (user hit this 9/1 02:19-02:26). This
+  // interval resets the counter for the whole page life, bot or no bot.
+  setInterval(function() {
+    var mc = getMC();
+    if (mc) mc.d4 = 0;
+  }, 5000);
 
   function antiIdle() {
     var mc = getMC();
