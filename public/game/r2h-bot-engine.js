@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v380';
+  var VERSION = 'v382';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7515,7 +7515,19 @@
     'Hero':             { ids: [324], lvl: 80, xp: 1093 }
   };
   var THIEVE_FOOD = [373, 370, 367, 546, 359, 357, 364, 362, 355, 350, 138, 132];  // best-first (lobster..meat)
-  var JUNK_IDS = [140];   // empty jugs (hero loot)
+  // v381 LOOT WHITELIST — the ONLY ids the thieving bank scan will ever
+  // deposit. Every entry verified against ItemId.java + the Thieving.java
+  // pickpocket/stall loot tables. User was banked NAKED 9/1 (gear ids banked
+  // by a naive "deposit everything" scan); a blacklist can never leak new
+  // gear ids, so thieving deposits are whitelist-ONLY. Your equipment, quest
+  // items, teleports, anything else — untouched.
+  var THIEVE_LOOT = {
+    10:1, 16:1, 21:1, 33:1, 34:1, 38:1, 41:1, 137:1, 138:1, 142:1, 146:1,
+    152:1, 161:1, 162:1, 163:1, 164:1, 172:1, 200:1, 211:1, 218:1, 237:1,
+    330:1, 336:1, 383:1, 559:1, 612:1, 619:1, 707:1, 714:1, 739:1, 783:1,
+    868:1, 869:1, 870:1, 895:1, 897:1, 1115:1, 1117:1
+  };
+  var JUNK_IDS = [140];   // empty jugs (hero loot) — dropped, not banked
   // v368→v374 STALLS — SERVER-TRUTH ids AND coords (SceneryLocs.json, the
   // authoritative spawn table; live client object array cross-checked 9/1).
   // The APOS name→coord table is SHUFFLED vs this server (their "gem" coords
@@ -7771,12 +7783,20 @@
       if (scriptState.phase === 'thBank') {
         if (!isInBank()) { scriptState.phase = 'thBankTalk'; return 600; }
         // deposit everything except sleeping bag + food (v350: skip scan while withdrawing)
+        // v381 EQUIPMENT SAFETY: equipped items' ids remain in b4 with a flag
+        // set in mc[F.inventoryEquipped] — a naive id-scan banks your worn
+        // gear if it ever lands in inventory. NEVER deposit an item that is
+        // equipped-flagged, and never deposit equip-class ids at all from the
+        // thieving loot scan (user was banked back NAKED 9/1 — gear ids
+        // 401/402/597/1288/594/1278 found unequipped in inv after a bank run).
         if (!scriptState.thWdSent) {
           var cu2 = Number(getMC().cU || 0);
-          var depId = -1, depN = 0;
+          var eqv = (getMC() && getMC()[F.inventoryEquipped] && getMC()[F.inventoryEquipped].data) || null;
+          var depId = -1;
           for (var di = 0; di < cu2; di++) {
             var it = getInventoryId(di);
             if (!it || it === SLEEPING_BAG) continue;
+            if (!THIEVE_LOOT[it]) continue;               // v381: whitelist ONLY — gear can never bank
             var isFood = false;
             for (var fi = 0; fi < THIEVE_FOOD.length; fi++) if (it === THIEVE_FOOD[fi]) { isFood = true; break; }
             if (isFood) continue;
@@ -8012,7 +8032,21 @@
       function thWalkToward(destX, destY, onArrive, arriveDist) {
         var chebFar = Math.max(Math.abs(destX - getX()), Math.abs(destY - getY()));
         if (chebFar <= (arriveDist || 3)) { onArrive(); return 400; }
-        if (chebFar <= 12) { walkTo(destX, destY); return 1200; }
+        // v381 WALK-CANCEL FIX (the last unfixed site): the short-leg branch
+        // re-sent walkTo every tick — cancels the walk (v373 rule). User
+        // session: stood at (549,601), Ardougne South 11 tiles = exactly this
+        // branch → 'no action, nada'. Send once; re-send only after 3s of
+        // true stillness.
+        if (chebFar <= 12) {
+          var pxW2 = getX(), pyW2 = getY();
+          var movedW2 = (pxW2 !== (scriptState._thBankPX || -9999) || pyW2 !== (scriptState._thBankPY || -9999));
+          if (movedW2 || Date.now() - (scriptState._thBankWalkAt || 0) > 3000) {
+            walkTo(destX, destY);
+            scriptState._thBankWalkAt = Date.now();
+          }
+          scriptState._thBankPX = pxW2; scriptState._thBankPY = pyW2;
+          return 1200;
+        }
         var dkey = destX + ',' + destY;
         if (scriptState._thHopDest !== dkey) { scriptState._thHopDest = dkey; scriptState._thHop = null; }
         var hop = scriptState._thHop;
