@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v362';
+  var VERSION = 'v364';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1169,6 +1169,9 @@
     } else if (CRAFTING_SCRIPT_IDS.indexOf(scriptId) >= 0) {
       log('Crafting: "' + scriptId + '" → v355 crafting engine');
       tickFn = makeCraftingScript(runtimeConfig);
+    } else if (THIEVING_SCRIPT_IDS.indexOf(scriptId) >= 0) {
+      log('Thieving: "' + scriptId + '" → v363 thieving engine');
+      tickFn = makeThievingScript(runtimeConfig);
     } else if (isFishingScript(scriptId)) {
       // v275: APOS fishing ids → fishing engine; preset the fish type per id.
       // 'CatherbyFishFarm' is INTENTIONALLY excluded (it's in COOKING_IDS —
@@ -7435,6 +7438,384 @@
           scriptState._crWalkStart = now;
           log('Walk stalled (strike ' + scriptState._crStalls + '/3) — re-routing');
           if (scriptState._crStalls >= 3) {
+            log('STUCK walking — stopping');
+            stopBot(); return 2000;
+          }
+        }
+        return 1500;
+      }
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // v363: THIEVING (pickpocket) — server-verified (Thieving.java
+  // Pickpocket enum + batchPickpocket + NpcId/NpcDefs cross-check, 9/1).
+  //   Wire: thieveNpc = P177 case 195 (friend 543) NPC_COMMAND →
+  //   Thieving.onNpcCommand → doPickpocket. One attempt per packet
+  //   (BATCH off). Success: loot + xp. FAILURE: NPC SHOUTS AND ATTACKS
+  //   (no stun in RSC) → walk away (3-round melee lock from combat
+  //   engine lessons), eat at HP threshold, return.
+  //   Targets (enum req lvl / xp, ids verified vs NpcId+NpcDefs):
+  //     Man 11 (1/32) · Farmer 63 (10/58) · Warrior 86 (25/104) ·
+  //     Rogue 342 (32/146) · Guard 321 (40/187) · Guard 65 (40/187) ·
+  //     Knight 322 (55/337) · Watchman 574 (65/550) · Paladin 323
+  //     (70/607) · Gnome 592/581/580 (75/793) · Hero 324 (80/1093).
+  //   APOS ref: AIOThiever.java (Dvorak/Kaila) — eat min 10hp enforced,
+  //   drop jugs(140), bank when full/out-of-food, withdraw food.
+  //   THIEVING statIdx = 17. Combat signal: mc.O.g8 >= 8 (fighter-proven).
+  var THIEVE_TABLE = {
+    'Man':              { ids: [11], lvl: 1,  xp: 32 },
+    'Farmer':           { ids: [63], lvl: 10, xp: 58 },
+    'Warrior':          { ids: [86], lvl: 25, xp: 104 },
+    'Rogue':            { ids: [342], lvl: 32, xp: 146 },
+    'Guard (Ardougne)': { ids: [321], lvl: 40, xp: 187 },
+    'Guard (Varrock)':  { ids: [65], lvl: 40, xp: 187 },
+    'Knight':           { ids: [322], lvl: 55, xp: 337 },
+    'Watchman':         { ids: [574], lvl: 65, xp: 550 },
+    'Paladin':          { ids: [323], lvl: 70, xp: 607 },
+    'Gnome':            { ids: [592, 581, 580], lvl: 75, xp: 793 },
+    'Hero':             { ids: [324], lvl: 80, xp: 1093 }
+  };
+  var THIEVE_FOOD = [373, 370, 367, 546, 359, 357, 364, 362, 355, 350, 138, 132];  // best-first (lobster..meat)
+  var JUNK_IDS = [140];   // empty jugs (hero loot)
+  var THIEVING_SCRIPT_IDS = ['AIOThiever', 'Man'];
+
+  function makeThievingScript(runtimeConfig) {
+    var cfg = runtimeConfig || {};
+    // UI target names map 1:1 onto THIEVE_TABLE keys
+    var targetName = cfg.thieveTarget || 'Man';
+    // tolerate the UI's stall/chest names → not supported v1 → default Man
+    var T = THIEVE_TABLE[targetName] || THIEVE_TABLE['Man'];
+    var bankName = (cfg.thieveBank && cfg.thieveBank !== 'None') ? cfg.thieveBank : null;
+    var eatAt = parseInt(cfg.thieveEatHp) || 0;
+    var foodWd = parseInt(cfg.foodWithdraw) || 5;
+
+    function thCount(id) {
+      var cu = Number(getMC().cU || 0);   // v347 ghost-slot rule
+      var n = 0;
+      for (var i = 0; i < cu; i++) if (getInventoryId(i) === id) n++;
+      return n;
+    }
+    function thFoodSlot() {
+      var cu = Number(getMC().cU || 0);
+      for (var f = 0; f < THIEVE_FOOD.length; f++) {
+        for (var i = 0; i < cu; i++) if (getInventoryId(i) === THIEVE_FOOD[f]) return i;
+      }
+      return -1;
+    }
+    function thHp() { return getStatCurrent(3); }
+    function thInCombat() {
+      var pMC = getMC();
+      return (pMC && pMC.O) ? (Number(pMC.O.g8 || 0) >= 8) : false;
+    }
+
+    return function() {
+      if (!isLoggedIn()) return 5000;
+
+      // ══ INIT ══
+      if (scriptState.phase === 'init' || !scriptState.phase) {
+        var lvl = getStatBase(17);   // THIEVING = 17
+        if (lvl < T.lvl) {
+          log('Need Thieving ' + T.lvl + ' for ' + targetName + ' (you are ' + lvl + ') — stopping');
+          stopBot(); return 2000;
+        }
+        if (!eatAt) eatAt = Math.max(10, Math.floor(getStatBase(3) / 3));   // APOS enforced min 10
+        if (bankName === 'Auto (nearest)') {
+          var bestB = null, bestBD = Infinity;
+          for (var bk in BANK_REGISTRY) {
+            var bpt = BANK_REGISTRY[bk];
+            var bd2 = Math.abs(bpt[0] - getX()) + Math.abs(bpt[1] - getY());
+            if (bd2 < bestBD) { bestBD = bd2; bestB = bk; }
+          }
+          bankName = bestB || 'Draynor';
+          log('Thieving bank auto-detected: ' + bankName + ' (' + bestBD + ' tiles)');
+        }
+        log('Thieving v363: ' + targetName + ' (lvl ' + lvl + ') eat@' + eatAt +
+            (bankName ? ' bank=' + bankName : ' no banking'));
+        scriptState.thTries = 0;
+        scriptState.thXp0 = (getMC() && getMC().kN && getMC().kN.data) ? Number(getMC().kN.data[17]) : 0;
+        scriptState.phase = 'thSteal';
+        return 1200;
+      }
+
+      // ══ FATIGUE / SLEEP ══
+      if (getIsSleeping()) {
+        if (!scriptState.sleepTyping) {
+          scriptState.sleepTyping = true;
+          var sw = 'asleep';
+          if (typeof window.__r2hTypeChar === 'function') {
+            for (var ci = 0; ci < sw.length; ci++) window.__r2hTypeChar(sw[ci]);
+            setTimeout(function() {
+              if (typeof window.__r2hTypeSpecial === 'function') window.__r2hTypeSpecial('Enter');
+              scriptState.sleepTyping = false;
+            }, 500);
+          } else { scriptState.sleepTyping = false; }
+        }
+        return 2000;
+      }
+      if (getFatigue() >= 96) {
+        var bag = getInventoryIndex(SLEEPING_BAG);
+        if (bag >= 0) { log('Fatigue — sleeping'); useItem(bag); return 3000; }
+        log('Exhausted with no sleeping bag — stopping. Bring a sleeping bag.');
+        stopBot(); return 3000;
+      }
+
+      // ══ EAT (before anything else — APOS order) ══
+      if (thHp() <= eatAt) {
+        var fs = thFoodSlot();
+        if (fs >= 0) {
+          log('Eating (hp ' + thHp() + ')');
+          useItem(fs);
+          return 1200;
+        }
+        if (bankName) { scriptState.phase = 'thToBank'; return 400; }
+        log('Out of food at hp ' + thHp() + ' — stopping');
+        stopBot(); return 2000;
+      }
+
+      // ══ COMBAT RETREAT (failed pickpocket → NPC attacks) ══
+      if (scriptState.phase === 'thSteal' && thInCombat()) {
+        if (!scriptState.thRetreatAt) {
+          scriptState.thRetreatAt = Date.now();
+          log('Caught! Retreating');
+        }
+        // walk away 6 tiles (combat drops after the 3-round lock, ~1.8s)
+        var rx = getX() + 6, ry = getY();
+        walkTo(rx, ry);
+        if (Date.now() - scriptState.thRetreatAt > 12000) {
+          log('Combat won\'t clear — moving on');
+          scriptState.thRetreatAt = 0;
+        }
+        return 1500;
+      }
+      scriptState.thRetreatAt = 0;
+
+      // ══ DROP JUNK (jugs etc.) ══
+      for (var ji = 0; ji < JUNK_IDS.length; ji++) {
+        var jslot = getInventoryIndex(JUNK_IDS[ji]);
+        if (jslot >= 0) { dropItem(jslot); return 700; }
+      }
+
+      // ══ BANK WHEN FULL / OUT OF FOOD ══
+      if (bankName && scriptState.phase !== 'thToBank' && scriptState.phase !== 'thBankTalk' &&
+          scriptState.phase !== 'thBankOption' && scriptState.phase !== 'thBank') {
+        var cuN = Number(getMC().cU || 0);
+        if (cuN >= 30 || thFoodSlot() < 0) { scriptState.phase = 'thToBank'; return 400; }
+      }
+
+      // ══ BANK MACHINE (WC v274 + v350 gate) ══
+      if (scriptState.phase === 'thToBank') {
+        var bt = BANK_REGISTRY[bankName];
+        if (!bt) { log('Unknown bank ' + bankName); stopBot(); return 2000; }
+        return thWalkToward(bt[0], bt[1], function() {
+          scriptState.phase = 'thBankTalk';
+          scriptState.thMiss = 0;
+        }, 3);
+      }
+      if (scriptState.phase === 'thBankTalk') {
+        var BANKER_IDS = [95, 224, 268, 485, 540, 617];
+        if (isInBank()) { scriptState.phase = 'thBank'; scriptState.thWdSent = 0; scriptState.thWdFails = 0; return 400; }
+        var banker = findNpcs(BANKER_IDS, 10);
+        if (banker.length > 0) {
+          scriptState.thWdSent = 0;
+          log('Talking to banker');
+          talkToNpc(banker[0].serverIndex);
+          scriptState.thBankTimer = Date.now();
+          scriptState.thTalkStart = Date.now();
+          scriptState.phase = 'thBankOption';
+          return 2000;
+        }
+        var btN = BANK_REGISTRY[bankName];
+        if (btN) walkTo(btN[0], btN[1]);
+        scriptState.thMiss = (scriptState.thMiss || 0) + 1;
+        if (scriptState.thMiss > 12) { log('No banker found — stopping'); stopBot(); return 2000; }
+        return 1500;
+      }
+      if (scriptState.phase === 'thBankOption') {
+        if (isInBank()) { scriptState.phase = 'thBank'; scriptState.thWdSent = 0; scriptState.thWdFails = 0; return 500; }
+        if (Date.now() - scriptState.thBankTimer > 2000) {
+          optionAnswer(0);
+          scriptState.thBankTimer = Date.now();
+        }
+        if (Date.now() - (scriptState.thTalkStart || 0) > 12000) {
+          log('Bank not opening — retrying talk');
+          scriptState.phase = 'thBankTalk';
+        }
+        return 1500;
+      }
+      if (scriptState.phase === 'thBank') {
+        if (!isInBank()) { scriptState.phase = 'thBankTalk'; return 600; }
+        // deposit everything except sleeping bag + food (v350: skip scan while withdrawing)
+        if (!scriptState.thWdSent) {
+          var cu2 = Number(getMC().cU || 0);
+          var depId = -1, depN = 0;
+          for (var di = 0; di < cu2; di++) {
+            var it = getInventoryId(di);
+            if (!it || it === SLEEPING_BAG) continue;
+            var isFood = false;
+            for (var fi = 0; fi < THIEVE_FOOD.length; fi++) if (it === THIEVE_FOOD[fi]) { isFood = true; break; }
+            if (isFood) continue;
+            depId = it; break;
+          }
+          if (depId >= 0) {
+            for (var di2 = 0; di2 < cu2; di2++) if (getInventoryId(di2) === depId) depN++;
+            log('Depositing ' + depN + ' x ' + depId);
+            depositItem(depId, Math.min(depN, 32767));
+            return 1200;
+          }
+        }
+        // withdraw food (verified, v353 timings) — only if below 2 pieces
+        if (thFoodSlot() >= 0 && thCount(THIEVE_FOOD[0]) + thCount(373) >= 2) {
+          scriptState.phase = 'thSteal';
+          closeBank();
+          return 800;
+        }
+        if (!scriptState.thWdSent) {
+          var wdId = 373;   // try lobster first, fall back per verify
+          for (var wi = 0; wi < THIEVE_FOOD.length; wi++) { wdId = THIEVE_FOOD[wi]; break; }
+          withdrawItem(wdId, foodWd);
+          scriptState.thWdFood = wdId;
+          scriptState.thWdSent = Date.now();
+          return 2000;
+        }
+        if (Date.now() - scriptState.thWdSent > 3000) {
+          var gotF = thCount(scriptState.thWdFood || 373);
+          if (gotF === 0) {
+            scriptState.thWdFails = (scriptState.thWdFails || 0) + 1;
+            var wdMax = scriptState.thDryLoad ? 2 : 4;
+            log('Food withdraw not landing (' + scriptState.thWdFails + '/' + wdMax + ')');
+            if (scriptState.thWdFails >= wdMax) {
+              if (!scriptState.thDryLoad) {
+                scriptState.thDryLoad = 1; scriptState.thWdFails = 0;
+                closeBank();
+                scriptState.phase = 'thBankTalk';
+                return 1000;
+              }
+              log('Bank out of food — thieving on');
+              closeBank();
+              scriptState.phase = 'thSteal';
+              return 800;
+            }
+            scriptState.thWdSent = 0;
+            return 2000;
+          }
+          scriptState.thWdFails = 0;
+          scriptState.thWdSent = 0;
+          scriptState.phase = 'thSteal';
+          closeBank();
+          return 800;
+        }
+        return 1200;
+      }
+
+      // ══ STEAL (per-attempt — one NPC_COMMAND per try, ~1.3s server delay) ══
+      if (scriptState.phase === 'thSteal') {
+        // v364 GHOST-NPC GUARD: the client PARKS out-of-render NPCs at a fixed
+        // sentinel pixel slot (rig: all 4 Varrock men converged to F=8512,E=7232
+        // once the player walked away) yet keeps them in b0.data with a valid
+        // type id — their computed world position is a phantom ~40 tiles off,
+        // and v363 chased it forever (the westward death-march). Real crowds
+        // never stack on one pixel: any position shared by 2+ target NPCs is
+        // a parking slot — skip everyone on it.
+        var found = findNpcs(T.ids, 25);
+        var posCount = {};
+        for (var gi = 0; gi < found.length; gi++) {
+          var pk = found[gi].pixelX + ',' + found[gi].pixelY;
+          posCount[pk] = (posCount[pk] || 0) + 1;
+        }
+        var live = [];
+        for (var gj = 0; gj < found.length; gj++) {
+          var pk2 = found[gj].pixelX + ',' + found[gj].pixelY;
+          if (posCount[pk2] > 1) continue;          // stacked = parked ghost
+          if (scriptState.thBlacklist && scriptState.thBlacklist[found[gj].serverIndex] > Date.now()) continue;
+          live.push(found[gj]);
+        }
+        if (live.length === 0) {
+          scriptState.thMissN = (scriptState.thMissN || 0) + 1;
+          if (scriptState.thMissN % 8 === 1) log('No ' + targetName + ' nearby — scanning');
+          if (scriptState.thMissN > 60) { log('No targets for a while — stopping'); stopBot(); return 2000; }
+          return 1500;
+        }
+        scriptState.thMissN = 0;
+        var npc = live[0];
+        var d = Math.max(Math.abs(npc.worldX - getX()), Math.abs(npc.worldY - getY()));
+        if (d > 1) {
+          // v364 approach watchdog: if distance isn't closing, the target is a
+          // phantom or moved-on — blacklist + retarget instead of marching.
+          if (scriptState.thApproachIdx !== npc.serverIndex) {
+            scriptState.thApproachIdx = npc.serverIndex;
+            scriptState.thApproachD = d;
+            scriptState.thApproachAt = Date.now();
+          } else {
+            if (d < scriptState.thApproachD) {
+              scriptState.thApproachD = d;
+              scriptState.thApproachAt = Date.now();
+            } else if (Date.now() - scriptState.thApproachAt > 8000) {
+              if (!scriptState.thBlacklist) scriptState.thBlacklist = {};
+              scriptState.thBlacklist[npc.serverIndex] = Date.now() + 15000;
+              log('Target not closing — blacklisting ' + npc.serverIndex + ' 15s');
+              scriptState.thApproachIdx = null;
+              return 600;
+            }
+          }
+          walkTo(npc.worldX, npc.worldY);
+          return 800;
+        }
+        thieveNpc(npc.serverIndex);
+        scriptState.thTries++;
+        if (scriptState.thTries % 25 === 0) {
+          var xpNow = (getMC() && getMC().kN && getMC().kN.data) ? Number(getMC().kN.data[17]) : 0;
+          log('Attempts: ' + scriptState.thTries + (xpNow > scriptState.thXp0 ? ' | xp +' + (xpNow - scriptState.thXp0) : ''));
+        }
+        return 1300;   // server delay() per attempt; immediate re-try keeps cadence
+      }
+
+      log('Thieving: unknown phase ' + scriptState.phase);
+      return 2000;
+
+      // graph-routed travel (WC walkToward port + v360 strike-retry)
+      function thWalkToward(destX, destY, onArrive, arriveDist) {
+        var chebFar = Math.max(Math.abs(destX - getX()), Math.abs(destY - getY()));
+        if (chebFar <= (arriveDist || 3)) { onArrive(); return 400; }
+        if (chebFar <= 12) { walkTo(destX, destY); return 1200; }
+        var dkey = destX + ',' + destY;
+        if (scriptState._thHopDest !== dkey) { scriptState._thHopDest = dkey; scriptState._thHop = null; }
+        var hop = scriptState._thHop;
+        var atHop = hop && Math.max(Math.abs(hop.x - getX()), Math.abs(hop.y - getY())) <= 1;
+        var hopStale = hop && Date.now() - (scriptState._thHopTs || 0) > 25000;
+        if (!hop || atHop || hopStale) {
+          var route = webwalkRouteNoGates(getX(), getY(), destX, destY);
+          hop = { x: destX, y: destY };
+          if (route && route.length >= 2) {
+            var bestIdx = 0, bestD = Infinity;
+            for (var ri = 0; ri < route.length; ri++) {
+              var rd = Math.abs(route[ri].x - getX()) + Math.abs(route[ri].y - getY());
+              if (rd < bestD) { bestD = rd; bestIdx = ri; }
+            }
+            if (bestIdx < route.length - 1) hop = { x: route[bestIdx + 1].x, y: route[bestIdx + 1].y };
+          }
+          scriptState._thHop = hop;
+          scriptState._thHopTs = Date.now();
+        }
+        var now = Date.now();
+        var moved = (getX() !== (scriptState._thSendX || -9999) || getY() !== (scriptState._thSendY || -9999));
+        if (!scriptState._thLastWalk || now - scriptState._thLastWalk > 3500 || (scriptState._thSent && !moved)) {
+          walkTo(scriptState._thSent && !moved ? hop.x + 1 : hop.x, hop.y);
+          scriptState._thLastWalk = now;
+          scriptState._thSent = true;
+          scriptState._thSendX = getX(); scriptState._thSendY = getY();
+        }
+        var px = getX(), py = getY();
+        if (px !== (scriptState._thLastPX || -9999) || py !== (scriptState._thLastPY || -9999)) {
+          scriptState._thLastPX = px; scriptState._thLastPY = py;
+          scriptState._thWalkStart = now;
+          scriptState._thStalls = 0;
+        } else if (now - scriptState._thWalkStart > 15000) {
+          scriptState._thStalls = (scriptState._thStalls || 0) + 1;
+          scriptState._thHop = null;
+          scriptState._thWalkStart = now;
+          log('Walk stalled (strike ' + scriptState._thStalls + '/3) — re-routing');
+          if (scriptState._thStalls >= 3) {
             log('STUCK walking — stopping');
             stopBot(); return 2000;
           }
