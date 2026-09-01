@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v377';
+  var VERSION = 'v378';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7561,6 +7561,11 @@
     var bankName = (cfg.thieveBank && cfg.thieveBank !== 'None') ? cfg.thieveBank : null;
     var eatAt = parseInt(cfg.thieveEatHp) || 0;
     var foodWd = parseInt(cfg.foodWithdraw) || 5;
+    // v378: computed WORK phase — the three bank-exit sites hardcoded
+    // 'thSteal' (pickpocket); in stall mode that phase null-crashes on
+    // findNpcs(T.ids) every tick → bot sat in the bank forever after
+    // depositing (user rig report 9/1 evening). All exits now use this.
+    var WORK_PHASE = (ST || STALL_ALL) ? 'thStall' : 'thSteal';
     // v365: fight mode (user report: "set Accurate, stays Controlled"). Same
     // mapping App.tsx uses for combat (modeMap) + the fighter's set-and-maintain
     // discipline via r2h_setCombatStyle — v363 never called it at all.
@@ -7762,7 +7767,7 @@
         }
         // withdraw food (verified, v353 timings) — only if below 2 pieces
         if (thFoodSlot() >= 0 && thCount(THIEVE_FOOD[0]) + thCount(373) >= 2) {
-          scriptState.phase = 'thSteal';
+          scriptState.phase = WORK_PHASE;
           closeBank();
           return 800;
         }
@@ -7790,7 +7795,7 @@
               log('Bank out of food — thieving on');
               scriptState.thNoFood = 1;   // v365 latch: don't re-bank for food
               closeBank();
-              scriptState.phase = 'thSteal';
+              scriptState.phase = WORK_PHASE;
               return 800;
             }
             scriptState.thWdSent = 0;
@@ -7798,7 +7803,7 @@
           }
           scriptState.thWdFails = 0;
           scriptState.thWdSent = 0;
-          scriptState.phase = 'thSteal';
+          scriptState.phase = WORK_PHASE;
           closeBank();
           return 800;
         }
