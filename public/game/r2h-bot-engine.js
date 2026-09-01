@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v364';
+  var VERSION = 'v366';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7484,11 +7484,23 @@
     var cfg = runtimeConfig || {};
     // UI target names map 1:1 onto THIEVE_TABLE keys
     var targetName = cfg.thieveTarget || 'Man';
-    // tolerate the UI's stall/chest names → not supported v1 → default Man
-    var T = THIEVE_TABLE[targetName] || THIEVE_TABLE['Man'];
+    // v365: NO silent fallback — v363 quietly thieved Men when a stall/chest
+    // name was selected (stalls aren't implemented yet). A wrong-target bot
+    // running unattended is worse than a clear stop.
+    var T = THIEVE_TABLE[targetName];
+    if (!T) {
+      log('Target "' + targetName + '" not supported yet — v1 covers NPC pickpocketing (Man..Hero). Stalls/chests are v2.');
+      setTimeout(stopBot, 50);
+      return function() { return 5000; };
+    }
     var bankName = (cfg.thieveBank && cfg.thieveBank !== 'None') ? cfg.thieveBank : null;
     var eatAt = parseInt(cfg.thieveEatHp) || 0;
     var foodWd = parseInt(cfg.foodWithdraw) || 5;
+    // v365: fight mode (user report: "set Accurate, stays Controlled"). Same
+    // mapping App.tsx uses for combat (modeMap) + the fighter's set-and-maintain
+    // discipline via r2h_setCombatStyle — v363 never called it at all.
+    var MODE_NAMES = ['Controlled', 'Aggressive', 'Accurate', 'Defensive'];
+    var modeIdx = MODE_NAMES.indexOf(String(cfg.thieveFightMode || ''));
 
     function thCount(id) {
       var cu = Number(getMC().cU || 0);   // v347 ghost-slot rule
@@ -7536,6 +7548,15 @@
         scriptState.thXp0 = (getMC() && getMC().kN && getMC().kN.data) ? Number(getMC().kN.data[17]) : 0;
         scriptState.phase = 'thSteal';
         return 1200;
+      }
+
+      // ══ FIGHT MODE (set + maintain — fighter discipline) ══
+      if (modeIdx >= 0 && getFightMode() !== modeIdx) {
+        setFightMode(modeIdx);
+        if (scriptState.styleSet !== modeIdx) {
+          scriptState.styleSet = modeIdx;
+          log('Fight mode → ' + MODE_NAMES[modeIdx]);
+        }
       }
 
       // ══ FATIGUE / SLEEP ══
@@ -7597,10 +7618,18 @@
       }
 
       // ══ BANK WHEN FULL / OUT OF FOOD ══
-      if (bankName && scriptState.phase !== 'thToBank' && scriptState.phase !== 'thBankTalk' &&
+      // v365: thNoFood latch — once the bank is CONFIRMED dry of food, stop
+      // re-banking for food (only bank again when inventory fills). v364
+      // looped bank↔steal forever on a foodless bank.
+      if (bankName && !scriptState.thNoFood && scriptState.phase !== 'thToBank' && scriptState.phase !== 'thBankTalk' &&
           scriptState.phase !== 'thBankOption' && scriptState.phase !== 'thBank') {
         var cuN = Number(getMC().cU || 0);
         if (cuN >= 30 || thFoodSlot() < 0) { scriptState.phase = 'thToBank'; return 400; }
+      }
+      if (bankName && scriptState.thNoFood && scriptState.phase !== 'thToBank' && scriptState.phase !== 'thBankTalk' &&
+          scriptState.phase !== 'thBankOption' && scriptState.phase !== 'thBank') {
+        var cuN2 = Number(getMC().cU || 0);
+        if (cuN2 >= 30) { scriptState.phase = 'thToBank'; return 400; }
       }
 
       // ══ BANK MACHINE (WC v274 + v350 gate) ══
@@ -7692,6 +7721,7 @@
                 return 1000;
               }
               log('Bank out of food — thieving on');
+              scriptState.thNoFood = 1;   // v365 latch: don't re-bank for food
               closeBank();
               scriptState.phase = 'thSteal';
               return 800;

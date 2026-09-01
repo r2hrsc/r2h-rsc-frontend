@@ -571,8 +571,8 @@ const THIEVE_TARGETS = [
   'Man', 'Farmer', 'Warrior', 'Workman', 'Rogue',
   'Guard (Ardougne)', 'Guard (Varrock)', 'Knight', 'Watchman',
   'Paladin', 'Gnome', 'Hero',
-  'All Ardougne Stalls', 'Tea Stall', 'Bakers Stall', 'Silk Stall',
-  'Fur Stall', 'Silver Stall', 'Spice Stall', 'Gem Stall',
+  'All Stalls (Ardougne)', 'Tea Stall (Varrock)', 'Bakers Stall (Ardougne)', 'Silk Stall (Ardougne)',
+  'Fur Stall (Ardougne)', 'Silver Stall (Ardougne)', 'Spice Stall (Ardougne)', 'Gem Stall (Ardougne)',
   'Nature Rune Chest', '50 Coin Chest', 'Hemenster Chest',
 ];
 
@@ -660,7 +660,7 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
     case 'magic':
       return { magicSpell: MAGIC_SPELLS[0], itemId: '118', barType: BAR_TYPES[0], jewelryType: JEWELRY_TYPES[0], talismanId: '1300' };
     case 'thieving':
-      return { thieveTarget: THIEVE_TARGETS[0], thieveFightMode: FIGHT_MODES[0], thieveEatHp: '', thieveBank: 'None', foodWithdraw: '0' };
+      return { thieveTarget: THIEVE_TARGETS[0], thieveFightMode: FIGHT_MODES[0], thieveEatHp: '', thieveBank: 'Auto (nearest)', foodWithdraw: '0' };
     case 'smithing':
       return { smithBarType: BAR_TYPES[0], itemCategory: SMITH_CATEGORIES[0], itemSubType: SMITH_SUBTYPES[SMITH_CATEGORIES[0]][0], specificItem: 'Dagger', quantity: 'all' };
     case 'fletching':
@@ -1238,7 +1238,8 @@ function ThievingConfig({ cfg, set }: CfgProps) {
         </div>
       </div>
       <Field label="Banking">
-        <select style={S_SELECT} value={cfg.thieveBank} onChange={e => set({ thieveBank: e.target.value })}>
+        <select style={S_SELECT} value={cfg.thieveBank ?? 'Auto (nearest)'} onChange={e => set({ thieveBank: e.target.value })}>
+          <option value="Auto (nearest)">Auto (nearest)</option>
           <option value="None">None</option>
           {BANK_LOCATIONS.map(b => <option key={b} value={b}>{b}</option>)}
         </select>
