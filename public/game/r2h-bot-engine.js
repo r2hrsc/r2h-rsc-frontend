@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v354';
+  var VERSION = 'v357';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1165,6 +1165,9 @@
     } else if (FLETCHING_SCRIPT_IDS.indexOf(scriptId) >= 0) {
       log('Fletching: "' + scriptId + '" → v348 fletching engine');
       tickFn = makeFletchingScript(runtimeConfig);
+    } else if (CRAFTING_SCRIPT_IDS.indexOf(scriptId) >= 0) {
+      log('Crafting: "' + scriptId + '" → v355 crafting engine');
+      tickFn = makeCraftingScript(runtimeConfig);
     } else if (isFishingScript(scriptId)) {
       // v275: APOS fishing ids → fishing engine; preset the fish type per id.
       // 'CatherbyFishFarm' is INTENTIONALLY excluded (it's in COOKING_IDS —
@@ -7038,6 +7041,363 @@
     var m = { 277:189, 276:188, 659:649, 658:648, 661:651, 660:650,
               663:653, 662:652, 665:655, 664:654, 667:657, 666:656 };
     return m[unstrungId] || 0;
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // v355: CRAFTING — server-verified (SpinningWheel.java + Crafting.java
+  // + ItemGemDef.xml + SceneryLocs id 121, all read from live source 9/1).
+  //   SPIN: use flax(675)/wool(145) ON wheel(id 121) via useItemOnObject
+  //   (241 — sealed since cooking). flax→bow string(676) L10 60xp;
+  //   wool→ball of wool(207) L1 10xp. NO menu. BATCH off → ONE spin per
+  //   use packet → per-action loop (fletching v354 pattern).
+  //   GEMS: chisel(167) on uncut — item-on-item (240/377, v348 wire),
+  //   NO menu, direct cut per use. Done AT the bank (no walking).
+  //   Gem table (ItemGemDef.xml): opal 891→894 L10 · jade 890→893 L13 ·
+  //   topaz 889→892 L16 · sapphire 160→164 L20 · emerald 159→163 L27 ·
+  //   ruby 158→162 L34 · diamond 157→161 L43 · dragonstone 542→523 L55.
+  //   Wheels (SceneryLocs 121): Falador (295,579) is the ONLY ground-floor
+  //   wheel near a bank (Falador East [283,570], 11 tiles). Seers' wheel
+  //   (522,1411) is UPSTAIRS (y+944) — ladder, out of walker scope.
+  // APOS refs: SpinStrings.java (Searos) — wheel+1 / wheel-1 stand tiles,
+  // bank loop. Crafting statIdx = 12.
+  var CRAFT_WHEELS = [
+    { name: 'Falador', x: 295, y: 579, bank: 'Falador East' }
+  ];
+  var CRAFT_GEM_TABLE = {
+    'Opal':       [891, 894, 10],
+    'Jade':       [890, 893, 13],
+    'Red Topaz':  [889, 892, 16],
+    'Sapphire':   [160, 164, 20],
+    'Emerald':    [159, 163, 27],
+    'Ruby':       [158, 162, 34],
+    'Diamond':    [157, 161, 43],
+    'Dragonstone':[542, 523, 55]
+  };
+  var CHISEL_ID = 167;
+  var FLAX_ID = 675;
+  var WOOL_ID = 145;
+  var CRAFTING_SCRIPT_IDS = ['AIOCrafter', 'SpinStrings', 'Crafting'];
+
+  function makeCraftingScript(runtimeConfig) {
+    var cfg = runtimeConfig || {};
+    var mode = cfg.craftMode === 'gems' ? 'gems' : 'spin';       // spin | gems
+    var spinInput = cfg.spinInput === 'wool' ? WOOL_ID : FLAX_ID; // 675 | 145
+    var spinOut = spinInput === FLAX_ID ? 676 : 207;
+    var spinLvl = spinInput === FLAX_ID ? 10 : 1;
+    var gemName = cfg.gemType || 'Sapphire';
+    var gemSpec = CRAFT_GEM_TABLE[gemName] || CRAFT_GEM_TABLE['Sapphire'];
+    var gemUncut = gemSpec[0], gemCut = gemSpec[1], gemLvl = gemSpec[2];
+    var bankName = cfg.craftBank || 'Auto (nearest)';
+    var powerMode = cfg.craftDrop === true;
+
+    var inId  = mode === 'gems' ? gemUncut : spinInput;   // withdraw id
+    var outId = mode === 'gems' ? gemCut   : spinOut;
+    var needLvl = mode === 'gems' ? gemLvl : spinLvl;
+    var toolId = mode === 'gems' ? CHISEL_ID : 0;         // spin needs NO tool
+    var KEEP = toolId ? [toolId, SLEEPING_BAG] : [SLEEPING_BAG];
+
+    function crCount(id) {
+      var cu = Number(getMC().cU || 0);   // v347 ghost-slot rule
+      var n = 0;
+      for (var i = 0; i < cu; i++) if (getInventoryId(i) === id) n++;
+      return n;
+    }
+
+    return function() {
+      if (!isLoggedIn()) return 5000;
+
+      // ══ INIT ══
+      if (scriptState.phase === 'init' || !scriptState.phase) {
+        var lvl = getStatBase(12);   // CRAFTING = 12
+        if (lvl < needLvl) {
+          log('Need Crafting ' + needLvl + ' for ' + (mode === 'gems' ? gemName : (spinInput === FLAX_ID ? 'flax' : 'wool')) + ' (you are ' + lvl + ') — stopping');
+          stopBot(); return 2000;
+        }
+        if (toolId && getInventoryIndex(toolId) < 0) {
+          log('No chisel (id 167) in inventory — bring a chisel. Stopping.');
+          stopBot(); return 2000;
+        }
+        if (bankName === 'Auto (nearest)') {
+          var bestB = null, bestBD = Infinity;
+          for (var bk in BANK_REGISTRY) {
+            var bpt = BANK_REGISTRY[bk];
+            var bd2 = Math.abs(bpt[0] - getX()) + Math.abs(bpt[1] - getY());
+            if (bd2 < bestBD) { bestBD = bd2; bestB = bk; }
+          }
+          bankName = bestB || 'Falador East';
+          log('Crafting bank auto-detected: ' + bankName + ' (' + bestBD + ' tiles)');
+        }
+        var wheel = CRAFT_WHEELS[0];
+        log('Crafting v355: ' + (mode === 'gems' ? 'cut ' + gemName + ' gems' : 'spin ' + (spinInput === FLAX_ID ? 'flax' : 'wool')) +
+            (mode === 'spin' ? ' @ ' + wheel.name + ' wheel' : ' @ bank') +
+            (powerMode ? ' (power)' : ' (bank)') + ' (lvl ' + lvl + ')');
+        scriptState.crMade = 0;
+        // v341-pattern start-time inventory check: inputs in hand → work first
+        if (crCount(inId) > 0) {
+          scriptState.phase = mode === 'gems' ? 'crCut' : 'crToWheel';
+        } else {
+          scriptState.phase = 'crToBank';
+        }
+        return 1200;
+      }
+
+      // ══ FATIGUE / SLEEP ══
+      if (getIsSleeping()) {
+        if (!scriptState.sleepTyping) {
+          scriptState.sleepTyping = true;
+          var sw = 'asleep';
+          if (typeof window.__r2hTypeChar === 'function') {
+            for (var ci = 0; ci < sw.length; ci++) window.__r2hTypeChar(sw[ci]);
+            setTimeout(function() {
+              if (typeof window.__r2hTypeSpecial === 'function') window.__r2hTypeSpecial('Enter');
+              scriptState.sleepTyping = false;
+            }, 500);
+          } else { scriptState.sleepTyping = false; }
+        }
+        return 2000;
+      }
+      if (getFatigue() >= 96) {
+        var bag = getInventoryIndex(SLEEPING_BAG);
+        if (bag >= 0) { log('Fatigue — sleeping'); useItem(bag); return 3000; }
+        log('Exhausted with no sleeping bag — stopping. Bring a sleeping bag.');
+        stopBot(); return 3000;
+      }
+
+      // ══ WORK LOOP (per-action — v354 pattern: ONE action per packet,
+      //     BATCH_PROGRESSION is OFF on this server) ══
+      var workPhase = mode === 'gems' ? 'crCut' : 'crSpin';
+      if (scriptState.phase === 'crCut' || scriptState.phase === 'crSpin') {
+        var have = crCount(inId);
+        if (have === 0) {
+          if (powerMode) { scriptState.phase = 'crDrop'; return 400; }
+          scriptState.phase = 'crToBank';
+          return 400;
+        }
+        if (mode === 'gems') {
+          var chSlot = getInventoryIndex(CHISEL_ID);
+          var gSlot = getInventoryIndex(inId);
+          if (chSlot < 0 || gSlot < 0) { scriptState.phase = 'crToBank'; return 800; }
+          useItemOnItem(chSlot, gSlot);        // no menu — direct cut
+        } else {
+          var w = CRAFT_WHEELS[0];
+          var chebW = Math.max(Math.abs(w.x - getX()), Math.abs(w.y - getY()));
+          if (chebW > 2) { scriptState.phase = 'crToWheel'; return 400; }
+          var fSlot = getInventoryIndex(inId);
+          if (fSlot < 0) { scriptState.phase = 'crToBank'; return 800; }
+          useItemOnObject(fSlot, w.x, w.y);    // no menu — direct spin
+        }
+        scriptState.crLastCount = have;
+        scriptState.crActAt = Date.now();
+        scriptState.phase = 'crVerify';
+        return 2500;   // ~1 spin/cut per packet; server delay() ~1.3-2.6s
+      }
+      if (scriptState.phase === 'crVerify') {
+        var have2 = crCount(inId);
+        if (have2 < (scriptState.crLastCount || 0)) {
+          scriptState.crMade += (scriptState.crLastCount || 0) - have2;
+          if (scriptState.crMade % 10 === 0) log('Made ' + scriptState.crMade);
+          scriptState.phase = workPhase;       // landed — next immediately
+          return 150;
+        }
+        if (Date.now() - (scriptState.crActAt || 0) > 6000) {
+          log('Action not landing — retrying');
+          scriptState.phase = workPhase;
+          return 300;
+        }
+        return 800;
+      }
+
+      // ══ TO WHEEL (spin mode only) — v357: SpinStrings' PROVEN Falador
+      // stand tile is (296,579) = wheel+1 EAST (the house door is east;
+      // v356's north tile 295,578 is a WALL — walk terrain-refused forever,
+      // rig 9/1 01:06: frozen at 289,572 for 6 min with walkTo spam).
+      // v346 furnace-approach pattern: rotate 8-neighbors on 10s no-move. ══
+      if (scriptState.phase === 'crToWheel') {
+        var w2 = CRAFT_WHEELS[0];
+        var NBR2 = [[1,0],[0,-1],[-1,0],[0,1],[1,-1],[1,1],[-1,1],[-1,-1]];  // east FIRST (proven door side)
+        var ni2 = (scriptState.crNbrIdx || 0) % 8;
+        var standX = w2.x + NBR2[ni2][0], standY = w2.y + NBR2[ni2][1];
+        var pxW = getX(), pyW = getY();
+        if (pxW !== (scriptState._crLastPX || -9999) || pyW !== (scriptState._crLastPY || -9999)) {
+          scriptState._crLastPX = pxW; scriptState._crLastPY = pyW;
+          scriptState._crMoveT = Date.now();
+        } else if (Date.now() - (scriptState._crMoveT || 0) > 10000) {
+          scriptState.crNbrIdx = (scriptState.crNbrIdx || 0) + 1;
+          scriptState._crMoveT = Date.now();
+          log('Wheel approach refused — trying next neighbor');
+          if ((scriptState.crNbrIdx || 0) > 10) {
+            log('STUCK approaching wheel — stopping');
+            stopBot(); return 2000;
+          }
+        }
+        var cheb2 = Math.max(Math.abs(standX - pxW), Math.abs(standY - pyW));
+        if (cheb2 <= 2) { scriptState.phase = 'crSpin'; return 400; }
+        if (cheb2 <= 14) {
+          if (!scriptState._crWalkT || Date.now() - scriptState._crWalkT > 3000) {
+            scriptState._crWalkT = Date.now();
+            walkTo(standX, standY);
+          }
+          return 1200;
+        }
+        return crWalkToward(standX, standY, function() {
+          scriptState.phase = 'crSpin';
+        }, 2);
+      }
+
+      // ══ POWER MODE: drop outputs ══
+      if (scriptState.phase === 'crDrop') {
+        var cuD = Number(getMC().cU || 0);
+        var dropSlot = -1;
+        for (var di = 0; di < cuD; di++) {
+          var iid = getInventoryId(di);
+          if (iid && KEEP.indexOf(iid) < 0) { dropSlot = di; break; }
+        }
+        if (dropSlot < 0) { scriptState.phase = 'crToBank'; return 400; }
+        dropItem(dropSlot);
+        return 700;
+      }
+
+      // ══ BANK MACHINE (WC v274 verbatim + v350 deposit-scan gate) ══
+      if (scriptState.phase === 'crToBank') {
+        var bt = BANK_REGISTRY[bankName];
+        if (!bt) { log('Unknown bank ' + bankName); stopBot(); return 2000; }
+        return crWalkToward(bt[0], bt[1], function() {
+          scriptState.phase = 'crBankTalk';
+          scriptState.crMiss = 0;
+        }, 3);
+      }
+      if (scriptState.phase === 'crBankTalk') {
+        var BANKER_IDS = [95, 224, 268, 485, 540, 617];
+        if (isInBank()) { scriptState.phase = 'crBank'; scriptState.crWdSent = 0; scriptState.crWdFails = 0; return 400; }
+        var banker = findNpcs(BANKER_IDS, 10);
+        if (banker.length > 0) {
+          scriptState.crWdSent = 0;
+          log('Talking to banker');
+          talkToNpc(banker[0].serverIndex);
+          scriptState.crBankTimer = Date.now();
+          scriptState.crTalkStart = Date.now();
+          scriptState.phase = 'crBankOption';
+          return 2000;
+        }
+        var btN = BANK_REGISTRY[bankName];
+        if (btN) walkTo(btN[0], btN[1]);
+        scriptState.crMiss = (scriptState.crMiss || 0) + 1;
+        if (scriptState.crMiss > 12) { log('No banker found — stopping'); stopBot(); return 2000; }
+        return 1500;
+      }
+      if (scriptState.phase === 'crBankOption') {
+        if (isInBank()) { scriptState.phase = 'crBank'; scriptState.crWdSent = 0; scriptState.crWdFails = 0; return 500; }
+        if (Date.now() - scriptState.crBankTimer > 2000) {
+          optionAnswer(0);
+          scriptState.crBankTimer = Date.now();
+        }
+        if (Date.now() - (scriptState.crTalkStart || 0) > 12000) {
+          log('Bank not opening — retrying talk');
+          scriptState.phase = 'crBankTalk';
+        }
+        return 1500;
+      }
+      if (scriptState.phase === 'crBank') {
+        if (!isInBank()) { scriptState.phase = 'crBankTalk'; return 600; }
+        // deposit outputs FIRST — but skip the scan while a withdraw is
+        // pending (v350 rule: the scan eats the just-withdrawn input)
+        if (!scriptState.crWdSent) {
+          var cu3 = Number(getMC().cU || 0);
+          var depId = -1, depN = 0;
+          for (var di2 = 0; di2 < cu3; di2++) {
+            var it2 = getInventoryId(di2);
+            if (!it2 || KEEP.indexOf(it2) >= 0) continue;
+            depId = it2; break;
+          }
+          if (depId >= 0) {
+            for (var di3 = 0; di3 < cu3; di3++) if (getInventoryId(di3) === depId) depN++;
+            log('Depositing ' + depN + ' x ' + depId);
+            depositItem(depId, Math.min(depN, 32767));
+            return 1200;
+          }
+        }
+        // verified withdraw (v353 timings)
+        if (!scriptState.crWdSent) {
+          withdrawItem(inId, 27);
+          scriptState.crWdSent = Date.now();
+          return 2000;
+        }
+        if (Date.now() - scriptState.crWdSent > 3000) {
+          var got = crCount(inId);
+          if (got === 0) {
+            scriptState.crWdFails = (scriptState.crWdFails || 0) + 1;
+            var wdMax = scriptState.crDryLoad ? 3 : 6;
+            log('Withdraw of ' + inId + ' not landing (' + scriptState.crWdFails + '/' + wdMax + ')');
+            if (scriptState.crWdFails >= wdMax) {
+              if (!scriptState.crDryLoad) {
+                log('Dry load — reopening bank and retrying');
+                scriptState.crDryLoad = 1;
+                scriptState.crWdFails = 0;
+                closeBank();
+                scriptState.phase = 'crBankTalk';
+                return 1000;
+              }
+              log('Bank out of inputs — done. Items made: ' + (scriptState.crMade || 0));
+              closeBank(); stopBot(); return 1000;
+            }
+            scriptState.crWdSent = 0;
+            return 2000;
+          }
+          scriptState.crWdFails = 0;
+          scriptState.crWdSent = 0;
+          scriptState.phase = mode === 'gems' ? 'crCut' : 'crToWheel';
+          closeBank();
+          return 1000;
+        }
+        return 1200;
+      }
+
+      log('Crafting: unknown phase ' + scriptState.phase);
+      return 2000;
+
+      // graph-routed travel (WC walkToward port — shared by wheel/bank legs)
+      function crWalkToward(destX, destY, onArrive, arriveDist) {
+        var chebFar = Math.max(Math.abs(destX - getX()), Math.abs(destY - getY()));
+        if (chebFar <= (arriveDist || 3)) { onArrive(); return 400; }
+        if (chebFar <= 12) { walkTo(destX, destY); return 1200; }
+        var dkey = destX + ',' + destY;
+        if (scriptState._crHopDest !== dkey) { scriptState._crHopDest = dkey; scriptState._crHop = null; }
+        var hop = scriptState._crHop;
+        var atHop = hop && Math.max(Math.abs(hop.x - getX()), Math.abs(hop.y - getY())) <= 1;
+        var hopStale = hop && Date.now() - (scriptState._crHopTs || 0) > 25000;
+        if (!hop || atHop || hopStale) {
+          var route = webwalkRouteNoGates(getX(), getY(), destX, destY);
+          hop = { x: destX, y: destY };
+          if (route && route.length >= 2) {
+            var bestIdx = 0, bestD = Infinity;
+            for (var ri = 0; ri < route.length; ri++) {
+              var rd = Math.abs(route[ri].x - getX()) + Math.abs(route[ri].y - getY());
+              if (rd < bestD) { bestD = rd; bestIdx = ri; }
+            }
+            if (bestIdx < route.length - 1) hop = { x: route[bestIdx + 1].x, y: route[bestIdx + 1].y };
+          }
+          scriptState._crHop = hop;
+          scriptState._crHopTs = Date.now();
+        }
+        var now = Date.now();
+        var moved = (getX() !== (scriptState._crSendX || -9999) || getY() !== (scriptState._crSendY || -9999));
+        if (!scriptState._crLastWalk || now - scriptState._crLastWalk > 3500 || (scriptState._crSent && !moved)) {
+          walkTo(scriptState._crSent && !moved ? hop.x + 1 : hop.x, hop.y);
+          scriptState._crLastWalk = now;
+          scriptState._crSent = true;
+          scriptState._crSendX = getX(); scriptState._crSendY = getY();
+        }
+        var px = getX(), py = getY();
+        if (px !== (scriptState._crLastPX || -9999) || py !== (scriptState._crLastPY || -9999)) {
+          scriptState._crLastPX = px; scriptState._crLastPY = py;
+          scriptState._crWalkStart = now;
+        } else if (now - scriptState._crWalkStart > 15000) {
+          log('STUCK walking — stopping');
+          stopBot(); return 2000;
+        }
+        return 1500;
+      }
+    };
   }
 
   function isFiremakingScript(id) {

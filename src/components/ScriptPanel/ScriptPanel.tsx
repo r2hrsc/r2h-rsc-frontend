@@ -490,6 +490,12 @@ export interface ScriptConfig {
   fletchBank?: string;
   fletchMode?: string;
   fletchString?: boolean;
+  // — Crafting —
+  craftMode?: string;
+  spinInput?: string;
+  gemType?: string;
+  craftBank?: string;
+  craftDrop?: boolean;
   specificItem?: string;
   quantity?: string;
   // — Fletching —
@@ -498,7 +504,7 @@ export interface ScriptConfig {
   targetPrayerLevel?: string;
 }
 
-type ConfigType = 'combat' | 'mining' | 'cooking' | 'woodcutting' | 'fishing' | 'magic' | 'thieving' | 'smithing' | 'fletching' | 'firemaking' | 'smelting' | 'bones';
+type ConfigType = 'combat' | 'mining' | 'cooking' | 'woodcutting' | 'fishing' | 'magic' | 'thieving' | 'smithing' | 'fletching' | 'crafting' | 'firemaking' | 'smelting' | 'bones';
 
 // ═══════════════════════════════════════════════════════════════
 // Option lists
@@ -613,6 +619,7 @@ const MAGIC_IDS     = new Set(['AIOMagic', 'AlchWheat', 'K_TeleWines', 'K_NoBank
 const THIEVING_IDS  = new Set(['AIOThiever', 'Man']);
 const SMITHING_IDS  = new Set(['SmithingVarrock', 'SmithGearSet', 'CeikPlates', 'K_FastChainLinks', 'AIOSmelter']);
 const FLETCHING_IDS = new Set(['AIOFletcher', 'PowerFletcha', 'FletchnBankBows', 'ArrowMaker']);
+const CRAFTING_IDS  = new Set(['AIOCrafter', 'SpinStrings', 'Crafting']);
 const FIREMAKING_IDS = new Set(['Firemaking', 'AIOFiremaker']);
 const SMELTING_IDS = new Set(['Smelting', 'AIOSmelter', 'Abyte0_ArdSmelter']);
 const BONE_IDS      = new Set(['BuryBone', 'K_BoneyardBury']);
@@ -627,6 +634,7 @@ function getConfigType(script: ScriptDef): ConfigType | null {
   if (THIEVING_IDS.has(script.id))  return 'thieving';
   if (SMITHING_IDS.has(script.id))  return 'smithing';
   if (FLETCHING_IDS.has(script.id)) return 'fletching';
+  if (CRAFTING_IDS.has(script.id))  return 'crafting';
   if (FIREMAKING_IDS.has(script.id)) return 'firemaking';
   if (SMELTING_IDS.has(script.id))    return 'smelting';
   if (BONE_IDS.has(script.id))      return 'bones';
@@ -657,6 +665,8 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
       return { smithBarType: BAR_TYPES[0], itemCategory: SMITH_CATEGORIES[0], itemSubType: SMITH_SUBTYPES[SMITH_CATEGORIES[0]][0], specificItem: 'Dagger', quantity: 'all' };
     case 'fletching':
       return { bowType: BOW_TYPES[0], fletchBank: 'Auto (nearest)', fletchMode: 'bank', fletchString: false };
+    case 'crafting':
+      return { craftMode: 'spin', spinInput: 'flax', gemType: 'Sapphire', craftBank: 'Auto (nearest)', craftDrop: false };
     case 'bones':
       return { targetPrayerLevel: '99' };
   }
@@ -1317,6 +1327,48 @@ function FletchingConfig({ cfg, set }: CfgProps) {
   );
 }
 
+function CraftingConfig({ cfg, set }: CfgProps) {
+  const GEMS = ['Opal', 'Jade', 'Red Topaz', 'Sapphire', 'Emerald', 'Ruby', 'Diamond', 'Dragonstone'];
+  return (
+    <div style={S_PANEL}>
+      <Field label="Mode">
+        <select style={S_SELECT} value={cfg.craftMode ?? 'spin'} onChange={e => set({ craftMode: e.target.value })}>
+          <option value="spin">Spin (flax / wool)</option>
+          <option value="gems">Cut Gems (chisel)</option>
+        </select>
+      </Field>
+      {(cfg.craftMode ?? 'spin') === 'spin' ? (
+        <Field label="Spin Input">
+          <select style={S_SELECT} value={cfg.spinInput ?? 'flax'} onChange={e => set({ spinInput: e.target.value })}>
+            <option value="flax">Flax → Bow String</option>
+            <option value="wool">Wool → Ball of Wool</option>
+          </select>
+        </Field>
+      ) : (
+        <Field label="Gem Type">
+          <select style={S_SELECT} value={cfg.gemType ?? 'Sapphire'} onChange={e => set({ gemType: e.target.value })}>
+            {GEMS.map(g => <option key={g} value={g}>{g}</option>)}
+          </select>
+        </Field>
+      )}
+      <Field label="Bank">
+        <select style={S_SELECT} value={cfg.craftBank ?? 'Auto (nearest)'} onChange={e => set({ craftBank: e.target.value })}>
+          {['Auto (nearest)', 'Falador East', 'Falador West', 'Draynor', 'Varrock West', 'Varrock East', 'Seers', 'Edgeville', 'Ardougne North', 'Ardougne South', 'Yanille', 'Catherby'].map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
+      </Field>
+      <Field label="Mode">
+        <select style={S_SELECT} value={cfg.craftDrop ? 'power' : 'bank'} onChange={e => set({ craftDrop: e.target.value === 'power' })}>
+          <option value="bank">Bank products</option>
+          <option value="power">Power (drop)</option>
+        </select>
+      </Field>
+      <div style={{ fontSize: 10, color: 'var(--muted-foreground)' }}>
+        Spin: Falador wheel (auto-detected). Gems: bring a chisel (167); cut at the bank.
+      </div>
+    </div>
+  );
+}
+
 function BonesConfig({ cfg, set }: CfgProps) {
   return (
     <div style={S_PANEL}>
@@ -1340,6 +1392,7 @@ function ConfigPanel({ type, cfg, set }: { type: ConfigType; cfg: ScriptConfig; 
     case 'thieving':    return <ThievingConfig cfg={cfg} set={set} />;
     case 'smithing':    return <SmithingConfig cfg={cfg} set={set} />;
     case 'fletching':   return <FletchingConfig cfg={cfg} set={set} />;
+    case 'crafting':    return <CraftingConfig cfg={cfg} set={set} />;
     case 'bones':       return <BonesConfig cfg={cfg} set={set} />;
   }
 }

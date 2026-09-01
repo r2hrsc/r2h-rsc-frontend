@@ -57,6 +57,7 @@ export const SCRIPTS: ScriptDef[] = [
   { id: 'K_Paladins', name: 'Paladins (Thieve+Fight)', author: 'Kaila', description: 'Thieves from Paladins in the Ardougne Castle.', categories: ['Skilling', 'Combat'], fileName: 'K_Paladins' },
 
   // ═══ SKILLING ═══
+  { id: 'AIOCrafter', name: 'AIO Crafter', author: 'R2H (Searos port)', description: 'All-in-one crafting: spin flax/wool at the Falador wheel (auto-detected bank) or cut any gem with a chisel at the bank. Bank or power-drop mode.', categories: ['Skilling'], fileName: 'SpinStrings' },
   { id: 'AIOFletcher', name: 'AIO Fletcher', author: 'R2H (Dvorak/Searos port)', description: 'All-in-one fletching: cut any bow or arrow shafts from any log (knife on logs), optional stringing, auto-detected nearest bank or power-drop mode.', categories: ['Skilling'], fileName: 'PowerFletcha' },
   { id: 'AIOMiner', name: 'AIO Miner', author: 'kkoemets', description: 'An all-in-one Mining script. Enjoys the game and mines ores.', categories: ['Skilling'], fileName: 'AIOMiner' },
   { id: 'Woodcutting', name: 'Woodcutting', author: 'Searos & Kaila, Seatta', description: 'An all-in-one Woodcutting script.', categories: ['Skilling'], fileName: 'Woodcutting' },
@@ -76,7 +77,7 @@ export const SCRIPTS: ScriptDef[] = [
   { id: 'CatherbyFishFarm', hidden: true, name: 'Catherby Fish & Cook', author: 'Seatta', description: 'Catherby — withdraws raw food, cooks, banks.', categories: ['Skilling'], fileName: 'CatherbyFishFarm' },
   { id: 'K_FastBarbFisher', hidden: true, name: 'Barbarian Fisher', author: 'Kaila', description: 'Power fishes trout/salmon in Barbarian Village.', categories: ['Skilling'], fileName: 'K_FastBarbFisher' },
   { id: 'CasketFisher', hidden: true, name: 'Casket Fisher', author: 'Seatta', description: 'Fishes for caskets in Catherby. Also chisels oyster pearls into bolt tips.', categories: ['Skilling'], fileName: 'CasketFisher' },
-  { id: 'SpinStrings', name: 'Spin Bowstrings', author: 'Searos & Kaila', description: 'Spins bowstrings in Falador, Seers\' Village, or the Crafting Guild.', categories: ['Skilling'], fileName: 'SpinStrings' },
+  { id: 'SpinStrings', hidden: true, name: 'Spin Bowstrings', author: 'Searos & Kaila', description: 'Spins bowstrings in Falador, Seers\' Village, or the Crafting Guild.', categories: ['Skilling'], fileName: 'SpinStrings' },
   { id: 'VialCrafter', name: 'Vial Crafter', author: 'Seatta & Kaila', description: 'Crafts vials on Entrana.', categories: ['Skilling'], fileName: 'VialCrafter' },
   { id: 'PotionMaker', name: 'Potion Maker', author: 'Seatta & Kaila', description: 'An all-in-one potion making script.', categories: ['Skilling'], fileName: 'PotionMaker' },
   { id: 'HerbIdentifier', name: 'Herb Identifier', author: 'Dvorak', description: 'Withdraws unidentified herbs from the bank, identifies them, deposits clean herbs.', categories: ['Skilling'], fileName: 'HerbIdentifier' },
