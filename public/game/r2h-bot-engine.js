@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v359';
+  var VERSION = 'v362';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7138,6 +7138,15 @@
           bankName = bestB || 'Falador East';
           log('Crafting bank auto-detected: ' + bankName + ' (' + bestBD + ' tiles)');
         }
+        // v360: SPIN MODE BANKS AT THE WHEEL'S OWN BANK (Falador East).
+        // Player banks are GLOBAL (one bank per account, all branches share
+        // contents) — so anchoring to the wheel's branch is strictly better:
+        // ONE commute from any start city, then every trip is 11 tiles.
+        // v359's start-city auto-bank made a Draynor start bank at Draynor —
+        // a 76-tile leg every trip, which the walk layer refused mid-route
+        // (rig: parked at 216,633 with full wool). User direction 9/1: a
+        // Draynor start must also work — it does now, via the commute.
+        if (isSpin) bankName = CRAFT_WHEELS[0].bank;
         var wheel = CRAFT_WHEELS[0];
         log('Crafting v359: ' + (mode === 'gems' ? 'cut ' + gemName + ' gems' : 'spin ' + (mode === 'wool' ? 'wool' : 'flax')) +
             (isSpin ? ' @ ' + wheel.name + ' wheel' : ' @ bank') +
@@ -7191,8 +7200,12 @@
           useItemOnItem(chSlot, gSlot);        // no menu — direct cut
         } else {
           var w = CRAFT_WHEELS[0];
-          var chebW = Math.max(Math.abs(w.x - getX()), Math.abs(w.y - getY()));
-          if (chebW > 2) { scriptState.phase = 'crToWheel'; return 400; }
+          // v362: gate on Chebyshev(player, WHEEL) <= 1 — the server's own
+          // rule (SpinningWheel withinRange(obj,1); no axis alignment from
+          // diagonal tiles). v361's stand-adjacent gate still allowed the
+          // diagonal (297,578)= stand-adjacent but wheel-distance 2 → refused.
+          var chebW2 = Math.max(Math.abs(w.x - getX()), Math.abs(w.y - getY()));
+          if (chebW2 > 1) { scriptState.phase = 'crToWheel'; return 400; }
           var fSlot = getInventoryIndex(inId);
           if (fSlot < 0) { scriptState.phase = 'crToBank'; return 800; }
           useItemOnObject(fSlot, w.x, w.y);    // no menu — direct spin
@@ -7241,8 +7254,17 @@
             stopBot(); return 2000;
           }
         }
-        var cheb2 = Math.max(Math.abs(standX - pxW), Math.abs(standY - pyW));
-        if (cheb2 <= 2) { scriptState.phase = 'crSpin'; return 400; }
+        var cheb2 = Math.max(Math.abs(w2.x - pxW), Math.abs(w2.y - pyW));
+        if (cheb2 > 20 && !scriptState._crCommuteLogged) {
+          scriptState._crCommuteLogged = 1;
+          log('Commuting to ' + w2.name + ' wheel (' + cheb2 + ' tiles) — then banking at ' + w2.bank);
+        }
+        // v362: arrive at Chebyshev(wheel) <= 1 (same rule as the spin gate —
+        // server withinRange(obj,1)). v357's arrival<=2-of-stand let the player
+        // settle DIAGONAL-adjacent to stand = wheel-distance 2 → every spin
+        // refused. Walk the stand tile properly; neighbor rotation still
+        // handles terrain refusals.
+        if (cheb2 <= 1) { scriptState.phase = 'crSpin'; return 400; }
         if (cheb2 <= 14) {
           if (!scriptState._crWalkT || Date.now() - scriptState._crWalkT > 3000) {
             scriptState._crWalkT = Date.now();
@@ -7402,9 +7424,20 @@
         if (px !== (scriptState._crLastPX || -9999) || py !== (scriptState._crLastPY || -9999)) {
           scriptState._crLastPX = px; scriptState._crLastPY = py;
           scriptState._crWalkStart = now;
+          scriptState._crStalls = 0;   // moving — reset strike counter
         } else if (now - scriptState._crWalkStart > 15000) {
-          log('STUCK walking — stopping');
-          stopBot(); return 2000;
+          // v360: a refused/stalled hop NO LONGER stops the bot (v359 parked a
+          // full-wool character at Draynor this way). Strike = clear hop (forces
+          // a route recompute from the CURRENT tile) + nudge re-send; three
+          // strikes (45s total stillness) before giving up.
+          scriptState._crStalls = (scriptState._crStalls || 0) + 1;
+          scriptState._crHop = null;
+          scriptState._crWalkStart = now;
+          log('Walk stalled (strike ' + scriptState._crStalls + '/3) — re-routing');
+          if (scriptState._crStalls >= 3) {
+            log('STUCK walking — stopping');
+            stopBot(); return 2000;
+          }
         }
         return 1500;
       }
