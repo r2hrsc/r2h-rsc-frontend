@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v379';
+  var VERSION = 'v380';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7697,7 +7697,7 @@
           scriptState.thRetreatTo = rx + ',' + ry;
           walkTo(rx, ry);
         }
-        if (Date.now() - scriptState.thRetreatAt > 12000) {
+        if (Date.now() - scriptState.thRetreatAt > 20000) {   // v379: 12s→20s — paladin combat locks run 12-18s
           log('Combat won\'t clear — moving on');
           scriptState.thRetreatAt = 0;
           scriptState.thRetreatTo = null;
