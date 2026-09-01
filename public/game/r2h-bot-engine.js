@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v353';
+  var VERSION = 'v354';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -6746,20 +6746,18 @@
         stopBot(); return 3000;
       }
 
-      // ══ CUT: knife on log, answer menu, batch consumes all logs ══
+      // ══ CUT: PER-CUT LOOP (v354) — BATCH_PROGRESSION is OFF on this server
+      // (ServerConfiguration default false, local.conf doesn't enable it), so
+      // Fletching.java doLogCut runs repeat=1: ONE cut per use packet. APOS
+      // PowerFletcha/FletchnBankBows loop use→700ms→answer→618ms per cut —
+      // we match: use → 700ms → answer → verify count dropped → immediately
+      // re-use. ~2s per cut. (v353's wait-for-batch design idled between cuts
+      // and the 20s stall guard drove a ~24s cadence — rig-proven wrong.) ══
       if (scriptState.phase === 'flCut') {
         var logsNow = flCount(logId);
         if (logsNow === 0) {
-          // batch done — products in inventory
-          if (powerMode) {
-            scriptState.phase = 'flDrop';
-            scriptState.flSent = 0;
-            return 400;
-          }
-          if (stringBows) {
-            scriptState.phase = 'flNeedString';   // get strings from bank
-            return 400;
-          }
+          if (powerMode) { scriptState.phase = 'flDrop'; scriptState.flSent = 0; return 400; }
+          if (stringBows) { scriptState.phase = 'flNeedString'; return 400; }
           scriptState.phase = 'flToBank';
           return 400;
         }
@@ -6768,45 +6766,43 @@
         if (knifeSlot < 0 || logSlot < 0) { scriptState.phase = 'flToBank'; return 800; }
         useItemOnItem(knifeSlot, logSlot);
         scriptState.flMenuAt = Date.now();
+        scriptState.flReAns = 0;
         scriptState.phase = 'flMenu';
-        return 700;   // v353: APOS-proven 700ms menu spawn wait (PowerFletcha sleep(700))
+        return 700;   // APOS-proven menu spawn wait (PowerFletcha sleep(700))
       }
       if (scriptState.phase === 'flMenu') {
-        // wait for the server menu, then answer ONCE; batch handles the rest
-        // v353: 700ms = APOS PowerFletcha's proven timing (was 1200 — too slow)
         if (Date.now() - (scriptState.flMenuAt || 0) > 700) {
           optionAnswer(menuIdx);
-          scriptState.flMenuAt = Date.now();
-          scriptState.phase = 'flBatch';
+          scriptState.flAnsAt = Date.now();
           scriptState.flLastCount = flCount(logId);
-          scriptState.flLastMove = Date.now();
-          return 1200;
+          scriptState.phase = 'flVerify';
+          return 500;
         }
-        return 400;
+        return 300;
       }
-      if (scriptState.phase === 'flBatch') {
-        // batch progression: server cuts whole inventory; watch log count fall
-        var logsNow2 = flCount(logId);
-        if (logsNow2 !== (scriptState.flLastCount || 0)) {
-          scriptState.flMade += (scriptState.flLastCount || 0) - logsNow2;
-          scriptState.flLastCount = logsNow2;
-          scriptState.flLastMove = Date.now();
-        }
-        if (logsNow2 === 0) {
-          log('Cut done — ' + (scriptState.flMade || 0) + ' log(s) processed');
-          if (powerMode) { scriptState.phase = 'flDrop'; return 400; }
-          if (stringBows) { scriptState.phase = 'flNeedString'; return 400; }
-          scriptState.phase = 'flToBank';
-          return 400;
-        }
-        // stall guard: logs not falling — re-knife (server cadence ~12s/cut
-        // under BATCH_PROGRESSION; rig-measured 8/31 — keep the window above it)
-        if (Date.now() - (scriptState.flLastMove || 0) > 20000) {
-          log('Cut stalled — re-using knife');
+      if (scriptState.phase === 'flVerify') {
+        var logsNow3 = flCount(logId);
+        if (logsNow3 < (scriptState.flLastCount || 0)) {
+          // cut landed — straight to the next (APOS re-uses immediately)
+          scriptState.flMade += (scriptState.flLastCount || 0) - logsNow3;
+          if (scriptState.flMade % 10 === 0) log('Cut ' + scriptState.flMade + ' logs');
           scriptState.phase = 'flCut';
+          return 150;
+        }
+        // not landed: re-answer after 2s (late menu spawn — the WC bank
+        // machine's unconditional-retry pattern), re-use after 8s
+        var sinceAns = Date.now() - (scriptState.flAnsAt || 0);
+        if (sinceAns > 8000) {
+          log('Cut not landing — re-using knife');
+          scriptState.phase = 'flCut';
+          return 300;
+        }
+        if (sinceAns > 2000 && !scriptState.flReAns) {
+          scriptState.flReAns = 1;
+          optionAnswer(menuIdx);
           return 600;
         }
-        return 1200;
+        return 500;
       }
 
       // ══ STRING (bow string on unstrung bow — NO menu, batch per pair) ══
