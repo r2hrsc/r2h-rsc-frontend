@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v366';
+  var VERSION = 'v367';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1019,6 +1019,28 @@
       Z(stream, itemId);
       Z(stream, amount);
     });
+  }
+
+  // v367: REAL AMOUNT for stackables (user bug: ~50k coins from guard
+  // pickpocketing deposited ONE PER TICK — slot-counting sends deposit(coins,1)
+  // ×50,000). mc.e2 = inventory stack-amounts (int[35], parallel to b4 ids —
+  // verified field map). Server clamps requestedAmount = min(requested, held)
+  // (Bank.java L540), so over-asking is safe; slot-count is NOT what the
+  // player holds for stackables. All bank-loop scripts must use this.
+  function depositAmountOf(itemId) {
+    var mc = getMC();
+    var cu = Number((mc && mc.cU) || 0);
+    var total = 0;
+    if (mc && mc.e2 && mc.e2.data) {
+      for (var i = 0; i < cu && i < mc.e2.data.length; i++) {
+        if (Number(mc.b4.data[i]) === Number(itemId)) total += Number(mc.e2.data[i] || 1);
+      }
+      if (total > 0) return Math.min(total, 2147483647);
+    }
+    // fallback: slot count (unstackables — 1 per slot anyway)
+    var n = 0;
+    for (var k = 0; k < cu; k++) if (Number(mc.b4.data[k]) === Number(itemId)) n++;
+    return n;
   }
 
   function withdrawItem(itemId, amount) {
@@ -6442,8 +6464,7 @@
           if (KEEP.indexOf(it) < 0) { dep = it; break; }
         }
         if (dep >= 0) {
-          var depN = 0;
-          for (var di = 0; di < 30; di++) { if (getInventoryId(di) === dep) depN++; }
+          var depN = depositAmountOf(dep);   // v367: real stack amount (coins!)
           depositItem(dep, Math.max(1, Math.min(depN, 32767)));
           return 1200;
         }
@@ -6978,13 +6999,13 @@
             depId = it2; break;
           }
           if (depId >= 0) {
-            for (var di3 = 0; di3 < cu3; di3++) if (getInventoryId(di3) === depId) depN++;
+            var depN = depositAmountOf(depId);   // v367: real stack amount (coins!)
             log('Depositing ' + depN + ' x ' + depId);
             depositItem(depId, Math.min(depN, 32767));
             return 1200;
           }
         }
-        // withdraw logic: logs (or unstrung bows/strings when stringing)
+        // withdraw logs (or unstrung bows/strings when stringing)
         var wdId = logId, wdAmt = 27;
         if (stringBows) {
           var bowsB = flCount(unstrungId);
@@ -7346,7 +7367,7 @@
             depId = it2; break;
           }
           if (depId >= 0) {
-            for (var di3 = 0; di3 < cu3; di3++) if (getInventoryId(di3) === depId) depN++;
+            var depN = depositAmountOf(depId);   // v367: real stack amount (coins!)
             log('Depositing ' + depN + ' x ' + depId);
             depositItem(depId, Math.min(depN, 32767));
             return 1200;
@@ -7687,7 +7708,7 @@
             depId = it; break;
           }
           if (depId >= 0) {
-            for (var di2 = 0; di2 < cu2; di2++) if (getInventoryId(di2) === depId) depN++;
+            var depN = depositAmountOf(depId);   // v367: real stack amount (coins!)
             log('Depositing ' + depN + ' x ' + depId);
             depositItem(depId, Math.min(depN, 32767));
             return 1200;
