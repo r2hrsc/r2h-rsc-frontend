@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v357';
+  var VERSION = 'v358';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1134,6 +1134,7 @@
     currentScript = scriptId;
     botActive = true;
     acquireWakeLock();
+    startThrottleShield();   // v358: tab-throttle immunity while botting
     runtimeConfig = config || {};
     // v215: clear module-level mine center from any previous run. Without this,
     // a restart with a DIFFERENT camp keeps the old mine's stand tile — the
@@ -1293,6 +1294,7 @@
   function stopBot() {
     botActive = false; currentScript = '';
     releaseWakeLock();
+    stopThrottleShield();   // v358: audio loop off when no bot runs
     if (botLoop) { clearTimeout(botLoop); botLoop = null; }
     scriptState = { phase: 'stopped' };  // Sentinel — runTick checks this
     log('Stopped');
@@ -8942,6 +8944,101 @@ return 1000;
   // ANTI-IDLE
   // ═══════════════════════════════════════════════════════════════
 
+  // ═══════════════════════════════════════════════════════════════
+  // v358 THROTTLE SHIELD — kills the 30s "Client activity time-out"
+  // kick on minimized/hidden tabs (live 9/1 01:41: shafster cut gems at
+  // 2.5s cadence, view-switched for 43s → GameStateUpdater.java:116
+  // `curTime - lastClientActivity >= 30000` unregistered him → WS close
+  // → RSC_DISCONNECT → Google auth overlay over the game).
+  // Two layers, both active ONLY while a bot runs:
+  //   1. Silent looping AudioContext — Chrome exempts playing tabs from
+  //      intensive timer throttling (standard web-game technique).
+  //   2. Watchdog heartbeat packet every 15s while idle-gap > 12s —
+  //      ANY packet refreshes lastClientActivity (server Heartbeat.java
+  //      confirms; every incoming packet counts). Walk-to-self is a no-op.
+  // Wake locks do NOT prevent tab throttling (engine L1100 lesson).
+  var _shieldCtx = null;
+  var _shieldNode = null;
+  var _shieldLastPacket = 0;
+  var _shieldGameLastTx = 0;
+  var _shieldResumeBound = false;
+  function _shieldResume() {
+    try { if (_shieldCtx && _shieldCtx.state === 'suspended') _shieldCtx.resume().catch(function(){}); } catch (e) {}
+  }
+  function _shieldBindResume() {
+    // autoplay policy: a context created without an in-iframe gesture starts
+    // suspended. Players click/press inside the game constantly — the first
+    // such interaction flips the loop to running for the session.
+    if (_shieldResumeBound) return;
+    _shieldResumeBound = true;
+    try {
+      document.addEventListener('pointerdown', _shieldResume, { passive: true });
+      document.addEventListener('keydown', _shieldResume, { passive: true });
+    } catch (e) {}
+  }
+  // timestamp EVERY outbound WS frame (game + engine) — the watchdog then
+  // only fires during true silence (hidden-tab freeze), never duplicating
+  // traffic an active script is already producing.
+  (function() {
+    try {
+      var origSend = WebSocket.prototype.send;
+      WebSocket.prototype.send = function(data) {
+        _shieldGameLastTx = Date.now();
+        return origSend.call(this, data);
+      };
+    } catch (e) {}
+  })();
+  function startThrottleShield() {
+    if (_shieldCtx) return;
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC) {
+        _shieldCtx = new AC();
+        // 40Hz sine at low amplitude: below laptop-speaker reproduction and
+        // effectively inaudible on headphones, but a nonzero playing source
+        // Chrome counts for the tab-audio throttling exemption.
+        var buf = _shieldCtx.createBuffer(1, _shieldCtx.sampleRate, _shieldCtx.sampleRate);
+        var d = buf.getChannelData(0);
+        for (var i = 0; i < d.length; i++) d[i] = 0.005 * Math.sin(2 * Math.PI * 40 * (i / _shieldCtx.sampleRate));
+        _shieldNode = _shieldCtx.createBufferSource();
+        _shieldNode.buffer = buf;
+        var gain = _shieldCtx.createGain();
+        gain.gain.value = 0.5;
+        _shieldNode.connect(gain);
+        gain.connect(_shieldCtx.destination);
+        _shieldNode.loop = true;
+        _shieldNode.start(0);
+        _shieldResume();          // works if a gesture already happened in-iframe
+        _shieldBindResume();      // otherwise first click/key completes it
+        log('Throttle shield: silent audio loop ON (tab-throttle immunity)');
+      }
+    } catch (e) { /* no AudioContext — watchdog below still helps */ }
+  }
+  function stopThrottleShield() {
+    try {
+      if (_shieldNode) { try { _shieldNode.stop(); } catch (e) {} _shieldNode = null; }
+      if (_shieldCtx) { try { _shieldCtx.close(); } catch (e) {} _shieldCtx = null; }
+    } catch (e) {}
+  }
+  function shieldHeartbeat() {
+    // sends a harmless packet when the game has been silent too long.
+    // uses the same wire as walkTo (opcode 194 walk-to-current-tile is a
+    // server-side no-op) — piggybacks antiIdle's per-tick call site.
+    var now = Date.now();
+    if (now - _shieldLastPacket < 15000) return;
+    var mc = getMC();
+    if (!mc) return;
+    try {
+      var W = window.__r2h_W, Z = window.__r2h_Z, Y = window.__r2h_Y;
+      if (!W || !Z || !Y || !mc.c) return;
+      _shieldLastPacket = now;
+      W(mc.c, 194, 770);
+      Z(mc.c, Number(mc.bJ) + Number(mc.du));
+      Z(mc.c, Number(mc.bK) + Number(mc.dd));
+      Y(mc.c);
+    } catch (e) {}
+  }
+
   function antiIdle() {
     var mc = getMC();
     if (!mc) return;
@@ -8949,6 +9046,10 @@ return 1000;
     // Reset lastMouseAction counter — the client auto-logouts when this exceeds 4500.
     // Setting it to 0 tells the client "the user just moved the mouse."
     mc.d4 = 0;
+
+    // v358: if the GAME hasn't sent anything for 12s (hidden-tab freeze),
+    // the watchdog packet keeps the server's 30s reaper fed.
+    if (Date.now() - (_shieldGameLastTx || 0) > 12000) shieldHeartbeat();
   }
 
   // ═══════════════════════════════════════════════════════════════

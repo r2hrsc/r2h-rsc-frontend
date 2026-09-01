@@ -121,11 +121,31 @@ function AppContent() {
   const [loadingText, setLoadingText] = useState('Loading game...');
 
   // Listen for RSC_DISCONNECT from the game iframe
-  // Use ref for logout + empty deps to prevent the effect from re-running on every render
-  // (usePrivy returns unstable function references which previously caused excessive re-renders)
+  // v358 AUTO-RECONNECT: a mid-session WS close (e.g. server reaper kick,
+  // network blip) no longer dumps the player at the Google auth screen —
+  // if RSC credentials are still in memory, drop to 'loading' and re-login
+  // through the same GameContainer path (it remounts and redoes WS login
+  // when rscUsername/rscPassword props change). One automatic attempt; if
+  // the reconnect login itself fails (RSC_DISCONNECT again while loading
+  // with no bot running), fall to 'auth' as before.
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const rscCredentialsRef = useRef(rscCredentials);
+  useEffect(() => { rscCredentialsRef.current = rscCredentials; }, [rscCredentials]);
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === 'RSC_DISCONNECT') {
+        const creds = rscCredentialsRef.current;
+        if (creds && reconnectAttempt < 1) {
+          console.log('[App] WS closed mid-session — auto-reconnecting (' + creds.username + ')');
+          setReconnectAttempt(a => a + 1);
+          setAppState('loading');
+          setLoadingText('Reconnecting...');
+          // NOTE: Privy session intentionally kept — no logout() here.
+          // gameSessionKey++ (below) remounts GameCanvas: its credsSentRef
+          // one-shot guard means a fresh mount is REQUIRED for RSC_LOGIN
+          // to be sent again — flipping appState alone would hang loading.
+          return;
+        }
         console.log('[App] Game disconnected — returning to auth screen');
         setAppState('auth');
         setRscCredentials(null);
@@ -136,7 +156,7 @@ function AppContent() {
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, []);
+  }, [reconnectAttempt]);
 
   const handleAuthComplete = useCallback((provider: string, externalId: string) => {
     console.log('[App] Auth complete (new user):', provider, externalId);
@@ -164,6 +184,7 @@ function AppContent() {
   const handleLoginComplete = useCallback(() => {
     console.log('[App] Login complete — now playing');
     setAppState('playing');
+    setReconnectAttempt(0);   // v358: next disconnect gets a fresh auto-retry
   }, []);
 
   // Hooks MUST be called unconditionally before any early return (rules of hooks).
@@ -276,6 +297,7 @@ function AppContent() {
           zIndex: 1,
         }}>
           <GameContainer
+            key={`game-${reconnectAttempt}`}   /* v358: remount on auto-reconnect → fresh RSC_LOGIN */
             wsUrl={WS_URL}
             rscUsername={rscCredentials?.username}
             rscPassword={rscCredentials?.password}
