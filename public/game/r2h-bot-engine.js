@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v390';
+  var VERSION = 'v392';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7786,17 +7786,18 @@
       if (bankName && !scriptState.thNoFood && scriptState.phase !== 'thToBank' && scriptState.phase !== 'thBankTalk' &&
           scriptState.phase !== 'thBankOption' && scriptState.phase !== 'thBank') {
         var cuN = Number(getMC().cU || 0);
-        // v390: only bank when there IS something to deposit (or food needed).
-        // A full inventory of non-whitelisted items must NOT trigger a bank
-        // run — that's the deposit-nothing loop.
+        // v391: bank trips require a REASON — depositable loot present, or
+        // food ACTUALLY needed (the eat guard at hp<=eatAt handles that).
+        // v390's third path ("no food in inventory → bank NOW") restocked
+        // preemptively: user start state (no food, dry bank, little loot)
+        // → instant pointless bank trip (log 02:36:03 start → 02:36:13
+        // Bankers.onTalkNpc, zero steals). Removed — hp need or loot, only.
         if (cuN >= 30) {
           var lootPresent = false;
           for (var li = 0; li < cuN; li++) {
             if (THIEVE_LOOT[getInventoryId(li)]) { lootPresent = true; break; }
           }
-          if (lootPresent || thFoodSlot() < 0) { scriptState.phase = 'thToBank'; return 400; }
-        } else if (thFoodSlot() < 0) {
-          scriptState.phase = 'thToBank'; return 400;
+          if (lootPresent) { scriptState.phase = 'thToBank'; return 400; }
         }
       }
       if (bankName && scriptState.thNoFood && scriptState.phase !== 'thToBank' && scriptState.phase !== 'thBankTalk' &&
@@ -8031,6 +8032,14 @@
           if (getStatBase(17) < st.lvl) continue;
           var objs = findObjects([st.id], 40);
           for (var oj = 0; oj < objs.length; oj++) {
+            // v391 ID-COLLISION GUARD: object ids are NOT unique — id 328 is
+            // BOTH the gem stall (560,588) and the TribalTotem quest crate at
+            // (558,617) by Ardougne South bank. Nearest-first picked the
+            // CRATE after banking (user log: TribalTotem.onOpLoc spam). Only
+            // accept an object AT the stall's registered SceneryLocs coords.
+            if (Math.max(Math.abs(objs[oj].worldX - st.x), Math.abs(objs[oj].worldY - st.y)) > 3) continue;
+            // v391 WATCHED-STALL SKIP: stalled 12s by the parked-vendor rule
+            if (scriptState._thSkipStall && scriptState._thSkipStall[objs[oj].worldX + ',' + objs[oj].worldY] > Date.now()) continue;
             if (!pick || objs[oj].dist < pick.o.dist) pick = { st: st, o: objs[oj] };
           }
         }
@@ -8066,7 +8075,13 @@
             ring.push([rdx, rdy]);
           }
         }
-        var watchIds = [pick.st.vendor].concat(pick.st.guards || []);
+        var watchIds = [325, 326, 327, 328, 329, 330, 780].concat(pick.st.guards || [], [321, 322, 323, 324]);
+        // v391: watch ALL market vendors + guards, not this stall's "own"
+        // pairing — the server's GameObjectDef names vs vendor NpcLocs are
+        // SHUFFLED one position (defs say 325@555,593='Fur' but NPC 328
+        // spawns at 554,594 right beside it), so any fixed pairing watches
+        // the wrong NPC (user caught constantly by the un-watched merchant).
+        // Over-watching is harmless; under-watching is catch-spam.
         var watchers = findNpcs(watchIds, 20);
         var wPos = {};
         for (var wI = 0; wI < watchers.length; wI++) wPos[watchers[wI].serverIndex] = watchers[wI];
@@ -8081,6 +8096,12 @@
           }
           if (score > bestScore) { bestScore = score; bestRing = [rx2, ry2]; }
         }
+        // v392: (v391's pre-emptive stall-skip REMOVED — rig-proven wrong:
+        // vendors STAND at their stalls by design, so "watcher ≤4 tiles →
+        // skip" skipped EVERY stall, zero steals for 5 min.) Stalls are
+        // stealable with the vendor adjacent — the 2x2 stall blocks LoS from
+        // the far side; the ring scoring picks that side. Reaction to being
+        // seen is in the SEEN-CHECK below.
         var standX = bestRing ? bestRing[0] : o.worldX + 1;
         var standY = bestRing ? bestRing[1] : o.worldY + 1;
         // v377: 2x2 OBJECT BOUNDS — adjacent = within 1 of the bounding box
@@ -8112,16 +8133,46 @@
           walkTo(standX + (ring[ni][0] - 1), standY + (ring[ni][1] - 1));
           return 2500;
         }
-        // v389 SEEN-CHECK: if the stall is STILL STOCKED after our last
-        // attempt landed, we were seen (successful steals flip it to 341).
-        // Rotate the stand tile on the next round instead of hammering.
+        // v389/v392 SEEN-RESPONSE: if the stall is STILL STOCKED after our
+        // attempt landed, we were SEEN (success flips it to 341). Merchant
+        // catches don't start combat (server: yell + fail — no setChasing),
+        // so the combat retreat can't fire; RUN FROM THE WATCHER instead:
+        // 1st sight → back off ~5 tiles away from the nearest watcher and
+        // let the ring scoring re-approach from the stall's far side;
+        // 2nd sight at the same stall → vendor LoS can't be blocked from
+        // anywhere → skip that stall 12s (All-Stalls rotates to another).
         if (scriptState._thStallTried === o.worldX + ',' + o.worldY) {
-          // we already attempted here and it's still stocked → seen; move on
-          scriptState._thNbrIdx = (scriptState._thNbrIdx || 0) + 2;   // skip ahead in ring
+          var seenKey = o.worldX + ',' + o.worldY;
+          scriptState._thSeenCount = scriptState._thSeenCount || {};
+          scriptState._thSeenCount[seenKey] = (scriptState._thSeenCount[seenKey] || 0) + 1;
           scriptState._thStallTried = null;
-          log('Seen by vendor — rotating position');
+          if (scriptState._thSeenCount[seenKey] >= 2) {
+            scriptState._thSkipStall = scriptState._thSkipStall || {};
+            scriptState._thSkipStall[seenKey] = Date.now() + 12000;
+            scriptState._thSeenCount[seenKey] = 0;
+            log('Vendor watching this stall — trying another');
+            return 1200;
+          }
+          var bkN = null, bkD = Infinity;
+          for (var bwi in wPos) {
+            var bwn = wPos[bwi];
+            var bdw = Math.max(Math.abs(bwn.worldX - getX()), Math.abs(bwn.worldY - getY()));
+            if (bdw < bkD) { bkD = bdw; bkN = bwn; }
+          }
+          if (bkN) {
+            var bdx = getX() - bkN.worldX, bdy = getY() - bkN.worldY;
+            if (bdx === 0 && bdy === 0) bdx = 1;
+            var bdm = Math.max(Math.abs(bdx), Math.abs(bdy));
+            walkTo(getX() + Math.round(5 * bdx / bdm), getY() + Math.round(5 * bdy / bdm));
+            scriptState._thBackoffUntil = Date.now() + 2500;
+            log('Seen — backing off from vendor');
+            return 900;
+          }
+          // no watcher found (client array miss) — rotate ring tile anyway
+          scriptState._thNbrIdx = (scriptState._thNbrIdx || 0) + 2;
           return 900;
         }
+        if (scriptState._thBackoffUntil > Date.now()) return 700;   // let the back-off walk land
         atObject(o.worldX, o.worldY);
         scriptState._thStallTried = o.worldX + ',' + o.worldY;
         scriptState.thTries++;
