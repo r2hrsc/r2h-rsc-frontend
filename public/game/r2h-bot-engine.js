@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v388';
+  var VERSION = 'v389';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7536,13 +7536,13 @@
   // (tea/bakers 5s, silk 8s, fur 15s, silver 30s, spice 80s, gem 180s).
   // Stalls are 2x2 — stand tile +1,+1.
   var THIEVE_STALLS = {
-    'Tea Stall (Varrock)':      { id: 1183, x: 91,  y: 518, lvl: 5,  xp: 16,  res: 5 },
-    'Bakers Stall (Ardougne)':  { id: 323,  x: 566, y: 594, lvl: 5,  xp: 16,  res: 5 },
-    'Silk Stall (Ardougne)':    { id: 324,  x: 551, y: 583, lvl: 20, xp: 24,  res: 8 },
-    'Fur Stall (Ardougne)':     { id: 325,  x: 555, y: 593, lvl: 35, xp: 36,  res: 15 },
-    'Silver Stall (Ardougne)':  { id: 326,  x: 544, y: 590, lvl: 50, xp: 54,  res: 30 },
-    'Spice Stall (Ardougne)':   { id: 327,  x: 551, y: 599, lvl: 65, xp: 81,  res: 80 },
-    'Gem Stall (Ardougne)':     { id: 328,  x: 560, y: 588, lvl: 75, xp: 16,  res: 180 }
+    'Tea Stall (Varrock)':      { id: 1183, x: 91,  y: 518, lvl: 5,  xp: 16,  res: 5,   vendor: 780, guards: [] },
+    'Bakers Stall (Ardougne)':  { id: 323,  x: 566, y: 594, lvl: 5,  xp: 16,  res: 5,   vendor: 325, guards: [321] },
+    'Silk Stall (Ardougne)':    { id: 324,  x: 551, y: 583, lvl: 20, xp: 24,  res: 8,   vendor: 326, guards: [322, 321] },
+    'Fur Stall (Ardougne)':     { id: 325,  x: 555, y: 593, lvl: 35, xp: 36,  res: 15,  vendor: 327, guards: [323, 322, 321] },
+    'Silver Stall (Ardougne)':  { id: 326,  x: 544, y: 590, lvl: 50, xp: 54,  res: 30,  vendor: 328, guards: [323, 322, 321] },
+    'Spice Stall (Ardougne)':   { id: 327,  x: 551, y: 599, lvl: 65, xp: 81,  res: 80,  vendor: 329, guards: [323, 322, 321] },
+    'Gem Stall (Ardougne)':     { id: 328,  x: 560, y: 588, lvl: 75, xp: 16,  res: 180, vendor: 330, guards: [324, 323, 322, 321] }
   };
   // 'All Stalls (Ardougne)': rotate best-first through the Ardougne market
   var THIEVING_SCRIPT_IDS = ['AIOThiever', 'Man'];
@@ -8030,11 +8030,38 @@
         }
         scriptState.thMissN = 0;
         var o = pick.o;
-        // v377: 2x2 OBJECT BOUNDS. Stalls occupy anchor..anchor+1 in x and y;
-        // the server's range check is 1 tile from ANY covered tile. v376's
-        // Cheb(anchor) <= 1 gate rejected every legal perimeter stand tile
-        // (they're all Cheb 2 from the anchor) → rotated forever. Adjacency =
-        // within 1 of the bounding box, NOT on it.
+        // v389 VENDOR-BLIND POSITIONING (user insight: "steal when the vendor
+        // is not in line of sight"). Server rule (Thieving.stallThieving):
+        // vendor within 8 tiles + LoS → 'Hey thats mine' FAIL; tier guards
+        // within 5 + LoS → FAIL + guard chases. We can't read LoS client-side,
+        // but distance + the 2x2 stall blocking sight is a strong proxy:
+        // choose the ring tile FARTHEST from vendor + tier guards, preferring
+        // the opposite side of the stall from them.
+        var ring = [];
+        for (var rdx = -1; rdx <= 2; rdx++) {
+          for (var rdy = -1; rdy <= 2; rdy++) {
+            if (rdx >= 0 && rdx <= 1 && rdy >= 0 && rdy <= 1) continue;   // 2x2 footprint
+            ring.push([rdx, rdy]);
+          }
+        }
+        var watchIds = [pick.st.vendor].concat(pick.st.guards || []);
+        var watchers = findNpcs(watchIds, 20);
+        var wPos = {};
+        for (var wI = 0; wI < watchers.length; wI++) wPos[watchers[wI].serverIndex] = watchers[wI];
+        var bestRing = null, bestScore = -Infinity;
+        for (var rI = 0; rI < ring.length; rI++) {
+          var rx2 = o.worldX + ring[rI][0], ry2 = o.worldY + ring[rI][1];
+          var score = 0;
+          for (var wIdx in wPos) {
+            var wnpc = wPos[wIdx];
+            var wd = Math.max(Math.abs(wnpc.worldX - rx2), Math.abs(wnpc.worldY - ry2));
+            score += Math.min(wd, 12);   // cap so far-away watchers don't dominate
+          }
+          if (score > bestScore) { bestScore = score; bestRing = [rx2, ry2]; }
+        }
+        var standX = bestRing ? bestRing[0] : o.worldX + 1;
+        var standY = bestRing ? bestRing[1] : o.worldY + 1;
+        // v377: 2x2 OBJECT BOUNDS — adjacent = within 1 of the bounding box
         var inBox = function(px, py) {
           return px >= o.worldX - 1 && px <= o.worldX + 2 &&
                  py >= o.worldY - 1 && py <= o.worldY + 2;
@@ -8045,16 +8072,8 @@
         };
         var dObj = inBox(getX(), getY()) && !onBox(getX(), getY()) ? 1 : 2;
         if (dObj > 1) {
-          // v375/377: PERIMETER ROTATION (v346 furnace pattern + 2x2 bounds).
-          // The market pens are fenced; walkable stand tiles are the 3x4-ish
-          // ring around the stall. Rotate through the ring until one lands.
-          var ring = [];
-          for (var rdx = -1; rdx <= 2; rdx++) {
-            for (var rdy = -1; rdy <= 2; rdy++) {
-              if (rdx >= 0 && rdx <= 1 && rdy >= 0 && rdy <= 1) continue;   // footprint
-              ring.push([rdx, rdy]);
-            }
-          }
+          // v375/377/389: perimeter rotation with per-retry tile re-scoring —
+          // if position unchanged 2.5s, try the next-best ring tile.
           var ni = (scriptState._thNbrIdx || 0) % ring.length;
           if (scriptState._thNbrFor !== o.worldX + ',' + o.worldY) {
             scriptState._thNbrFor = o.worldX + ',' + o.worldY;
@@ -8068,10 +8087,21 @@
             ni = scriptState._thNbrIdx;
           }
           scriptState._thWalkPX = pxR; scriptState._thWalkPY = pyR;
-          walkTo(o.worldX + ring[ni][0], o.worldY + ring[ni][1]);
+          walkTo(standX + (ring[ni][0] - 1), standY + (ring[ni][1] - 1));
           return 2500;
         }
+        // v389 SEEN-CHECK: if the stall is STILL STOCKED after our last
+        // attempt landed, we were seen (successful steals flip it to 341).
+        // Rotate the stand tile on the next round instead of hammering.
+        if (scriptState._thStallTried === o.worldX + ',' + o.worldY) {
+          // we already attempted here and it's still stocked → seen; move on
+          scriptState._thNbrIdx = (scriptState._thNbrIdx || 0) + 2;   // skip ahead in ring
+          scriptState._thStallTried = null;
+          log('Seen by vendor — rotating position');
+          return 900;
+        }
         atObject(o.worldX, o.worldY);
+        scriptState._thStallTried = o.worldX + ',' + o.worldY;
         scriptState.thTries++;
         if (scriptState.thTries % 10 === 0) {
           var xpS = (getMC() && getMC().kN && getMC().kN.data) ? Number(getMC().kN.data[17]) : 0;
