@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v382';
+  var VERSION = 'v385';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7683,15 +7683,26 @@
       }
 
       // ══ EAT (before anything else — APOS order) ══
-      if (thHp() <= eatAt) {
+      // v383 LIVELOCK FIX: this block used to unconditionally set
+      // phase='thToBank' and return — but with hp still low and no food, the
+      // NEXT tick hit this block again → phase reset → return → forever.
+      // The tick never reached the walk/bank handlers: the bot stood frozen
+      // ("no action"). Guards never drop you below eatAt; paladins do, which
+      // is why Varrock was clean and Ardougne froze. Now: if a bank trip is
+      // already in flight, DON'T re-intercept — let the machine run.
+      var bankingInFlight = (scriptState.phase === 'thToBank' || scriptState.phase === 'thBankTalk' ||
+                             scriptState.phase === 'thBankOption' || scriptState.phase === 'thBank');
+      if (thHp() <= eatAt && !bankingInFlight) {
         var fs = thFoodSlot();
         if (fs >= 0) {
           log('Eating (hp ' + thHp() + ')');
           useItem(fs);
           return 1200;
         }
-        if (bankName) { scriptState.phase = 'thToBank'; return 400; }
-        log('Out of food at hp ' + thHp() + ' — stopping');
+        // v385: bank CONFIRMED dry of food (thNoFood latch) — banking again
+        // is a loop. Stop honestly instead of ping-ponging market↔bank.
+        if (bankName && !scriptState.thNoFood) { scriptState.phase = 'thToBank'; return 400; }
+        log('Out of food at hp ' + thHp() + ' (bank dry) — stopping');
         stopBot(); return 2000;
       }
 
@@ -7700,24 +7711,38 @@
         if (!scriptState.thRetreatAt) {
           scriptState.thRetreatAt = Date.now();
           log('Caught! Retreating');
+          // v383: cool down the NPC that just caught us (the last victim) —
+          // walking straight back to the aggressor = catch-oscillation
+          // ('going in circles'). 10s per attacker.
+          if (scriptState.thLastVictim) {
+            if (!scriptState.thBlacklist) scriptState.thBlacklist = {};
+            scriptState.thBlacklist[scriptState.thLastVictim] = Date.now() + 10000;
+          }
         }
-        // v379: send the retreat walk ONCE (re-sending every tick cancels it —
-        // v373 walk-cancel rule; this was the other half of the Ardougne
-        // slowness: every catch-crawl was being canceled mid-tile).
-        var rx = getX() + 6, ry = getY();
-        if (scriptState.thRetreatTo !== rx + ',' + ry) {
-          scriptState.thRetreatTo = rx + ',' + ry;
-          walkTo(rx, ry);
+        // v383: RESTORE THE v363 RE-SEND CADENCE. My v379 "walk-cancel fix"
+        // was WRONG for retreats: during RSC's melee round-lock the server
+        // DROPS walk commands (nothing is in progress to cancel), so the
+        // single memoized send landed mid-lock, was dropped, and was never
+        // re-sent — the character stood through combat ("not attempting to
+        // run", user-verified regression vs v363 Varrock behavior). The
+        // walk-cancel rule applies to APPROACH walks only. Re-send every
+        // tick while in combat; the first send after the lock releases is
+        // the one that lands.
+        // Direction: toward the auto-detected bank tile (routable, purposeful)
+        // instead of blind +6 east into market fences; fallback east if no bank.
+        var bpt2 = (bankName && BANK_REGISTRY[bankName]) ? BANK_REGISTRY[bankName] : null;
+        if (bpt2) {
+          walkTo(bpt2[0], bpt2[1]);
+        } else {
+          walkTo(getX() + 6, getY());
         }
-        if (Date.now() - scriptState.thRetreatAt > 20000) {   // v379: 12s→20s — paladin combat locks run 12-18s
+        if (Date.now() - scriptState.thRetreatAt > 20000) {
           log('Combat won\'t clear — moving on');
           scriptState.thRetreatAt = 0;
-          scriptState.thRetreatTo = null;
         }
         return 1500;
       }
       scriptState.thRetreatAt = 0;
-      scriptState.thRetreatTo = null;
 
       // ══ DROP JUNK (jugs etc.) ══
       for (var ji = 0; ji < JUNK_IDS.length; ji++) {
@@ -7932,6 +7957,7 @@
         }
         scriptState.thWalkSent = false;
         thieveNpc(npc.serverIndex);
+        scriptState.thLastVictim = npc.serverIndex;   // v383: for the attacker cooldown
         scriptState.thTries++;
         if (scriptState.thTries % 25 === 0) {
           var xpNow = (getMC() && getMC().kN && getMC().kN.data) ? Number(getMC().kN.data[17]) : 0;
