@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v392';
+  var VERSION = 'v394';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8044,18 +8044,38 @@
           }
         }
         if (!pick) {
-          // nothing stocked in render — route to the highest-xp stall we can
-          // do and wait out its respawn.
-          // v387: HOP-WALK, never a direct beeline. Direct walkTo beyond
-          // ~20 tiles is silently refused by the client pathfinder (v341) —
-          // the frozen 'did not proceed from bank' (user, from Ardougne
-          // North: 35-tile beeline = refused forever). thWalkToward webwalk-
-          // hops long legs and already has the send-once fix.
-          var tgt = pool[0];
+          // nothing stocked in render — wait out respawns NEAR a stall we can
+          // do, rotating through the pool.
+          // v393 STUCK-WALK FIX: the old code beelined to pool[0] (gem) —
+          // from the fur stall that route crosses fenced pens, the walk is
+          // silently refused, and the 3s re-send loop produced ZERO events
+          // forever (user log: silence 12:14:50→, 11 min 'just stalled').
+          // Now: track position; 8s of stillness while targeting a stall →
+          // rotate to the NEXT pool stall (its pen is reachable from a
+          // different approach). Heartbeat log every 20 misses so the state
+          // is visible; hard stop still at 240.
+          var tgtIx = scriptState._thWaitIx || 0;
+          var tgt = pool[tgtIx % pool.length];
           var dTgt = Math.max(Math.abs(tgt.x - getX()), Math.abs(tgt.y - getY()));
-          if (dTgt > 2) { thWalkToward(tgt.x + 1, tgt.y + 1, function() {}, 2); return 1500; }
+          if (dTgt > 2) {
+            var wpx = getX(), wpy = getY();
+            var wMoved = (wpx !== (scriptState._thWaitPX || -9999) || wpy !== (scriptState._thWaitPY || -9999));
+            if (wMoved) {
+              scriptState._thWaitPX = wpx; scriptState._thWaitPY = wpy;
+              scriptState._thWaitStuck = 0;
+            } else {
+              scriptState._thWaitStuck = (scriptState._thWaitStuck || 0) + 1;
+              if (scriptState._thWaitStuck >= 5) {   // 5 × 1.5s ticks = ~8s still
+                scriptState._thWaitStuck = 0;
+                scriptState._thWaitIx = (tgtIx + 1) % pool.length;
+                log('Walk to ' + tgt.x + ',' + tgt.y + ' refused — trying another stall area');
+              }
+            }
+            thWalkToward(tgt.x + 1, tgt.y + 1, function() {}, 2);
+            return 1500;
+          }
           scriptState.thMissN = (scriptState.thMissN || 0) + 1;
-          if (scriptState.thMissN % 10 === 1) log('All stalls on cooldown — waiting');
+          if (scriptState.thMissN % 20 === 1) log('All stalls on cooldown — waiting (' + scriptState.thMissN + ')');
           if (scriptState.thMissN > 240) { log('No stocked stall for a long time — stopping'); stopBot(); return 2000; }
           return 1500;
         }
@@ -8173,6 +8193,33 @@
           return 900;
         }
         if (scriptState._thBackoffUntil > Date.now()) return 700;   // let the back-off walk land
+        // v394 XP CIRCUIT-BREAKER: client-side "Steals" counts attempts, but
+        // the server is ground truth — a PHANTOM object (rotted client array)
+        // or a permanently-watched stall produces attempts with ZERO xp gain
+        // forever (rig: internal counter 10, server events 0, position stuck
+        // adjacent for 90s+). Track xp at first attempt per stall; 3 attempts
+        // with no gain → blacklist that stall 15s and rotate. This also
+        // replaces the naive seen-count for watched stalls.
+        var stKey = o.worldX + ',' + o.worldY;
+        var xpNow2 = (getMC() && getMC().kN && getMC().kN.data) ? Number(getMC().kN.data[17]) : -1;
+        if (scriptState._thXpAt !== stKey) {
+          scriptState._thXpAt = stKey;
+          scriptState._thXpBase = xpNow2;
+          scriptState._thXpTry = 0;
+        }
+        if (xpNow2 > (scriptState._thXpBase || 0)) {
+          // xp moved — the stall is real and we've succeeded; reset the meter
+          scriptState._thXpBase = xpNow2;
+          scriptState._thXpTry = 0;
+        }
+        scriptState._thXpTry++;
+        if (scriptState._thXpTry > 3) {
+          scriptState._thSkipStall = scriptState._thSkipStall || {};
+          scriptState._thSkipStall[stKey] = Date.now() + 15000;
+          scriptState._thXpAt = null;
+          log('No xp from ' + stKey + ' — phantom or watched, rotating');
+          return 1200;
+        }
         atObject(o.worldX, o.worldY);
         scriptState._thStallTried = o.worldX + ',' + o.worldY;
         scriptState.thTries++;
