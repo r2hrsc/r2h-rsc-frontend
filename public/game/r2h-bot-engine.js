@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v385';
+  var VERSION = 'v386';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7719,23 +7719,32 @@
             scriptState.thBlacklist[scriptState.thLastVictim] = Date.now() + 10000;
           }
         }
-        // v383: RESTORE THE v363 RE-SEND CADENCE. My v379 "walk-cancel fix"
-        // was WRONG for retreats: during RSC's melee round-lock the server
-        // DROPS walk commands (nothing is in progress to cancel), so the
-        // single memoized send landed mid-lock, was dropped, and was never
-        // re-sent — the character stood through combat ("not attempting to
-        // run", user-verified regression vs v363 Varrock behavior). The
-        // walk-cancel rule applies to APPROACH walks only. Re-send every
-        // tick while in combat; the first send after the lock releases is
-        // the one that lands.
-        // Direction: toward the auto-detected bank tile (routable, purposeful)
-        // instead of blind +6 east into market fences; fallback east if no bank.
-        var bpt2 = (bankName && BANK_REGISTRY[bankName]) ? BANK_REGISTRY[bankName] : null;
-        if (bpt2) {
-          walkTo(bpt2[0], bpt2[1]);
-        } else {
-          walkTo(getX() + 6, getY());
+        // v386 MINIMAL RETREAT: 2 tiles away from the attacker — NOT to the
+        // bank (v383's bank-tile direction made every catch an 18-tile
+        // commute; user: "exit combat 1 tile away"). Direction = away from
+        // the nearest live target (the attacker is chasing us = nearest).
+        // The v383 re-send cadence stays — walks are DROPPED during the
+        // melee round-lock, and the re-send after the lock is what lands.
+        var awayIds = (multiIds && multiIds.length) ? multiIds : (T ? T.ids : null);
+        var awayNX = getX() + 2, awayNY = getY();
+        if (awayIds) {
+          var foes = findNpcs(awayIds, 15);
+          var posCnt = {};
+          for (var fk = 0; fk < foes.length; fk++) {
+            var fpk = foes[fk].pixelX + ',' + foes[fk].pixelY;
+            posCnt[fpk] = (posCnt[fpk] || 0) + 1;
+          }
+          for (var fl = 0; fl < foes.length; fl++) {
+            if (posCnt[foes[fl].pixelX + ',' + foes[fl].pixelY] > 1) continue;   // ghost-stacked
+            var fdx = getX() - foes[fl].worldX, fdy = getY() - foes[fl].worldY;
+            if (fdx === 0 && fdy === 0) fdx = 1;
+            var fm = Math.max(Math.abs(fdx), Math.abs(fdy));
+            awayNX = getX() + Math.round(2 * fdx / fm);
+            awayNY = getY() + Math.round(2 * fdy / fm);
+            break;
+          }
         }
+        walkTo(awayNX, awayNY);
         if (Date.now() - scriptState.thRetreatAt > 20000) {
           log('Combat won\'t clear — moving on');
           scriptState.thRetreatAt = 0;
