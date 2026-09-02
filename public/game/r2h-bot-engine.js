@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v389';
+  var VERSION = 'v390';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7523,10 +7523,15 @@
   // items, teleports, anything else — untouched.
   var THIEVE_LOOT = {
     10:1, 16:1, 21:1, 33:1, 34:1, 38:1, 41:1, 137:1, 138:1, 142:1, 146:1,
-    152:1, 161:1, 162:1, 163:1, 164:1, 172:1, 200:1, 211:1, 218:1, 237:1,
-    330:1, 336:1, 383:1, 559:1, 612:1, 619:1, 707:1, 714:1, 739:1, 783:1,
-    868:1, 869:1, 870:1, 895:1, 897:1, 1115:1, 1117:1
+    152:1, 157:1, 158:1, 159:1, 160:1, 161:1, 162:1, 163:1, 164:1, 172:1,
+    200:1, 211:1, 218:1, 237:1, 330:1, 336:1, 383:1, 542:1, 559:1, 612:1,
+    619:1, 707:1, 714:1, 739:1, 783:1, 868:1, 869:1, 870:1, 895:1, 897:1,
+    1115:1, 1117:1
   };
+  // v390: 157-160/542 = UNCUT gems (GEMS_STALL loot table drops UNCUT — the
+  // v382 whitelist had only cut 161-164, so gem-stall loot was never
+  // depositable → full inv → bank → deposit nothing → return still full →
+  // infinite bank loop (user report 9/2). Verified vs Stall enum + ItemId.
   var JUNK_IDS = [140];   // empty jugs (hero loot) — dropped, not banked
   // v368→v374 STALLS — SERVER-TRUTH ids AND coords (SceneryLocs.json, the
   // authoritative spawn table; live client object array cross-checked 9/1).
@@ -7781,12 +7786,29 @@
       if (bankName && !scriptState.thNoFood && scriptState.phase !== 'thToBank' && scriptState.phase !== 'thBankTalk' &&
           scriptState.phase !== 'thBankOption' && scriptState.phase !== 'thBank') {
         var cuN = Number(getMC().cU || 0);
-        if (cuN >= 30 || thFoodSlot() < 0) { scriptState.phase = 'thToBank'; return 400; }
+        // v390: only bank when there IS something to deposit (or food needed).
+        // A full inventory of non-whitelisted items must NOT trigger a bank
+        // run — that's the deposit-nothing loop.
+        if (cuN >= 30) {
+          var lootPresent = false;
+          for (var li = 0; li < cuN; li++) {
+            if (THIEVE_LOOT[getInventoryId(li)]) { lootPresent = true; break; }
+          }
+          if (lootPresent || thFoodSlot() < 0) { scriptState.phase = 'thToBank'; return 400; }
+        } else if (thFoodSlot() < 0) {
+          scriptState.phase = 'thToBank'; return 400;
+        }
       }
       if (bankName && scriptState.thNoFood && scriptState.phase !== 'thToBank' && scriptState.phase !== 'thBankTalk' &&
           scriptState.phase !== 'thBankOption' && scriptState.phase !== 'thBank') {
         var cuN2 = Number(getMC().cU || 0);
-        if (cuN2 >= 30) { scriptState.phase = 'thToBank'; return 400; }
+        if (cuN2 >= 30) {
+          var lootPresent2 = false;
+          for (var li2 = 0; li2 < cuN2; li2++) {
+            if (THIEVE_LOOT[getInventoryId(li2)]) { lootPresent2 = true; break; }
+          }
+          if (lootPresent2) { scriptState.phase = 'thToBank'; return 400; }
+        }
       }
 
       // ══ BANK MACHINE (WC v274 + v350 gate) ══
