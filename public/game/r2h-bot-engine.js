@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v396';
+  var VERSION = 'v397';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7709,32 +7709,15 @@
         stopBot(); return 3000;
       }
 
-      // ══ EAT (before anything else — APOS order) ══
-      // v383 LIVELOCK FIX: this block used to unconditionally set
-      // phase='thToBank' and return — but with hp still low and no food, the
-      // NEXT tick hit this block again → phase reset → return → forever.
-      // The tick never reached the walk/bank handlers: the bot stood frozen
-      // ("no action"). Guards never drop you below eatAt; paladins do, which
-      // is why Varrock was clean and Ardougne froze. Now: if a bank trip is
-      // already in flight, DON'T re-intercept — let the machine run.
-      var bankingInFlight = (scriptState.phase === 'thToBank' || scriptState.phase === 'thBankTalk' ||
-                             scriptState.phase === 'thBankOption' || scriptState.phase === 'thBank');
-      if (thHp() <= eatAt && !bankingInFlight) {
-        var fs = thFoodSlot();
-        if (fs >= 0) {
-          log('Eating (hp ' + thHp() + ')');
-          useItem(fs);
-          return 1200;
-        }
-        // v385: bank CONFIRMED dry of food (thNoFood latch) — banking again
-        // is a loop. Stop honestly instead of ping-ponging market↔bank.
-        if (bankName && !scriptState.thNoFood) { scriptState.phase = 'thToBank'; return 400; }
-        log('Out of food at hp ' + thHp() + ' (bank dry) — stopping');
-        stopBot(); return 2000;
-      }
-
-      // ══ COMBAT RETREAT (failed pickpocket / caught stealing → NPC attacks) ══
-      if ((scriptState.phase === 'thSteal' || scriptState.phase === 'thStall') && thInCombat()) {
+      // ══ COMBAT RETREAT — ABSOLUTE PRIORITY (v397: must run in EVERY phase,
+      // not just steal phases). The eat guard sits above this block and flips
+      // the phase to thToBank when hp is low with no food — under v386 the
+      // retreat check then never matched again, so a foodless bot under
+      // attack walked to the bank getting hit (user regression report: 'not
+      // running from npcs when caught — it was fine previously'; v386 was
+      // fine because that test had food stocked: eat → steal phase → retreat
+      // matched). Combat trumps banking, eating, everything.
+      if (thInCombat()) {
         if (!scriptState.thRetreatAt) {
           scriptState.thRetreatAt = Date.now();
           log('Caught! Retreating');
@@ -7779,6 +7762,34 @@
         return 1500;
       }
       scriptState.thRetreatAt = 0;
+
+      // ══ EAT (before anything else — APOS order) ══
+      // v383 LIVELOCK FIX: this block used to unconditionally set
+      // phase='thToBank' and return — but with hp still low and no food, the
+      // NEXT tick hit this block again → phase reset → return → forever.
+      // The tick never reached the walk/bank handlers: the bot stood frozen
+      // ("no action"). Guards never drop you below eatAt; paladins do, which
+      // is why Varrock was clean and Ardougne froze. Now: if a bank trip is
+      // already in flight, DON'T re-intercept — let the machine run.
+      var bankingInFlight = (scriptState.phase === 'thToBank' || scriptState.phase === 'thBankTalk' ||
+                             scriptState.phase === 'thBankOption' || scriptState.phase === 'thBank');
+      if (thHp() <= eatAt && !bankingInFlight) {
+        var fs = thFoodSlot();
+        if (fs >= 0) {
+          log('Eating (hp ' + thHp() + ')');
+          useItem(fs);
+          return 1200;
+        }
+        // v385: bank CONFIRMED dry of food (thNoFood latch) — banking again
+        // is a loop. Stop honestly instead of ping-ponging market↔bank.
+        if (bankName && !scriptState.thNoFood) { scriptState.phase = 'thToBank'; return 400; }
+        log('Out of food at hp ' + thHp() + ' (bank dry) — stopping');
+        stopBot(); return 2000;
+      }
+
+      // ══ COMBAT RETREAT: moved to ABSOLUTE PRIORITY position above the eat
+      // guard in v397 (see top of tick) — was steal-phase-gated, so a
+      // foodless low-HP bot in bank-walk mode never retreated. ══
 
       // ══ DROP JUNK (jugs etc.) ══
       for (var ji = 0; ji < JUNK_IDS.length; ji++) {
@@ -8223,8 +8234,14 @@
         }
         if (xpNow2 > (scriptState._thXpBase || 0)) {
           // xp moved — the stall is real and we've succeeded; reset the meter
+          // AND all stale seen-state (v397: the old seen-flag never expired,
+          // so a successful steal followed by a respawn re-tripped it →
+          // 'seen' backoffs against a fresh stall → skip 12s → walk right
+          // back to the same vendor = the repeated-catch loop).
           scriptState._thXpBase = xpNow2;
           scriptState._thXpTry = 0;
+          scriptState._thSeenCount = {};
+          scriptState._thStallTried = null;
         }
         scriptState._thXpTry++;
         if (scriptState._thXpTry > 3) {
