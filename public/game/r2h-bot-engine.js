@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v394';
+  var VERSION = 'v396';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7524,30 +7524,37 @@
   var THIEVE_LOOT = {
     10:1, 16:1, 21:1, 33:1, 34:1, 38:1, 41:1, 137:1, 138:1, 142:1, 146:1,
     152:1, 157:1, 158:1, 159:1, 160:1, 161:1, 162:1, 163:1, 164:1, 172:1,
-    200:1, 211:1, 218:1, 237:1, 330:1, 336:1, 383:1, 542:1, 559:1, 612:1,
-    619:1, 707:1, 714:1, 739:1, 783:1, 868:1, 869:1, 870:1, 895:1, 897:1,
-    1115:1, 1117:1
+    200:1, 211:1, 218:1, 237:1, 330:1, 336:1, 383:1, 541:1, 542:1, 559:1,
+    612:1, 619:1, 707:1, 714:1, 739:1, 783:1, 868:1, 869:1, 870:1, 895:1,
+    897:1, 1115:1, 1117:1
   };
   // v390: 157-160/542 = UNCUT gems (GEMS_STALL loot table drops UNCUT — the
   // v382 whitelist had only cut 161-164, so gem-stall loot was never
   // depositable → full inv → bank → deposit nothing → return still full →
   // infinite bank loop (user report 9/2). Verified vs Stall enum + ItemId.
+  // v396: +541 GREY_WOLF_FUR (fur stall loot — was missing).
   var JUNK_IDS = [140];   // empty jugs (hero loot) — dropped, not banked
-  // v368→v374 STALLS — SERVER-TRUTH ids AND coords (SceneryLocs.json, the
-  // authoritative spawn table; live client object array cross-checked 9/1).
-  // The APOS name→coord table is SHUFFLED vs this server (their "gem" coords
-  // are our spice stall etc.) and APOS stall ids are +1 off (322-327 → ours
-  // 323-328; tea is 1183 both sides). Steal → empty id 341 → respawn
-  // (tea/bakers 5s, silk 8s, fur 15s, silver 30s, spice 80s, gem 180s).
-  // Stalls are 2x2 — stand tile +1,+1.
+  // v396 SERVER-TRUTH TABLE — 0-BASED def ids (EntityHandler: gameObjects[id],
+  // array index IS the id). The def names: 322=Bakers Stall, 323=Silk,
+  // 324=Fur, 325=Silver, 326=Spices, 327="gems Stall", 1183=Tea stall; id 328
+  // is "crate" (market crate @560,588 + TribalTotem quest crate @558,617) —
+  // NOT a stall. History: v368 used APOS ids 322-327 (CORRECT); my v370
+  // "correction" shifted them +1 off a 1-based XML parse (def parse printed
+  // 1-based positions); v374 fixed coords but kept the shifted ids → the
+  // "gem stall" pointed at a crate since v370 — plugin ignores non-STALL
+  // names → zero events at 560,588 forever (user rig: gem+silver stole fine
+  // at 327@(551,599)/325@(555,593) — the REAL stalls). User's live steals
+  // now the third cross-check alongside def names + SceneryLocs spawns.
+  // Steal → empty id 341 → respawn (tea/bakers 5s, silk 8s, fur 15s,
+  // silver 30s, spice 80s, gem 180s). Stalls are 2x2 — stand ring adjacent.
   var THIEVE_STALLS = {
-    'Tea Stall (Varrock)':      { id: 1183, x: 91,  y: 518, lvl: 5,  xp: 16,  res: 5,   vendor: 780, guards: [] },
-    'Bakers Stall (Ardougne)':  { id: 323,  x: 566, y: 594, lvl: 5,  xp: 16,  res: 5,   vendor: 325, guards: [321] },
-    'Silk Stall (Ardougne)':    { id: 324,  x: 551, y: 583, lvl: 20, xp: 24,  res: 8,   vendor: 326, guards: [322, 321] },
-    'Fur Stall (Ardougne)':     { id: 325,  x: 555, y: 593, lvl: 35, xp: 36,  res: 15,  vendor: 327, guards: [323, 322, 321] },
-    'Silver Stall (Ardougne)':  { id: 326,  x: 544, y: 590, lvl: 50, xp: 54,  res: 30,  vendor: 328, guards: [323, 322, 321] },
-    'Spice Stall (Ardougne)':   { id: 327,  x: 551, y: 599, lvl: 65, xp: 81,  res: 80,  vendor: 329, guards: [323, 322, 321] },
-    'Gem Stall (Ardougne)':     { id: 328,  x: 560, y: 588, lvl: 75, xp: 16,  res: 180, vendor: 330, guards: [324, 323, 322, 321] }
+    'Tea Stall (Varrock)':      { id: 1183, x: 91,  y: 518, lvl: 5,  xp: 16,  res: 5 },
+    'Bakers Stall (Ardougne)':  { id: 322,  x: 544, y: 599, lvl: 5,  xp: 16,  res: 5 },
+    'Silk Stall (Ardougne)':    { id: 323,  x: 566, y: 594, lvl: 20, xp: 24,  res: 8 },
+    'Fur Stall (Ardougne)':     { id: 324,  x: 551, y: 583, lvl: 35, xp: 36,  res: 15 },
+    'Silver Stall (Ardougne)':  { id: 325,  x: 555, y: 593, lvl: 50, xp: 54,  res: 30 },
+    'Spice Stall (Ardougne)':   { id: 326,  x: 544, y: 590, lvl: 65, xp: 81,  res: 80 },
+    'Gem Stall (Ardougne)':     { id: 327,  x: 551, y: 599, lvl: 75, xp: 16,  res: 180 }
   };
   // 'All Stalls (Ardougne)': rotate best-first through the Ardougne market
   var THIEVING_SCRIPT_IDS = ['AIOThiever', 'Man'];
@@ -8124,10 +8131,17 @@
         // seen is in the SEEN-CHECK below.
         var standX = bestRing ? bestRing[0] : o.worldX + 1;
         var standY = bestRing ? bestRing[1] : o.worldY + 1;
-        // v377: 2x2 OBJECT BOUNDS — adjacent = within 1 of the bounding box
+        // v377/v395: 2x2 OBJECT BOUNDS with TRUE ADJACENCY. The server's
+        // OBJECT_COMMAND requires Cheb ≤1 of a COVERED tile — box-corner ring
+        // tiles are Cheb 2 DIAGONAL from every stall tile (rig-proven: player
+        // at 559,589 vs stall anchor 560,588 = Cheb 2 diagonal → every
+        // atObject silently ignored, 0 server events while the client counter
+        // climbed). inBox admits only tiles whose Cheb distance to the box is
+        // ≤1; onBox excludes the footprint itself.
         var inBox = function(px, py) {
-          return px >= o.worldX - 1 && px <= o.worldX + 2 &&
-                 py >= o.worldY - 1 && py <= o.worldY + 2;
+          var dx = Math.max(o.worldX - px, 0, px - (o.worldX + 1));
+          var dy = Math.max(o.worldY - py, 0, py - (o.worldY + 1));
+          return dx <= 1 && dy <= 1 && !(dx === 0 && dy === 0);
         };
         var onBox = function(px, py) {
           return px >= o.worldX && px <= o.worldX + 1 &&
