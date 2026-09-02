@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v386';
+  var VERSION = 'v388';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7550,20 +7550,30 @@
   function makeThievingScript(runtimeConfig) {
     var cfg = runtimeConfig || {};
     // UI target names map 1:1 onto THIEVE_TABLE keys.
-    // v379 MULTI-TARGET: cfg.thieveTargets = ['Paladin','Hero',...] → union of
-    // ids (each level-gated at use), nearest live NPC across ALL picked types.
-    // Falls back to legacy single thieveTarget. Stalls remain single-select.
+    // v388 CRITICAL FIX: STALL_ALL/ST must be read from cfg.thieveTarget
+    // DIRECTLY. The v379 multi-target refactor derived targetName from
+    // thieveTargets[] — for stall selections that's null (or worse, a
+    // leftover ticked NPC like 'Paladin'), so STALL_ALL silently became
+    // false and the user's "All Stalls" run HIJACKED into paladin
+    // pickpocketing (log-proven: onOpNpc events, bank at North near the
+    // paladin spot, then frozen — steal phase's 25-tile scan found nothing
+    // from the bank). Explicit stall selection WINS over NPC checkboxes.
+    var ST = THIEVE_STALLS[cfg.thieveTarget || ''] || null;
+    var STALL_ALL = cfg.thieveTarget === 'All Stalls (Ardougne)';
+    var stallSel = !!(ST || STALL_ALL);
     var targetNames = [];
-    if (cfg.thieveTargets && cfg.thieveTargets.length > 0) {
-      for (var tni = 0; tni < cfg.thieveTargets.length; tni++) {
-        if (THIEVE_TABLE[cfg.thieveTargets[tni]]) targetNames.push(cfg.thieveTargets[tni]);
+    if (!stallSel) {
+      if (cfg.thieveTargets && cfg.thieveTargets.length > 0) {
+        for (var tni = 0; tni < cfg.thieveTargets.length; tni++) {
+          if (THIEVE_TABLE[cfg.thieveTargets[tni]]) targetNames.push(cfg.thieveTargets[tni]);
+        }
+      }
+      if (targetNames.length === 0 && THIEVE_TABLE[cfg.thieveTarget || '']) {
+        targetNames = [cfg.thieveTarget];
       }
     }
-    if (targetNames.length === 0 && THIEVE_TABLE[cfg.thieveTarget || '']) {
-      targetNames = [cfg.thieveTarget];
-    }
-    var targetName = targetNames.length > 0 ? targetNames.join('+') : null;
-    var T = targetNames.length === 1 ? THIEVE_TABLE[targetNames[0]] : null;
+    var targetName = targetNames.length > 0 ? targetNames.join('+') : (stallSel ? cfg.thieveTarget : null);
+    var T = (!stallSel && targetNames.length === 1) ? THIEVE_TABLE[targetNames[0]] : null;
     var multiIds = [];
     var multiLvl = 0;
     for (var tmi = 0; tmi < targetNames.length; tmi++) {
@@ -7571,8 +7581,6 @@
       for (var tii = 0; tii < tme.ids.length; tii++) multiIds.push(tme.ids[tii]);
       if (tme.lvl > multiLvl) multiLvl = tme.lvl;
     }
-    var ST = THIEVE_STALLS[cfg.thieveTarget || ''] || null;
-    var STALL_ALL = targetName === 'All Stalls (Ardougne)';
     var stallList = [];
     if (STALL_ALL) {
       var order = ['Gem Stall (Ardougne)', 'Spice Stall (Ardougne)', 'Silver Stall (Ardougne)', 'Fur Stall (Ardougne)', 'Silk Stall (Ardougne)', 'Bakers Stall (Ardougne)'];
@@ -7633,10 +7641,17 @@
         }
         if (!eatAt) eatAt = Math.max(10, Math.floor(getStatBase(3) / 3));   // APOS enforced min 10
         if (bankName === 'Auto (nearest)') {
+          // v387 BANK-AT-WORKSITE (v360 rule): stalls have a FIXED worksite
+          // (Ardougne market ~549,594). Anchoring from the START pos picked
+          // Ardougne NORTH when the user started NW of the market after a
+          // paladin run → 35-tile return legs the client pathfinder refuses.
+          // Anchor stalls at the market so South (18 tiles) always wins.
+          var ancX = (ST || STALL_ALL) ? 549 : getX();
+          var ancY = (ST || STALL_ALL) ? 594 : getY();
           var bestB = null, bestBD = Infinity;
           for (var bk in BANK_REGISTRY) {
             var bpt = BANK_REGISTRY[bk];
-            var bd2 = Math.abs(bpt[0] - getX()) + Math.abs(bpt[1] - getY());
+            var bd2 = Math.abs(bpt[0] - ancX) + Math.abs(bpt[1] - ancY);
             if (bd2 < bestBD) { bestBD = bd2; bestB = bk; }
           }
           bankName = bestB || 'Draynor';
@@ -7998,11 +8013,16 @@
           }
         }
         if (!pick) {
-          // nothing stocked in render — walk toward the highest-xp stall we
-          // can do and wait out its respawn
+          // nothing stocked in render — route to the highest-xp stall we can
+          // do and wait out its respawn.
+          // v387: HOP-WALK, never a direct beeline. Direct walkTo beyond
+          // ~20 tiles is silently refused by the client pathfinder (v341) —
+          // the frozen 'did not proceed from bank' (user, from Ardougne
+          // North: 35-tile beeline = refused forever). thWalkToward webwalk-
+          // hops long legs and already has the send-once fix.
           var tgt = pool[0];
           var dTgt = Math.max(Math.abs(tgt.x - getX()), Math.abs(tgt.y - getY()));
-          if (dTgt > 2) { walkTo(tgt.x + 1, tgt.y + 1); return 1500; }
+          if (dTgt > 2) { thWalkToward(tgt.x + 1, tgt.y + 1, function() {}, 2); return 1500; }
           scriptState.thMissN = (scriptState.thMissN || 0) + 1;
           if (scriptState.thMissN % 10 === 1) log('All stalls on cooldown — waiting');
           if (scriptState.thMissN > 240) { log('No stocked stall for a long time — stopping'); stopBot(); return 2000; }
