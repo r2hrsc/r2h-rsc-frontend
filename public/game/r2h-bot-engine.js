@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v397';
+  var VERSION = 'v399';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7653,13 +7653,13 @@
         }
         if (!eatAt) eatAt = Math.max(10, Math.floor(getStatBase(3) / 3));   // APOS enforced min 10
         if (bankName === 'Auto (nearest)') {
-          // v387 BANK-AT-WORKSITE (v360 rule): stalls have a FIXED worksite
-          // (Ardougne market ~549,594). Anchoring from the START pos picked
-          // Ardougne NORTH when the user started NW of the market after a
-          // paladin run → 35-tile return legs the client pathfinder refuses.
-          // Anchor stalls at the market so South (18 tiles) always wins.
-          var ancX = (ST || STALL_ALL) ? 549 : getX();
-          var ancY = (ST || STALL_ALL) ? 594 : getY();
+          // v398 BANK-AT-WORKSITE (v360 rule): anchor at the WORKSITE —
+          // the market (549,594) for All-Stalls rotation; the SELECTED
+          // STALL's own coords for single-stall mode (v387 hardcoded the
+          // market for all stalls — the Varrock TEA stall would have banked
+          // in ARDOUGNE). NPCs keep start-position anchoring (they move).
+          var ancX = STALL_ALL ? 549 : (ST ? ST.x : getX());
+          var ancY = STALL_ALL ? 594 : (ST ? ST.y : getY());
           var bestB = null, bestBD = Infinity;
           for (var bk in BANK_REGISTRY) {
             var bpt = BANK_REGISTRY[bk];
@@ -8238,18 +8238,52 @@
           // so a successful steal followed by a respawn re-tripped it →
           // 'seen' backoffs against a fresh stall → skip 12s → walk right
           // back to the same vendor = the repeated-catch loop).
+          // v399: _thWatchSince resets too — otherwise a LATER watched-out
+          // episode inherits the old 90s timer and stops prematurely.
           scriptState._thXpBase = xpNow2;
           scriptState._thXpTry = 0;
           scriptState._thSeenCount = {};
           scriptState._thStallTried = null;
+          scriptState._thWatchSince = null;
         }
         scriptState._thXpTry++;
         if (scriptState._thXpTry > 3) {
           scriptState._thSkipStall = scriptState._thSkipStall || {};
-          scriptState._thSkipStall[stKey] = Date.now() + 15000;
+          // v398 WATCH-AND-WAIT: a watched-out stall in SINGLE-stall mode has
+          // nowhere to rotate — hammering it = the user's 'caught repeatedly'
+          // grievance (gem audit: 9 attempts, 0 xp, 2 catches in 150s; the
+          // merchant's wander box sits on the stall). Instead: skip 12s and
+          // only re-attempt when the vendor/guard actually wanders off (best
+          // ring tile's nearest watcher > 4 tiles). Cap the patience at 90s
+          // of no-success → honest stop with a clear reason (All-Stalls mode
+          // rotates instead — pool has other stalls).
+          if (STALL_ALL) {
+            scriptState._thSkipStall[stKey] = Date.now() + 12000;
+            scriptState._thXpAt = null;
+            log('No xp from ' + stKey + ' — rotating to another stall');
+            return 1200;
+          }
+          scriptState._thWatchSince = scriptState._thWatchSince || Date.now();
+          scriptState._thSkipStall[stKey] = Date.now() + 12000;
           scriptState._thXpAt = null;
-          log('No xp from ' + stKey + ' — phantom or watched, rotating');
-          return 1200;
+          // find the best ring tile's watcher distance RIGHT NOW
+          var bestW = 0;
+          for (var ww = 0; ww < ring.length; ww++) {
+            var wtx = o.worldX + ring[ww][0], wty = o.worldY + ring[ww][1];
+            var wmin = 99;
+            for (var wj in wPos) {
+              var wjnpc = wPos[wj];
+              var wjd = Math.max(Math.abs(wjnpc.worldX - wtx), Math.abs(wjnpc.worldY - wty));
+              if (wjd < wmin) wmin = wjd;
+            }
+            if (wmin > bestW) bestW = wmin;
+          }
+          if (Date.now() - scriptState._thWatchSince > 90000) {
+            log('Stall at ' + stKey + ' is watched from every angle for 90s+ — stopping. Pick more stalls (All Stalls rotates) or try again when the vendor wanders.');
+            stopBot(); return 2000;
+          }
+          log('Watched (nearest watcher ' + bestW + ' tiles from best stand) — waiting for an opening');
+          return 3000;
         }
         atObject(o.worldX, o.worldY);
         scriptState._thStallTried = o.worldX + ',' + o.worldY;
