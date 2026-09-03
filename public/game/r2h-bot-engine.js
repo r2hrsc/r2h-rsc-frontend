@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v401';
+  var VERSION = 'v403';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7641,7 +7641,15 @@
       }
       return -1;
     }
-    function thHp() { return getStatCurrent(3); }
+    function thHp() {
+      // CURRENT HP = playerStatCurrent[3] (APOS Controller.getCurrentStat —
+      // the reference client's own hp source; our field map: hy). v402
+      // briefly switched to mc.hP — WRONG: that's the client's in-world 0/1
+      // FLAG (rig: constant 1 → eat guard always true → 9 cakes dumped in
+      // one tick). Reverted v403. Rig accounts show boosted-rest values in
+      // hy from ::setstat; real accounts track damage correctly.
+      return getStatCurrent(3);
+    }
     function thInCombat() {
       var pMC = getMC();
       return (pMC && pMC.O) ? (Number(pMC.O.g8 || 0) >= 8) : false;
