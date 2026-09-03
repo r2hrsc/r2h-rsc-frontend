@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v403';
+  var VERSION = 'v404';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7514,14 +7514,17 @@
     'Gnome':            { ids: [592, 581, 580], lvl: 75, xp: 793 },
     'Hero':             { ids: [324], lvl: 80, xp: 1093 }
   };
-  // v401: THIEVE_FOOD is HEAL-ORDERED, best first (the eat loop takes the
-  // first match in inventory). Server ItemEdibleHeals.xml: lobster 373=12,
-  // cake 330=4, chocolate slice 336=5, choc cake 332=5. Bakers-stall loot IS
-  // food — user report 9/2: inventory full of stolen cake, bot 'not eating'
-  // (cake wasn't in the list → eat never fired → near-death with food in
-  // hand). Cake sits below real food so lobsters are preferred when both
-  // are present.
-  var THIEVE_FOOD = [373, 370, 367, 546, 359, 357, 364, 362, 355, 350, 332, 336, 138, 132, 330];
+  // v404: MULTI-FORM FOOD — RSC food DECAYS when eaten (Eating.java): cake 330
+  // → partial 333 → slice 335; choc cake 332 → partial choc 334 → choc slice
+  // 336; pies/pizzas likewise. v401 knew only whole forms — user ate a cake
+  // at ⅓ hp, the leftover PARTIAL cake became invisible food ('did not
+  // realise it still had food'). Complete table, heal-ordered best-first
+  // (ItemEdibleHeals.xml): lobster 373=12, pineapple pizza 750/751=10,
+  // anchovy half=8, plain pizza 325=11, stew 346=9, choc family 5, pies 3-5,
+  // bread/cake/slice 4, rock cake 1061=4.
+  var THIEVE_FOOD = [373, 370, 367, 546, 359, 357, 364, 362, 355, 350,
+                     325, 750, 751, 346, 332, 334, 336, 263, 138, 132,
+                     330, 333, 335, 259, 261, 258, 262, 1061];
   // v381 LOOT WHITELIST — the ONLY ids the thieving bank scan will ever
   // deposit. Every entry verified against ItemId.java + the Thieving.java
   // pickpocket/stall loot tables. User was banked NAKED 9/1 (gear ids banked
