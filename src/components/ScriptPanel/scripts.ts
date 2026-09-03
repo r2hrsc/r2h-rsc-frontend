@@ -57,6 +57,7 @@ export const SCRIPTS: ScriptDef[] = [
   { id: 'K_Paladins', name: 'Paladins (Thieve+Fight)', author: 'Kaila', description: 'Thieves from Paladins in the Ardougne Castle.', categories: ['Skilling', 'Combat'], fileName: 'K_Paladins' },
 
   // ═══ SKILLING ═══
+  { id: 'AIOHerblawist', name: 'AIO Herblawist', author: 'R2H (HerbIdentifier/PotionMaker port)', description: 'Identify all herbs automatically, or run the full potion loop: withdraw unidentified herbs + vials + second ingredient, identify, mix unfinished potions, finish with the second, bank the product. Auto-detected nearest bank.', categories: ['Skilling'], fileName: 'HerbIdentifier' },
   { id: 'AIOCrafter', name: 'AIO Crafter', author: 'R2H (Searos port)', description: 'All-in-one crafting: spin flax/wool at the Falador wheel (auto-detected bank) or cut any gem with a chisel at the bank. Bank or power-drop mode.', categories: ['Skilling'], fileName: 'SpinStrings' },
   { id: 'AIOFletcher', name: 'AIO Fletcher', author: 'R2H (Dvorak/Searos port)', description: 'All-in-one fletching: cut any bow or arrow shafts from any log (knife on logs), optional stringing, auto-detected nearest bank or power-drop mode.', categories: ['Skilling'], fileName: 'PowerFletcha' },
   { id: 'AIOMiner', name: 'AIO Miner', author: 'kkoemets', description: 'An all-in-one Mining script. Enjoys the game and mines ores.', categories: ['Skilling'], fileName: 'AIOMiner' },

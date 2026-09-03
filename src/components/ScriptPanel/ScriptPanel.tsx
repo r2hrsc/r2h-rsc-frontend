@@ -483,6 +483,10 @@ export interface ScriptConfig {
   thieveEatHp?: string;
   thieveBank?: string;
   foodWithdraw?: string;
+  // — Herblaw —
+  herbMode?: string;
+  herbPotion?: string;
+  herbBank?: string;
   // — Smithing —
   smithBarType?: string;
   itemCategory?: string;
@@ -505,7 +509,7 @@ export interface ScriptConfig {
   targetPrayerLevel?: string;
 }
 
-type ConfigType = 'combat' | 'mining' | 'cooking' | 'woodcutting' | 'fishing' | 'magic' | 'thieving' | 'smithing' | 'fletching' | 'crafting' | 'firemaking' | 'smelting' | 'bones';
+type ConfigType = 'combat' | 'mining' | 'cooking' | 'woodcutting' | 'fishing' | 'magic' | 'thieving' | 'herblaw' | 'smithing' | 'fletching' | 'crafting' | 'firemaking' | 'smelting' | 'bones';
 
 // ═══════════════════════════════════════════════════════════════
 // Option lists
@@ -621,6 +625,7 @@ const WC_IDS        = new Set(['Woodcutting', 'K_ArdyYewTree', 'K_GnomeMagicTree
 const FISHING_IDS   = new Set(['AIOFisher', 'CatherbyLobs', 'ColeslawGuildFisher', 'K_FastBarbFisher', 'CasketFisher']);
 const MAGIC_IDS     = new Set(['AIOMagic', 'AlchWheat', 'K_TeleWines', 'K_NoBank_Superheat']);
 const THIEVING_IDS  = new Set(['AIOThiever', 'Man']);
+const HERBLAW_IDS   = new Set(['AIOHerblawist']);
 const SMITHING_IDS  = new Set(['SmithingVarrock', 'SmithGearSet', 'CeikPlates', 'K_FastChainLinks', 'AIOSmelter']);
 const FLETCHING_IDS = new Set(['AIOFletcher', 'PowerFletcha', 'FletchnBankBows', 'ArrowMaker']);
 const CRAFTING_IDS  = new Set(['AIOCrafter', 'SpinStrings', 'Crafting']);
@@ -636,6 +641,7 @@ function getConfigType(script: ScriptDef): ConfigType | null {
   if (FISHING_IDS.has(script.id))   return 'fishing';
   if (MAGIC_IDS.has(script.id))     return 'magic';
   if (THIEVING_IDS.has(script.id))  return 'thieving';
+  if (HERBLAW_IDS.has(script.id))   return 'herblaw';
   if (SMITHING_IDS.has(script.id))  return 'smithing';
   if (FLETCHING_IDS.has(script.id)) return 'fletching';
   if (CRAFTING_IDS.has(script.id))  return 'crafting';
@@ -665,6 +671,8 @@ function defaultConfig(ct: ConfigType): ScriptConfig {
       return { magicSpell: MAGIC_SPELLS[0], itemId: '118', barType: BAR_TYPES[0], jewelryType: JEWELRY_TYPES[0], talismanId: '1300' };
     case 'thieving':
       return { thieveTarget: THIEVE_TARGETS[0], thieveFightMode: FIGHT_MODES[0], thieveEatHp: '', thieveBank: 'Auto (nearest)', foodWithdraw: '0' };
+    case 'herblaw':
+      return { herbMode: 'identify', herbPotion: 'Attack', herbBank: 'Auto (nearest)' };
     case 'smithing':
       return { smithBarType: BAR_TYPES[0], itemCategory: SMITH_CATEGORIES[0], itemSubType: SMITH_SUBTYPES[SMITH_CATEGORIES[0]][0], specificItem: 'Dagger', quantity: 'all' };
     case 'fletching':
@@ -1219,6 +1227,33 @@ function MagicConfig({ cfg, set }: CfgProps) {
   );
 }
 
+function HerblawConfig({ cfg, set }: CfgProps) {
+  const POTIONS = ['Attack', 'Cure Poison', 'Strength', 'Stat Restore', 'Defense', 'Restore Prayer',
+    'Super Attack', 'Antidote', 'Fishing', 'Super Strength', 'Weapon Poison', 'Super Defense', 'Ranging', 'Zamorak'];
+  return (
+    <div style={S_PANEL}>
+      <Field label="Mode">
+        <select style={S_SELECT} value={cfg.herbMode ?? 'identify'} onChange={e => set({ herbMode: e.target.value })}>
+          <option value="identify">Identify Herbs</option>
+          <option value="potion">Make Potions</option>
+        </select>
+      </Field>
+      {cfg.herbMode === 'potion' && (
+        <Field label="Potion">
+          <select style={S_SELECT} value={cfg.herbPotion ?? 'Attack'} onChange={e => set({ herbPotion: e.target.value })}>
+            {POTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </Field>
+      )}
+      <Field label="Banking">
+        <select style={S_SELECT} value={cfg.herbBank ?? 'Auto (nearest)'} onChange={e => set({ herbBank: e.target.value })}>
+          {['Auto (nearest)', ...BANK_LOCATIONS].map(b => <option key={b} value={b}>{b}</option>)}
+        </select>
+      </Field>
+    </div>
+  );
+}
+
 function ThievingConfig({ cfg, set }: CfgProps) {
   const picked: string[] = cfg.thieveTargets ?? [cfg.thieveTarget ?? 'Man'];
   const toggle = (t: string) => {
@@ -1406,6 +1441,7 @@ function ConfigPanel({ type, cfg, set }: { type: ConfigType; cfg: ScriptConfig; 
     case 'fishing':     return <FishingConfig cfg={cfg} set={set} />;
     case 'magic':       return <MagicConfig cfg={cfg} set={set} />;
     case 'thieving':    return <ThievingConfig cfg={cfg} set={set} />;
+    case 'herblaw':     return <HerblawConfig cfg={cfg} set={set} />;
     case 'smithing':    return <SmithingConfig cfg={cfg} set={set} />;
     case 'fletching':   return <FletchingConfig cfg={cfg} set={set} />;
     case 'crafting':    return <CraftingConfig cfg={cfg} set={set} />;

@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v404';
+  var VERSION = 'v406';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -1196,6 +1196,9 @@
     } else if (isFiremakingScript(scriptId)) {
       log('Firemaking: "' + scriptId + '" → v304 firemaking engine');
       tickFn = makeFiremakingScript(runtimeConfig);
+    } else if (HERBLAW_SCRIPT_IDS.indexOf(scriptId) >= 0) {
+      log('Herblaw: "' + scriptId + '" → v405 herblaw engine');
+      tickFn = makeHerblawScript(runtimeConfig);
     } else if (SMELTING_SCRIPT_IDS.indexOf(scriptId) >= 0) {
       log('Smelting: "' + scriptId + '" → v323 smelting engine');
       tickFn = makeSmeltingScript(runtimeConfig);
@@ -8440,9 +8443,275 @@
     };
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // v405: HERBLAW — server-truth tables (Herblaw.java + ItemUnIdentHerbDef.xml +
+  // ItemHerbSecond.xml + ItemDefs.json, pulled 9/3).
+  // ═══════════════════════════════════════════════════════════════
+  // UNIDENTIFIED herb id -> { lvl, id (identified), xp }  (ItemUnIdentHerbDef.xml)
+  var HERB_UNID = {
+    165:{lvl:3,  id:444, xp:10},   // guam
+    435:{lvl:5,  id:445, xp:15},   // marrentill
+    436:{lvl:11, id:446, xp:20},   // tarromin
+    437:{lvl:20, id:447, xp:25},   // harralander
+    438:{lvl:25, id:448, xp:30},   // ranarr
+    439:{lvl:40, id:449, xp:35},   // irit
+    440:{lvl:48, id:450, xp:40},   // avantoe
+    441:{lvl:54, id:451, xp:45},   // kwuarm
+    442:{lvl:65, id:452, xp:50},   // cadantine
+    443:{lvl:70, id:453, xp:55},   // dwarf weed
+    933:{lvl:75, id:934, xp:60},   // torstol
+    815:{lvl:3,  id:816, xp:0},    // snake weed (karamja, quest)
+    817:{lvl:3,  id:818, xp:0},    // ardrigal
+    819:{lvl:3,  id:820, xp:0},    // sito foil
+    821:{lvl:3,  id:822, xp:0},    // volencia moss
+    823:{lvl:3,  id:824, xp:0}     // rogues purse
+  };
+  // identified herb id -> name (display only)
+  var HERB_NAME = {
+    444:'Guam', 445:'Marrentill', 446:'Tarromin', 447:'Harralander', 448:'Ranarr',
+    449:'Irit', 450:'Avantoe', 451:'Kwuarm', 452:'Cadantine', 453:'Dwarf Weed',
+    934:'Torstol', 816:'Snake Weed', 818:'Ardrigal', 820:'Sito Foil', 822:'Volencia Moss', 824:'Rogues Purse'
+  };
+  // POTION table: unfin id -> { second, potion, lvl, xp }  (ItemHerbSecond.xml)
+  var HERB_SECOND = {
+    454:{sec:270, pot:474, lvl:3,  xp:100},   // guam + eye of newt      -> attack
+    455:{sec:473, pot:566, lvl:5,  xp:150},   // marrentill + ground unicorn horn -> cure poison
+    456:{sec:220, pot:222, lvl:12, xp:200},   // tarromin + limpwurt root -> strength
+    454:{sec:936, pot:1052,lvl:14, xp:100},   // guam + jangerberries    -> unfinished ogre (quest)
+    457:{sec:219, pot:477, lvl:22, xp:250},   // harralander + red spiders eggs -> stat restore
+    458:{sec:471, pot:480, lvl:30, xp:300},   // ranarr + white berries  -> defense
+    458:{sec:469, pot:483, lvl:38, xp:350},   // ranarr + snape grass    -> restore prayer
+    459:{sec:270, pot:486, lvl:45, xp:400},   // irit + eye of newt      -> super attack
+    459:{sec:473, pot:569, lvl:48, xp:425},   // irit + ground unicorn horn -> poison antidote
+    460:{sec:469, pot:489, lvl:50, xp:450},   // avantoe + snape grass   -> fishing
+    461:{sec:220, pot:492, lvl:55, xp:500},   // kwuarm + limpwurt root  -> super strength
+    461:{sec:472, pot:572, lvl:60, xp:550},   // kwuarm + ground blue dragon scale -> weapon poison
+    462:{sec:471, pot:495, lvl:66, xp:600},   // cadantine + white berries -> super defense
+    463:{sec:501, pot:498, lvl:72, xp:660},   // dwarf weed + wine of zamorak -> ranging
+    935:{sec:936, pot:963, lvl:78, xp:700}    // torstol + jangerberries -> zamorak
+  };
+  // NOTE: 454 and 458 and 459 and 461 have TWO recipes each — JS object literal
+  // collapses duplicates (last wins). Rebuild as a LIST:
+  var HERB_SECOND_LIST = [
+    {unfin:454, sec:270, pot:474, lvl:3,  xp:100, name:'Attack'},
+    {unfin:455, sec:473, pot:566, lvl:5,  xp:150, name:'Cure Poison'},
+    {unfin:456, sec:220, pot:222, lvl:12, xp:200, name:'Strength'},
+    {unfin:454, sec:936, pot:1052,lvl:14, xp:100, name:'Ogre (quest)'},
+    {unfin:457, sec:219, pot:477, lvl:22, xp:250, name:'Stat Restore'},
+    {unfin:458, sec:471, pot:480, lvl:30, xp:300, name:'Defense'},
+    {unfin:458, sec:469, pot:483, lvl:38, xp:350, name:'Restore Prayer'},
+    {unfin:459, sec:270, pot:486, lvl:45, xp:400, name:'Super Attack'},
+    {unfin:459, sec:473, pot:569, lvl:48, xp:425, name:'Antidote'},
+    {unfin:460, sec:469, pot:489, lvl:50, xp:450, name:'Fishing'},
+    {unfin:461, sec:220, pot:492, lvl:55, xp:500, name:'Super Strength'},
+    {unfin:461, sec:472, pot:572, lvl:60, xp:550, name:'Weapon Poison'},
+    {unfin:462, sec:471, pot:495, lvl:66, xp:600, name:'Super Defense'},
+    {unfin:463, sec:501, pot:498, lvl:72, xp:660, name:'Ranging'},
+    {unfin:935, sec:936, pot:963, lvl:78, xp:700, name:'Zamorak'}
+  ];
+
   function isFiremakingScript(id) {
     return FIREMAKING_SCRIPT_IDS.indexOf(id) >= 0;
   }
+
+  var HERBLAW_SCRIPT_IDS = ['AIOHerblawist'];
+
+  // Herblaw needs NO fixed worksite (all work is inventory item-on-item) —
+  // banking = nearest branch from start pos.
+  function makeHerblawScript(runtimeConfig) {
+    var cfg = runtimeConfig || {};
+    var mode = cfg.herbMode === 'potion' ? 'potion' : 'identify';  // identify | potion
+    var potionName = cfg.herbPotion || 'Attack';
+    var bankName = (cfg.herbBank && cfg.herbBank !== 'None') ? cfg.herbBank : null;
+    var lvl = 0, R = null;
+    for (var ri = 0; ri < HERB_SECOND_LIST.length; ri++) {
+      if (HERB_SECOND_LIST[ri].name === potionName) { R = HERB_SECOND_LIST[ri]; break; }
+    }
+    var scriptState = { phase: 'init', tries: 0, wdSent: 0, wdSent2: 0, wdSent3: 0, wdFails: 0 };
+
+    function hbCount(id) {
+      var mc = getMC(); if (!mc) return 0;
+      var cu = Math.min(Number(mc.cU) || 30, 30), n = 0;
+      for (var i = 0; i < cu; i++) if (Number(mc.b4.data[i]) === id) n++;
+      return n;
+    }
+    function hbSlot(id) {
+      var mc = getMC(); if (!mc) return -1;
+      var cu = Math.min(Number(mc.cU) || 30, 30);
+      for (var i = 0; i < cu; i++) if (Number(mc.b4.data[i]) === id) return i;
+      return -1;
+    }
+    function hbUnidFor(identifiedId) {
+      for (var k in HERB_UNID) if (HERB_UNID[k].id === identifiedId) return Number(k);
+      return -1;
+    }
+    var R_HERB_ID = R ? ({474:444,1052:444,566:445,222:446,477:447,480:448,483:448,486:449,569:449,489:450,492:451,572:451,495:452,498:453,963:934}[R.pot]) : 0;
+    var R_HERB_NAME = HERB_NAME[R_HERB_ID] || '?';
+    var R_UNFIN = {444:454,445:455,446:456,447:457,448:458,449:459,450:460,451:461,452:462,453:463,934:935}[R_HERB_ID] || 0;
+
+    return function herblawTick() {
+      try {
+        if (scriptState.phase === 'init') {
+          lvl = getStatBase(15);   // HERBLAW = 15
+          if (mode === 'potion') {
+            if (!R) { log('Herblaw: unknown potion "' + potionName + '"'); setTimeout(stopBot, 50); return function(){}; }
+            if (lvl < R.lvl) { log('Need Herblaw ' + R.lvl + ' for ' + R.name + ' (you are ' + lvl + ')'); setTimeout(stopBot, 50); return function(){}; }
+            var unidLvl = (HERB_UNID[hbUnidFor(R_HERB_ID)] || {lvl:0}).lvl;
+            if (lvl < unidLvl) { log('Need Herblaw ' + unidLvl + ' to identify ' + R_HERB_NAME); setTimeout(stopBot, 50); return function(){}; }
+          }
+          log('Herblaw v405: ' + (mode === 'identify' ? 'identify herbs' : R.name + ' potion') + ' (lvl ' + lvl + ')' + (bankName ? ' bank=' + bankName : ''));
+          scriptState.phase = 'hbWork';
+          return 800;
+        }
+
+        if (scriptState.phase === 'hbBank') {
+          if (!isInBank()) { scriptState.phase = 'hbToBank'; return 600; }
+          var mcH = getMC(); if (!mcH) return 800;
+          var cuH = Math.min(Number(mcH.cU) || 30, 30);
+          for (var di = 0; di < cuH; di++) {
+            var it = Number(mcH.b4.data[di]);
+            if (!it || it === SLEEPING_BAG) continue;
+            var isPotion = false;
+            for (var pj = 0; pj < HERB_SECOND_LIST.length; pj++) if (HERB_SECOND_LIST[pj].pot === it) { isPotion = true; break; }
+            var unidInfo = HERB_UNID[it];
+            if (isPotion || (unidInfo && lvl < unidInfo.lvl)) {
+              var amt = depositAmountOf(di);
+              depositItem(it, Math.max(1, Math.min(amt, 32767)));
+              return 900;
+            }
+          }
+          if (mode === 'potion') {
+            var needUnid = hbUnidFor(R_HERB_ID);
+            if (hbCount(needUnid) < 14 && !scriptState.wdSent) { withdrawItem(needUnid, 14); scriptState.wdSent = 1; return 700; }
+            if (hbCount(464) < 14 && !scriptState.wdSent2) { withdrawItem(464, 14); scriptState.wdSent2 = 1; return 700; }
+            if (hbCount(R.sec) < 14 && !scriptState.wdSent3) { withdrawItem(R.sec, 14); scriptState.wdSent3 = 1; return 700; }
+            var dry = (hbCount(needUnid) === 0 && hbCount(464) === 0) || hbCount(R.sec) === 0;
+            if (dry) {
+              scriptState.wdFails++;
+              if (scriptState.wdFails >= 2) { log('Bank out of supplies — herblaw done'); setTimeout(stopBot, 50); return function(){}; }
+              closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
+            }
+          } else {
+            // identify mode: no withdraws; if nothing left to deposit, done
+            var anyLeft = false;
+            for (var ci = 0; ci < cuH; ci++) {
+              var cit = Number(mcH.b4.data[ci]);
+              if (cit && HERB_UNID[cit]) { anyLeft = true; break; }
+            }
+            if (!anyLeft) { log('All herbs identified + banked — done'); setTimeout(stopBot, 50); return function(){}; }
+          }
+          scriptState.wdSent = 0; scriptState.wdSent2 = 0; scriptState.wdSent3 = 0; scriptState.wdFails = 0;
+          closeBank();
+          scriptState.phase = 'hbWork';
+          return 700;
+        }
+
+        if (scriptState.phase === 'hbWork') {
+          var mcW = getMC(); if (!mcW) return 800;
+          var cuW = Math.min(Number(mcW.cU) || 30, 30);
+          // 1. identify any unid we can (both modes)
+          var idSlot = -1;
+          for (var ii = 0; ii < cuW; ii++) {
+            var uid = Number(mcW.b4.data[ii]);
+            if (HERB_UNID[uid] && lvl >= HERB_UNID[uid].lvl) { idSlot = ii; break; }
+          }
+          if (idSlot >= 0) {
+            sendRaw(246, 0, function(stream, Z) { Z(stream, idSlot); Z(stream, 1); });
+            return 1400;
+          }
+          if (mode === 'identify') {
+            if (bankName) { scriptState.phase = 'hbToBank'; return 600; }
+            log('All identifiable herbs done'); setTimeout(stopBot, 50); return function(){};
+          }
+          // potion: vial + herb -> unfinished
+          var vSlot = hbSlot(464), hSlot = hbSlot(R_HERB_ID);
+          if (vSlot >= 0 && hSlot >= 0) { useItemOnItem(vSlot, hSlot); return 1400; }
+          // unfinished + second -> potion
+          var uSlot = hbSlot(R_UNFIN), sSlot = hbSlot(R.sec);
+          if (uSlot >= 0 && sSlot >= 0) { useItemOnItem(uSlot, sSlot); return 1400; }
+          if (bankName) { scriptState.phase = 'hbToBank'; return 600; }
+          log('Out of supplies — herblaw done'); setTimeout(stopBot, 50); return function(){};
+        }
+
+        // ══ BANK MACHINE (WC v274 pattern verbatim — the only proven one) ══
+        if (scriptState.phase === 'hbToBank') {
+          // v406: resolve Auto (nearest) ONCE at first use — worksite-free
+          // script, nearest branch from START pos (v360 exception)
+          if (!scriptState.hbBankKey) {
+            if (bankName && BANK_REGISTRY[bankName]) {
+              scriptState.hbBankKey = bankName;
+            } else {
+              var hbBest = null, hbBestD = Infinity;
+              for (var hk in BANK_REGISTRY) {
+                var hbp = BANK_REGISTRY[hk];
+                var hbd = Math.max(Math.abs(hbp[0] - getX()), Math.abs(hbp[1] - getY()));
+                if (hbd < hbBestD) { hbBestD = hbd; hbBest = hk; }
+              }
+              scriptState.hbBankKey = hbBest;
+            }
+            log('Herblaw bank: ' + scriptState.hbBankKey + ' (' + Math.round(hbBestD || 0) + ' tiles)');
+          }
+          var hbt = BANK_REGISTRY[scriptState.hbBankKey];
+          // v406 hop-walk (module walkTo is in scope; thWalkToward is
+          // factory-scoped to thieving — the bankMachineStep lesson again)
+          var hCheb = Math.max(Math.abs(hbt[0] - getX()), Math.abs(hbt[1] - getY()));
+          if (hCheb <= 3) { scriptState.phase = 'hbBankTalk'; scriptState.hbMiss = 0; return 400; }
+          var hpx = getX(), hpy = getY(), hnow = Date.now();
+          if (hpx !== (scriptState.hbLWX || -1) || hpy !== (scriptState.hbLWY || -1)) {
+            scriptState.hbLWX = hpx; scriptState.hbLWY = hpy;
+            scriptState.hbLastSend = 0; scriptState.hbStall = 0;
+            return 900;
+          }
+          if (!scriptState.hbLastSend || hnow - scriptState.hbLastSend > 3000) {
+            walkTo(hbt[0], hbt[1]);
+            scriptState.hbLastSend = hnow;
+            scriptState.hbStall = (scriptState.hbStall || 0) + 1;
+            if (scriptState.hbStall > 20) { log('Walk to bank stalled — stopping'); stopBot(); return 2000; }
+          }
+          return 1200;
+        }
+        if (scriptState.phase === 'hbBankTalk') {
+          var HB_BANKER_IDS = [95, 224, 268, 485, 540, 617];
+          if (isInBank()) { scriptState.phase = 'hbBank'; return 400; }
+          var hbBanker = findNpcs(HB_BANKER_IDS, 10);
+          if (hbBanker.length > 0) {
+            log('Talking to banker');
+            talkToNpc(hbBanker[0].serverIndex);
+            scriptState.hbBankTimer = Date.now();
+            scriptState.hbTalkStart = Date.now();
+            scriptState.phase = 'hbBankOption';
+            return 2000;
+          }
+          var hbtN = BANK_REGISTRY[scriptState.hbBankKey];
+          if (hbtN) walkTo(hbtN[0], hbtN[1]);
+          scriptState.hbMiss = (scriptState.hbMiss || 0) + 1;
+          if (scriptState.hbMiss > 12) { log('No banker found — stopping'); stopBot(); return 2000; }
+          return 1500;
+        }
+        if (scriptState.phase === 'hbBankOption') {
+          if (isInBank()) { scriptState.phase = 'hbBank'; return 500; }
+          if (Date.now() - scriptState.hbBankTimer > 2000) {
+            optionAnswer(0);
+            scriptState.hbBankTimer = Date.now();
+          }
+          if (Date.now() - (scriptState.hbTalkStart || 0) > 12000) {
+            log('Bank not opening — retrying talk');
+            scriptState.phase = 'hbBankTalk';
+          }
+          return 1500;
+        }
+
+        log('Herblaw: unknown phase ' + scriptState.phase);
+        scriptState.phase = 'init';
+        return 1000;
+      } catch (e) {
+        log('Herblaw error: ' + e.message);
+        return 2000;
+      }
+    };
+  }
+
+
 
   // v206: MINE/BANK REGISTRY + WEBWALK ROUTING (IdleRSC graph port)
   // Rock IDs + respawn secs: server ObjectMining.xml (verified 2026-08-16)
