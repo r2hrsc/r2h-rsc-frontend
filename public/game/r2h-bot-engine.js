@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v399';
+  var VERSION = 'v401';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -7514,7 +7514,14 @@
     'Gnome':            { ids: [592, 581, 580], lvl: 75, xp: 793 },
     'Hero':             { ids: [324], lvl: 80, xp: 1093 }
   };
-  var THIEVE_FOOD = [373, 370, 367, 546, 359, 357, 364, 362, 355, 350, 138, 132];  // best-first (lobster..meat)
+  // v401: THIEVE_FOOD is HEAL-ORDERED, best first (the eat loop takes the
+  // first match in inventory). Server ItemEdibleHeals.xml: lobster 373=12,
+  // cake 330=4, chocolate slice 336=5, choc cake 332=5. Bakers-stall loot IS
+  // food — user report 9/2: inventory full of stolen cake, bot 'not eating'
+  // (cake wasn't in the list → eat never fired → near-death with food in
+  // hand). Cake sits below real food so lobsters are preferred when both
+  // are present.
+  var THIEVE_FOOD = [373, 370, 367, 546, 359, 357, 364, 362, 355, 350, 332, 336, 138, 132, 330];
   // v381 LOOT WHITELIST — the ONLY ids the thieving bank scan will ever
   // deposit. Every entry verified against ItemId.java + the Thieving.java
   // pickpocket/stall loot tables. User was banked NAKED 9/1 (gear ids banked
@@ -7729,14 +7736,33 @@
             scriptState.thBlacklist[scriptState.thLastVictim] = Date.now() + 10000;
           }
         }
-        // v386 MINIMAL RETREAT: 2 tiles away from the attacker — NOT to the
-        // bank (v383's bank-tile direction made every catch an 18-tile
-        // commute; user: "exit combat 1 tile away"). Direction = away from
-        // the nearest live target (the attacker is chasing us = nearest).
-        // The v383 re-send cadence stays — walks are DROPPED during the
-        // melee round-lock, and the re-send after the lock is what lands.
+        // v401 EAT-IN-COMBAT: RSC allows eating mid-fight (APOS does it) —
+        // since v397 the retreat returned before the eat guard could run,
+        // so a low-hp bot NEVER ate while under attack (user: 'not eating
+        // upon approaching death'). If hp is at the threshold and food
+        // (incl. stolen cake, v401) is in inventory, eat it THIS tick, then
+        // still send the retreat walk below.
+        if (thHp() <= eatAt) {
+          var cfs = thFoodSlot();
+          if (cfs >= 0) {
+            log('Eating in combat (hp ' + thHp() + ')');
+            useItem(cfs);
+          }
+        }
+        // v386/v400 MINIMAL RETREAT: 2 tiles away from the attacker — NOT to
+        // the bank. Direction = away from the nearest live attacker.
+        // v400: STALL MODE has no multiIds/T (pickpocket lists) — v397 fell
+        // back to blind +2 EAST here, which the market's fenced pens refuse:
+        // the walk never landed, the lock released, and the bot stood eating
+        // strikes ('did not retreat after the third strike' — lethal for low
+        // levels). In stall mode: run from the nearest of ALL guard-tier
+        // watchers; if the type scan misses (client arrays rot), sweep every
+        // NPC within 6 tiles and run from the nearest non-banker. If the
+        // away-tile is refused (position unchanged), ROTATE the escape
+        // direction instead of repeating the same dead walk.
         var awayIds = (multiIds && multiIds.length) ? multiIds : (T ? T.ids : null);
         var awayNX = getX() + 2, awayNY = getY();
+        var attacker = null;
         if (awayIds) {
           var foes = findNpcs(awayIds, 15);
           var posCnt = {};
@@ -7744,16 +7770,55 @@
             var fpk = foes[fk].pixelX + ',' + foes[fk].pixelY;
             posCnt[fpk] = (posCnt[fpk] || 0) + 1;
           }
+          var bestD = Infinity;
           for (var fl = 0; fl < foes.length; fl++) {
             if (posCnt[foes[fl].pixelX + ',' + foes[fl].pixelY] > 1) continue;   // ghost-stacked
-            var fdx = getX() - foes[fl].worldX, fdy = getY() - foes[fl].worldY;
-            if (fdx === 0 && fdy === 0) fdx = 1;
-            var fm = Math.max(Math.abs(fdx), Math.abs(fdy));
-            awayNX = getX() + Math.round(2 * fdx / fm);
-            awayNY = getY() + Math.round(2 * fdy / fm);
-            break;
+            var fd = Math.max(Math.abs(foes[fl].worldX - getX()), Math.abs(foes[fl].worldY - getY()));
+            if (fd < bestD) { bestD = fd; attacker = foes[fl]; }
+          }
+        } else {
+          // v400 stall mode: guard tiers are the chasers (merchant catches
+          // don't start combat — server yells+fails, no setChasing)
+          var guardsAll = [324, 323, 322, 321];
+          var gfoes = findNpcs(guardsAll, 15);
+          var gbest = Infinity;
+          for (var gf = 0; gf < gfoes.length; gf++) {
+            var gd = Math.max(Math.abs(gfoes[gf].worldX - getX()), Math.abs(gfoes[gf].worldY - getY()));
+            if (gd < gbest) { gbest = gd; attacker = gfoes[gf]; }
+          }
+          if (!attacker) {
+            // last resort: nearest NPC of ANY type within 6 (bankers excluded)
+            var anyone = findNpcs(null, 6);
+            var BANKERS_ALL = [95, 224, 268, 485, 540, 617];
+            var abest = Infinity;
+            for (var af = 0; af < anyone.length; af++) {
+              if (BANKERS_ALL.indexOf(anyone[af].id) >= 0) continue;   // bankers never attack
+              var ad = Math.max(Math.abs(anyone[af].worldX - getX()), Math.abs(anyone[af].worldY - getY()));
+              if (ad < abest) { abest = ad; attacker = anyone[af]; }
+            }
           }
         }
+        if (attacker) {
+          var adx = getX() - attacker.worldX, ady = getY() - attacker.worldY;
+          if (adx === 0 && ady === 0) adx = 1;
+          var adm = Math.max(Math.abs(adx), Math.abs(ady));
+          awayNX = getX() + Math.round(2 * adx / adm);
+          awayNY = getY() + Math.round(2 * ady / adm);
+        }
+        // v400: if the last escape walk didn't land (fence), rotate the
+        // direction — repeating a refused walk = standing still in combat.
+        var nowP = getX() + ',' + getY();
+        if (scriptState._thAwayFrom === nowP && scriptState._thAwayLast === awayNX + ',' + awayNY) {
+          scriptState._thAwayRot = ((scriptState._thAwayRot || 0) + 1) % 4;
+          var bx = getX() - (awayNX - getX()), by = getY() - (awayNY - getY());   // current away-vector
+          var vxs = [bx, -by, -bx, by], vys = [by, bx, -by, -bx];                  // rotate it 90° steps
+          awayNX = getX() + vxs[scriptState._thAwayRot];
+          awayNY = getY() + vys[scriptState._thAwayRot];
+        } else {
+          scriptState._thAwayRot = 0;
+        }
+        scriptState._thAwayFrom = nowP;
+        scriptState._thAwayLast = awayNX + ',' + awayNY;
         walkTo(awayNX, awayNY);
         if (Date.now() - scriptState.thRetreatAt > 20000) {
           log('Combat won\'t clear — moving on');
