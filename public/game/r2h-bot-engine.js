@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v409';
+  var VERSION = 'v410';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8551,6 +8551,17 @@
 
     return function herblawTick() {
       try {
+        // ══ FATIGUE SLEEP (v410 — thieving-verbatim). Identify clicks burn
+        // fatigue; at 100% the server silently refuses ALL actions (bank
+        // opens included) → engine re-talks forever. 48 unids = ~48 clicks
+        // ≈ hits the wall mid-session (user log 01:34+: banker talks every
+        // 27s, bank never opens, zero withdraws). Sleep ≥90%.
+        var fatigue = getFatigue();
+        if (fatigue >= 90) {
+          var bagSlot = getInventoryIndex(SLEEPING_BAG);
+          if (bagSlot >= 0) { log('Fatigue ' + fatigue + '% — using sleeping bag'); useItem(bagSlot); return 3000; }
+        }
+
         if (scriptState.phase === 'init') {
           lvl = getStatBase(15);   // HERBLAW = 15
           if (mode === 'potion') {
