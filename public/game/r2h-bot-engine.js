@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v406';
+  var VERSION = 'v407';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8574,7 +8574,9 @@
             var isPotion = false;
             for (var pj = 0; pj < HERB_SECOND_LIST.length; pj++) if (HERB_SECOND_LIST[pj].pot === it) { isPotion = true; break; }
             var unidInfo = HERB_UNID[it];
-            if (isPotion || (unidInfo && lvl < unidInfo.lvl)) {
+            // v407: identify mode also banks the IDENTIFIED herbs (444-453 etc)
+            var isIdentHerb = !!HERB_NAME[it];
+            if (isPotion || (unidInfo && lvl < unidInfo.lvl) || (mode === 'identify' && isIdentHerb)) {
               var amt = depositAmountOf(di);
               depositItem(it, Math.max(1, Math.min(amt, 32767)));
               return 900;
@@ -8592,13 +8594,47 @@
               closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
             }
           } else {
-            // identify mode: no withdraws; if nothing left to deposit, done
-            var anyLeft = false;
-            for (var ci = 0; ci < cuH; ci++) {
-              var cit = Number(mcH.b4.data[ci]);
-              if (cit && HERB_UNID[cit]) { anyLeft = true; break; }
+            // v407 IDENTIFY-MODE WITHDRAW LOOP: pull the next batch of unids
+            // we CAN identify (any of the 11 main herbs), highest-first.
+            // Verified-withdraw discipline: send once, verify count moved,
+            // reopen-confirm on dry → honest stop.
+            var bestUnid = 0;
+            for (var hk2 in HERB_UNID) {
+              if (lvl >= HERB_UNID[hk2].lvl && hbCount(Number(hk2)) === 0) { bestUnid = Number(hk2); break; }
             }
-            if (!anyLeft) { log('All herbs identified + banked — done'); setTimeout(stopBot, 50); return function(){}; }
+            // prefer ANY unid already partially withdrawn first (finish the stack)
+            var haveAnyUnid = -1;
+            for (var hk3 in HERB_UNID) { if (hbCount(Number(hk3)) > 0) { haveAnyUnid = Number(hk3); break; } }
+            var target = haveAnyUnid >= 0 ? haveAnyUnid : bestUnid;
+            if (target > 0) {
+              if (!scriptState.wdSent) {
+                log('Withdrawing unid herbs (' + target + ')');
+                withdrawItem(target, 14);
+                scriptState.wdSent = 1;
+                return 800;
+              }
+              // sent once — did they arrive?
+              if (hbCount(target) > 0) {
+                scriptState.wdSent = 0;
+                closeBank();
+                scriptState.phase = 'hbWork';
+                return 600;
+              }
+              // not arrived — reopen-confirm once, then try the next herb type
+              scriptState.wdFails++;
+              if (scriptState.wdFails >= 2) {
+                scriptState.wdFails = 0; scriptState.wdSent = 0;
+                scriptState.hbTriedTypes = (scriptState.hbTriedTypes || 0) + 1;
+                if (scriptState.hbTriedTypes > 11) {
+                  log('Bank out of unid herbs — identify done');
+                  setTimeout(stopBot, 50); return function(){};
+                }
+                closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
+              }
+              closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
+            }
+            log('Bank out of unid herbs — identify done');
+            setTimeout(stopBot, 50); return function(){};
           }
           scriptState.wdSent = 0; scriptState.wdSent2 = 0; scriptState.wdSent3 = 0; scriptState.wdFails = 0;
           closeBank();
@@ -8620,7 +8656,8 @@
             return 1400;
           }
           if (mode === 'identify') {
-            if (bankName) { scriptState.phase = 'hbToBank'; return 600; }
+            // v407: out of unids in inventory → BANK for more (banking on), never just stop
+            if (bankName || scriptState.hbBankKey) { scriptState.phase = 'hbToBank'; return 600; }
             log('All identifiable herbs done'); setTimeout(stopBot, 50); return function(){};
           }
           // potion: vial + herb -> unfinished
