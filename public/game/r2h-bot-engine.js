@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v411';
+  var VERSION = 'v412';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8549,6 +8549,23 @@
     var R_HERB_NAME = HERB_NAME[R_HERB_ID] || '?';
     var R_UNFIN = {444:454,445:455,446:456,447:457,448:458,449:459,450:460,451:461,452:462,453:463,934:935}[R_HERB_ID] || 0;
 
+    // v412: WATER SOURCES near each bank (Refill.java: empty vial 465 +
+    // objects 48/26/86/1130 = fountain/sink; wells 2/466/814 fill ONLY
+    // buckets — NOT vials). SceneryLocs-verified:
+    var HB_WATER = {
+      'Draynor':       { id: 48, x: 273, y: 625 },
+      'Varrock West':  { id: 26, x: 147, y: 476 },
+      'Falador East':  { id: 26, x: 313, y: 539 },
+      'Falador West':  { id: 26, x: 313, y: 539 },
+      'Ardougne South':{ id: 26, x: 568, y: 589 },
+      'Ardougne North':{ id: 26, x: 568, y: 589 },
+      'Edgeville':     { id: 26, x: 255, y: 458 },
+      'Catherby':      { id: 48, x: 432, y: 484 },
+      'Seers':         { id: 26, x: 313, y: 539 },
+      'Varrock East':  { id: 26, x: 147, y: 476 },
+      'Yanille':       { id: 48, x: 432, y: 484 }
+    };
+
     return function herblawTick() {
       try {
         // ══ SLEEP SCREEN SOLVER (v411 — combat-verbatim, L1513-1529). v410
@@ -8618,7 +8635,7 @@
             var needUnid = hbUnidFor(R_HERB_ID);
             var wds = [
               [needUnid, 'wdSent',  'unid herbs'],
-              [464,      'wdSent2', 'vials'],
+              [465,      'wdSent2', 'empty vials'],
               [R.sec,    'wdSent3', 'second ingredient']
             ];
             for (var wi = 0; wi < wds.length; wi++) {
@@ -8644,7 +8661,7 @@
               }
               return 1000;
             }
-            var dryP = (hbCount(needUnid) === 0 && hbCount(464) === 0) || hbCount(R.sec) === 0;
+            var dryP = (hbCount(needUnid) === 0 && hbCount(465) === 0) || hbCount(R.sec) === 0;
             if (dryP) {
               scriptState.wdFails++;
               if (scriptState.wdFails >= 2) { log('Bank out of supplies — herblaw done'); setTimeout(stopBot, 50); return function(){}; }
@@ -8729,7 +8746,28 @@
             if (bankName || scriptState.hbBankKey) { scriptState.phase = 'hbToBank'; return 600; }
             log('All identifiable herbs done'); setTimeout(stopBot, 50); return function(){};
           }
-          // potion: vial + herb -> unfinished
+          // potion chain (v412): unid→identify (above) → FILL empty vials →
+          // vial+herb → unfinished → unfinished+second → potion.
+          // FILL: empty vial 465 + fountain/sink (Refill.java objects). The
+          // server wraps USE_ITEM_ON_SCENERY in a WalkToObjectAction — one
+          // send per vial, 1.4s cadence.
+          var eSlot = hbSlot(465);
+          if (eSlot >= 0 && hbCount(464) === 0) {
+            var wkey2 = scriptState.hbBankKey || bankName;
+            var WS = HB_WATER[wkey2] || HB_WATER['Catherby'];
+            var wObjs = findObjects([WS.id], 30);
+            if (wObjs.length === 0) {
+              log('No fountain near ' + wkey2 + ' — walking to ' + WS.x + ',' + WS.y);
+              walkTo(WS.x, WS.y);
+              return 2500;
+            }
+            var wO = wObjs[0].o;
+            var wCheb = Math.max(Math.abs(wO.worldX - getX()), Math.abs(wO.worldY - getY()));
+            if (wCheb > 1) { walkTo(wO.worldX + 1, wO.worldY); return 2500; }
+            useItemOnObject(eSlot, wO.worldX, wO.worldY);
+            return 1400;
+          }
+          // vial + herb -> unfinished
           var vSlot = hbSlot(464), hSlot = hbSlot(R_HERB_ID);
           if (vSlot >= 0 && hSlot >= 0) { useItemOnItem(vSlot, hSlot); return 1400; }
           // unfinished + second -> potion
