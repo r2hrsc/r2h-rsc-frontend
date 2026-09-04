@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v412';
+  var VERSION = 'v413';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8520,7 +8520,7 @@
   // banking = nearest branch from start pos.
   function makeHerblawScript(runtimeConfig) {
     var cfg = runtimeConfig || {};
-    var mode = cfg.herbMode === 'potion' ? 'potion' : 'identify';  // identify | potion
+    var mode = cfg.herbMode === 'potion' ? 'potion' : (cfg.herbMode === 'fill' ? 'fill' : 'identify');  // identify | potion | fill
     var potionName = cfg.herbPotion || 'Attack';
     var bankName = (cfg.herbBank && cfg.herbBank !== 'None') ? cfg.herbBank : null;
     var lvl = 0, R = null;
@@ -8607,7 +8607,7 @@
             var unidLvl = (HERB_UNID[hbUnidFor(R_HERB_ID)] || {lvl:0}).lvl;
             if (lvl < unidLvl) { log('Need Herblaw ' + unidLvl + ' to identify ' + R_HERB_NAME); setTimeout(stopBot, 50); return function(){}; }
           }
-          log('Herblaw v405: ' + (mode === 'identify' ? 'identify herbs' : R.name + ' potion') + ' (lvl ' + lvl + ')' + (bankName ? ' bank=' + bankName : ''));
+          log('Herblaw v413: ' + (mode === 'identify' ? 'identify herbs' : (mode === 'fill' ? 'fill vials' : R.name + ' potion')) + ' (lvl ' + lvl + ')' + (bankName ? ' bank=' + bankName : ''));
           scriptState.phase = 'hbWork';
           return 800;
         }
@@ -8616,6 +8616,8 @@
           if (!isInBank()) { scriptState.phase = 'hbToBank'; return 600; }
           var mcH = getMC(); if (!mcH) return 800;
           var cuH = Math.min(Number(mcH.cU) || 30, 30);
+          // deposit scan — fill mode banks the WATER VIALS it just made;
+          // identify mode banks identified herbs; potion mode banks products
           for (var di = 0; di < cuH; di++) {
             var it = Number(mcH.b4.data[di]);
             if (!it || it === SLEEPING_BAG) continue;
@@ -8624,7 +8626,8 @@
             var unidInfo = HERB_UNID[it];
             // v407: identify mode also banks the IDENTIFIED herbs (444-453 etc)
             var isIdentHerb = !!HERB_NAME[it];
-            if (isPotion || (unidInfo && lvl < unidInfo.lvl) || (mode === 'identify' && isIdentHerb)) {
+            var isFillOutput = (mode === 'fill' && it === 464);
+            if (isPotion || (unidInfo && lvl < unidInfo.lvl) || (mode === 'identify' && isIdentHerb) || isFillOutput) {
               var amt = depositAmountOf(di);
               depositItem(it, Math.max(1, Math.min(amt, 32767)));
               return 900;
@@ -8668,6 +8671,32 @@
               closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
             }
             scriptState.wdSent = 0; scriptState.wdSent2 = 0; scriptState.wdSent3 = 0; scriptState.wdFails = 0;
+          } else if (mode === 'fill') {
+            // v413 FILL MODE: withdraw empty vials only (proven timing)
+            if (!scriptState.wdSent) {
+              log('Withdrawing empty vials');
+              withdrawItem(465, 27);
+              scriptState.wdSent = Date.now();
+              return 2000;
+            }
+            if (Date.now() - scriptState.wdSent > 3000) {
+              if (hbCount(465) > 0) {
+                scriptState.wdSent = 0; scriptState.wdFails = 0;
+                closeBank();
+                scriptState.phase = 'hbWork';
+                return 600;
+              }
+              scriptState.wdFails = (scriptState.wdFails || 0) + 1;
+              log('Withdraw of empty vials not landing (' + scriptState.wdFails + '/6)');
+              if (scriptState.wdFails >= 6) {
+                log('Bank out of empty vials — fill done');
+                setTimeout(stopBot, 50); return function(){};
+              }
+              withdrawItem(465, 27);
+              scriptState.wdSent = Date.now();
+              return 2000;
+            }
+            return 1000;
           } else {
             // v409: IDENTIFY WITHDRAW — crafting's VERIFIED timing block,
             // ported verbatim (v353). v407/v408 failed because the check ran
@@ -8731,6 +8760,34 @@
         if (scriptState.phase === 'hbWork') {
           var mcW = getMC(); if (!mcW) return 800;
           var cuW = Math.min(Number(mcW.cU) || 30, 30);
+
+          // ══ FILL-ONLY MODE (v413): the dedicated vial filler — empty vials
+          // in → all filled at the fountain → bank → repeat. No herbs, no
+          // mixing, nothing else. (User: 'a specific part that ALL it does
+          // is fill vials'.)
+          if (mode === 'fill') {
+            var eSlotF = hbSlot(465);
+            if (eSlotF >= 0) {
+              var wkeyF = scriptState.hbBankKey || bankName;
+              var WSF = HB_WATER[wkeyF] || HB_WATER['Catherby'];
+              var wObjsF = findObjects([WSF.id], 30);
+              if (wObjsF.length === 0) {
+                walkTo(WSF.x, WSF.y);
+                return 2500;
+              }
+              var wOF = wObjsF[0].o;
+              var wChebF = Math.max(Math.abs(wOF.worldX - getX()), Math.abs(wOF.worldY - getY()));
+              if (wChebF > 1) { walkTo(wOF.worldX + 1, wOF.worldY); return 2500; }
+              useItemOnObject(eSlotF, wOF.worldX, wOF.worldY);
+              return 1400;
+            }
+            // inventory empty of empties → bank: deposit water vials,
+            // withdraw more empties (banking required for the loop)
+            if (bankName || scriptState.hbBankKey) { scriptState.phase = 'hbToBank'; return 600; }
+            log('No empty vials left — fill done');
+            setTimeout(stopBot, 50); return function(){};
+          }
+
           // 1. identify any unid we can (both modes)
           var idSlot = -1;
           for (var ii = 0; ii < cuW; ii++) {

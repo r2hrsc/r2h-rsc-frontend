@@ -1235,6 +1235,7 @@ function HerblawConfig({ cfg, set }: CfgProps) {
       <Field label="Mode">
         <select style={S_SELECT} value={cfg.herbMode ?? 'identify'} onChange={e => set({ herbMode: e.target.value })}>
           <option value="identify">Identify Herbs</option>
+          <option value="fill">Fill Vials</option>
           <option value="potion">Make Potions</option>
         </select>
       </Field>
