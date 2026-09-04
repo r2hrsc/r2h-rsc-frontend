@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v410';
+  var VERSION = 'v411';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8551,6 +8551,26 @@
 
     return function herblawTick() {
       try {
+        // ══ SLEEP SCREEN SOLVER (v411 — combat-verbatim, L1513-1529). v410
+        // ported ONLY the bag-use half of the sleep machinery; the sleep
+        // screen then sat unsolved (nobody types 'asleep') while the tick
+        // re-sent useItem(bag). Both halves, like every sealed script.
+        if (getIsSleeping()) {
+          if (!scriptState.sleepTyping) {
+            scriptState.sleepTyping = true;
+            log('Sleep screen detected — typing "asleep"');
+            var sleepWord = 'asleep';
+            for (var ci = 0; ci < sleepWord.length; ci++) {
+              window.__r2hTypeChar(sleepWord[ci]);
+            }
+            setTimeout(function() {
+              window.__r2hTypeSpecial('Enter');
+              scriptState.sleepTyping = false;
+            }, 500);
+          }
+          return 2000;   // wait for the server to process the word
+        }
+
         // ══ FATIGUE SLEEP (v410 — thieving-verbatim). Identify clicks burn
         // fatigue; at 100% the server silently refuses ALL actions (bank
         // opens included) → engine re-talks forever. 48 unids = ~48 clicks
