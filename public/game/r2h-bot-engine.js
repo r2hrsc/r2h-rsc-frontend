@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v408';
+  var VERSION = 'v409';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8583,33 +8583,57 @@
             }
           }
           if (mode === 'potion') {
+            // v409: crafting-proven withdraw timing (was 700ms — same disease as identify)
             var needUnid = hbUnidFor(R_HERB_ID);
-            if (hbCount(needUnid) < 14 && !scriptState.wdSent) { withdrawItem(needUnid, 14); scriptState.wdSent = 1; return 700; }
-            if (hbCount(464) < 14 && !scriptState.wdSent2) { withdrawItem(464, 14); scriptState.wdSent2 = 1; return 700; }
-            if (hbCount(R.sec) < 14 && !scriptState.wdSent3) { withdrawItem(R.sec, 14); scriptState.wdSent3 = 1; return 700; }
-            var dry = (hbCount(needUnid) === 0 && hbCount(464) === 0) || hbCount(R.sec) === 0;
-            if (dry) {
+            var wds = [
+              [needUnid, 'wdSent',  'unid herbs'],
+              [464,      'wdSent2', 'vials'],
+              [R.sec,    'wdSent3', 'second ingredient']
+            ];
+            for (var wi = 0; wi < wds.length; wi++) {
+              var wid = wds[wi][0], wkey = wds[wi][1], wname = wds[wi][2];
+              if (hbCount(wid) >= 14) continue;
+              if (!scriptState[wkey]) {
+                log('Withdrawing ' + wname + ' (id ' + wid + ')');
+                withdrawItem(wid, 14);
+                scriptState[wkey] = Date.now();
+                return 2000;
+              }
+              if (Date.now() - scriptState[wkey] > 3000) {
+                if (hbCount(wid) > 0) { scriptState[wkey] = 0; continue; }
+                scriptState.wdFails = (scriptState.wdFails || 0) + 1;
+                log('Withdraw of ' + wname + ' not landing (' + scriptState.wdFails + '/6)');
+                if (scriptState.wdFails >= 6) {
+                  log('Bank out of supplies — herblaw done');
+                  setTimeout(stopBot, 50); return function(){};
+                }
+                withdrawItem(wid, 14);
+                scriptState[wkey] = Date.now();
+                return 2000;
+              }
+              return 1000;
+            }
+            var dryP = (hbCount(needUnid) === 0 && hbCount(464) === 0) || hbCount(R.sec) === 0;
+            if (dryP) {
               scriptState.wdFails++;
               if (scriptState.wdFails >= 2) { log('Bank out of supplies — herblaw done'); setTimeout(stopBot, 50); return function(){}; }
               closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
             }
+            scriptState.wdSent = 0; scriptState.wdSent2 = 0; scriptState.wdSent3 = 0; scriptState.wdFails = 0;
           } else {
-            // v408 IDENTIFY-MODE WITHDRAW LOOP — DRY-SET EDITION.
-            // v407 bug (user: 'accessing bank constantly, withdrawing
-            // nothing'): selection always re-picked the FIRST herb type
-            // (guam 165) — if the bank holds no guam, it re-requested 165
-            // forever. Fix: types CONFIRMED dry (2 reopen checks) go into
-            // hbDry and are never re-selected; loop walks all 11 types.
+            // v409: IDENTIFY WITHDRAW — crafting's VERIFIED timing block,
+            // ported verbatim (v353). v407/v408 failed because the check ran
+            // 800ms after sending (bank confirm takes 1-2s) and never
+            // RE-SENT. Proven pattern: send → wait 2s → verify → re-send
+            // up to 6 → reopen-confirm → dry.
             if (!scriptState.hbDry) scriptState.hbDry = {};
-            var bestUnid = 0, remainingTypes = 0;
+            var bestUnid = 0;
             for (var hk2 in HERB_UNID) {
               var hu = Number(hk2);
               if (lvl < HERB_UNID[hk2].lvl) continue;
               if (scriptState.hbDry[hu]) continue;
-              remainingTypes++;
-              if (hbCount(hu) === 0 && !bestUnid) bestUnid = hu;
+              if (hbCount(hu) === 0) { bestUnid = hu; break; }
             }
-            // finish any partial stack already in inventory first
             var haveAnyUnid = -1;
             for (var hk3 in HERB_UNID) { if (hbCount(Number(hk3)) > 0) { haveAnyUnid = Number(hk3); break; } }
             var target = haveAnyUnid >= 0 ? haveAnyUnid : bestUnid;
@@ -8617,29 +8641,35 @@
               if (!scriptState.wdSent) {
                 log('Withdrawing unid herbs (id ' + target + (HERB_NAME[HERB_UNID[target].id] ? ' — ' + HERB_NAME[HERB_UNID[target].id] : '') + ')');
                 withdrawItem(target, 14);
-                scriptState.wdSent = 1;
-                return 800;
+                scriptState.wdSent = Date.now();
+                return 2000;   // crafting-proven: give the confirm 2s
               }
-              if (hbCount(target) > 0) {
-                scriptState.wdSent = 0; scriptState.wdFails = 0;
-                closeBank();
-                scriptState.phase = 'hbWork';
-                return 600;
-              }
-              // withdraw landed nothing — confirm via reopen, then mark DRY
-              scriptState.wdFails++;
-              if (scriptState.wdFails >= 2) {
-                scriptState.wdFails = 0; scriptState.wdSent = 0;
-                scriptState.hbDry[target] = 1;
-                log(HERB_NAME[HERB_UNID[target].id] + ' dry in bank — next type');
-                // all types dry?
-                var anyLeft2 = false;
-                for (var hk4 in HERB_UNID) {
-                  if (lvl >= HERB_UNID[hk4].lvl && !scriptState.hbDry[Number(hk4)]) { anyLeft2 = true; break; }
+              if (Date.now() - scriptState.wdSent > 3000) {
+                if (hbCount(target) > 0) {
+                  scriptState.wdSent = 0; scriptState.wdFails = 0;
+                  closeBank();
+                  scriptState.phase = 'hbWork';
+                  return 600;
                 }
-                if (!anyLeft2) { log('Bank out of unid herbs — identify done'); setTimeout(stopBot, 50); return function(){}; }
+                scriptState.wdFails = (scriptState.wdFails || 0) + 1;
+                log('Withdraw of ' + target + ' not landing (' + scriptState.wdFails + '/6)');
+                if (scriptState.wdFails >= 6) {
+                  scriptState.wdFails = 0; scriptState.wdSent = 0;
+                  scriptState.hbDry[target] = 1;
+                  log((HERB_NAME[HERB_UNID[target].id] || target) + ' dry — next type');
+                  var anyLeft2 = false;
+                  for (var hk4 in HERB_UNID) {
+                    if (lvl >= HERB_UNID[hk4].lvl && !scriptState.hbDry[Number(hk4)]) { anyLeft2 = true; break; }
+                  }
+                  if (!anyLeft2) { log('Bank out of unid herbs — identify done'); setTimeout(stopBot, 50); return function(){}; }
+                  closeBank(); scriptState.phase = 'hbBankTalk'; return 1000;
+                }
+                // re-send (the proven machine re-sends; v407 didn't)
+                withdrawItem(target, 14);
+                scriptState.wdSent = Date.now();
+                return 2000;
               }
-              closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
+              return 1000;
             }
             log('Bank out of unid herbs — identify done');
             setTimeout(stopBot, 50); return function(){};
