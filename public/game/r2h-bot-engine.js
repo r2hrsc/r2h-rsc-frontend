@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v407';
+  var VERSION = 'v408';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8594,42 +8594,50 @@
               closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
             }
           } else {
-            // v407 IDENTIFY-MODE WITHDRAW LOOP: pull the next batch of unids
-            // we CAN identify (any of the 11 main herbs), highest-first.
-            // Verified-withdraw discipline: send once, verify count moved,
-            // reopen-confirm on dry → honest stop.
-            var bestUnid = 0;
+            // v408 IDENTIFY-MODE WITHDRAW LOOP — DRY-SET EDITION.
+            // v407 bug (user: 'accessing bank constantly, withdrawing
+            // nothing'): selection always re-picked the FIRST herb type
+            // (guam 165) — if the bank holds no guam, it re-requested 165
+            // forever. Fix: types CONFIRMED dry (2 reopen checks) go into
+            // hbDry and are never re-selected; loop walks all 11 types.
+            if (!scriptState.hbDry) scriptState.hbDry = {};
+            var bestUnid = 0, remainingTypes = 0;
             for (var hk2 in HERB_UNID) {
-              if (lvl >= HERB_UNID[hk2].lvl && hbCount(Number(hk2)) === 0) { bestUnid = Number(hk2); break; }
+              var hu = Number(hk2);
+              if (lvl < HERB_UNID[hk2].lvl) continue;
+              if (scriptState.hbDry[hu]) continue;
+              remainingTypes++;
+              if (hbCount(hu) === 0 && !bestUnid) bestUnid = hu;
             }
-            // prefer ANY unid already partially withdrawn first (finish the stack)
+            // finish any partial stack already in inventory first
             var haveAnyUnid = -1;
             for (var hk3 in HERB_UNID) { if (hbCount(Number(hk3)) > 0) { haveAnyUnid = Number(hk3); break; } }
             var target = haveAnyUnid >= 0 ? haveAnyUnid : bestUnid;
             if (target > 0) {
               if (!scriptState.wdSent) {
-                log('Withdrawing unid herbs (' + target + ')');
+                log('Withdrawing unid herbs (id ' + target + (HERB_NAME[HERB_UNID[target].id] ? ' — ' + HERB_NAME[HERB_UNID[target].id] : '') + ')');
                 withdrawItem(target, 14);
                 scriptState.wdSent = 1;
                 return 800;
               }
-              // sent once — did they arrive?
               if (hbCount(target) > 0) {
-                scriptState.wdSent = 0;
+                scriptState.wdSent = 0; scriptState.wdFails = 0;
                 closeBank();
                 scriptState.phase = 'hbWork';
                 return 600;
               }
-              // not arrived — reopen-confirm once, then try the next herb type
+              // withdraw landed nothing — confirm via reopen, then mark DRY
               scriptState.wdFails++;
               if (scriptState.wdFails >= 2) {
                 scriptState.wdFails = 0; scriptState.wdSent = 0;
-                scriptState.hbTriedTypes = (scriptState.hbTriedTypes || 0) + 1;
-                if (scriptState.hbTriedTypes > 11) {
-                  log('Bank out of unid herbs — identify done');
-                  setTimeout(stopBot, 50); return function(){};
+                scriptState.hbDry[target] = 1;
+                log(HERB_NAME[HERB_UNID[target].id] + ' dry in bank — next type');
+                // all types dry?
+                var anyLeft2 = false;
+                for (var hk4 in HERB_UNID) {
+                  if (lvl >= HERB_UNID[hk4].lvl && !scriptState.hbDry[Number(hk4)]) { anyLeft2 = true; break; }
                 }
-                closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
+                if (!anyLeft2) { log('Bank out of unid herbs — identify done'); setTimeout(stopBot, 50); return function(){}; }
               }
               closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
             }
