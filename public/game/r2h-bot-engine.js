@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v419';
+  var VERSION = 'v420';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8657,22 +8657,27 @@
             // remains (no herbs in any form) or the ESSENTIAL supplies
             // (vials/seconds) are dry with no stock.
             var needUnid = hbUnidFor(R_HERB_ID);
+            // v420: supplies are 1:1:1 and must FIT — 9/9/9 (27 + bag) in 30
+            // slots. v419's 14/14/14 = 42 items physically couldn't coexist
+            // (each withdraw evicted the previous → thrash). Withdraw 464
+            // WATER vials (fill is the dedicated Fill Vials mode's job).
             var wds = [
               [needUnid, 'wdSent',  'unid herbs'],
-              [465,      'wdSent2', 'empty vials'],
+              [464,      'wdSent2', 'water vials'],
               [R.sec,    'wdSent3', 'second ingredient']
             ];
+            var WD_N = 9;
             if (!scriptState.hbDrySup) scriptState.hbDrySup = {};
             var herbStock = hbCount(R_HERB_ID) + hbCount(R_UNFIN);
             var initiated = false;
             for (var wi = 0; wi < wds.length; wi++) {
               var wid = wds[wi][0], wkey = wds[wi][1], wname = wds[wi][2];
               if (scriptState.hbDrySup[wid]) continue;            // proven dry — skip
-              if (wid === needUnid && herbStock >= 14) continue;  // enough herbs already
-              if (hbCount(wid) >= 14) continue;
+              if (wid === needUnid && herbStock >= WD_N) continue;  // enough herbs already
+              if (hbCount(wid) >= WD_N) continue;
               if (!scriptState[wkey]) {
                 log('Withdrawing ' + wname + ' (id ' + wid + ')');
-                withdrawItem(wid, 14);
+                withdrawItem(wid, WD_N);
                 scriptState[wkey] = Date.now();
                 return 2000;
               }
@@ -8691,7 +8696,7 @@
                   }
                   continue;   // next supply THIS visit
                 }
-                withdrawItem(wid, 14);
+                withdrawItem(wid, WD_N);
                 scriptState[wkey] = Date.now();
                 return 2000;
               }
@@ -8865,28 +8870,13 @@
             if (bankName || scriptState.hbBankKey) { scriptState.phase = 'hbToBank'; return 600; }
             log('All identifiable herbs done'); setTimeout(stopBot, 50); return function(){};
           }
-          // potion chain (v412): unid→identify (above) → FILL empty vials →
-          // vial+herb → unfinished → unfinished+second → potion.
-          // FILL: empty vial 465 + fountain/sink (Refill.java objects). The
-          // server wraps USE_ITEM_ON_SCENERY in a WalkToObjectAction — one
-          // send per vial, 1.4s cadence.
-          var eSlot = hbSlot(465);
-          if (eSlot >= 0 && hbCount(464) === 0) {
-            var wkey2 = scriptState.hbBankKey || bankName;
-            var WS = HB_WATER[wkey2] || HB_WATER['Catherby'];
-            var wObjs = findObjects([WS.id], 30);
-            if (wObjs.length === 0) {
-              log('No fountain near ' + wkey2 + ' — walking to ' + WS.x + ',' + WS.y);
-              walkTo(WS.x, WS.y);
-              return 2500;
-            }
-            // v414: FLAT object shape (see fill-mode fix)
-            var wO = wObjs[0];
-            var wCheb = Math.max(Math.abs(wO.worldX - getX()), Math.abs(wO.worldY - getY()));
-            if (wCheb > 1) { walkTo(wO.worldX + 1, wO.worldY); return 2500; }
-            useItemOnObject(eSlot, wO.worldX, wO.worldY);
-            return 1400;
-          }
+          // potion chain (v420): unid→identify (above) → vial+herb →
+          // unfinished → unfinished+second → potion. NO FILL STEP — user
+          // directive 9/4 ('i should run a script to fill empty vials
+          // separate to making potions'): potion mode withdraws WATER VIALS
+          // (464) only; filling is the dedicated Fill Vials mode's job.
+          // (v412's inline fountain fill removed — wrong design AND the
+          // 14/14/14 withdraws couldn't coexist in 30 slots.)
           // vial + herb -> unfinished
           var vSlot = hbSlot(464), hSlot = hbSlot(R_HERB_ID);
           if (vSlot >= 0 && hSlot >= 0) { useItemOnItem(vSlot, hSlot); return 1400; }
