@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v420';
+  var VERSION = 'v421';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8657,10 +8657,12 @@
             // remains (no herbs in any form) or the ESSENTIAL supplies
             // (vials/seconds) are dry with no stock.
             var needUnid = hbUnidFor(R_HERB_ID);
-            // v420: supplies are 1:1:1 and must FIT — 9/9/9 (27 + bag) in 30
-            // slots. v419's 14/14/14 = 42 items physically couldn't coexist
-            // (each withdraw evicted the previous → thrash). Withdraw 464
-            // WATER vials (fill is the dedicated Fill Vials mode's job).
+            // v421: ONE WITHDRAW PER BANK DIALOG (live-proven 22:xx: the 2nd
+            // withdrawItem inside a single open bank is silently dropped —
+            // 'water vials not landing 6/6' with 60 in bank, while supply #1
+            // succeeded every cycle). After each successful withdraw:
+            // closeBank + re-talk for the next supply (crafting's pattern).
+            // 1:1:1 supplies at 9 each (27 + bag = 30 slots).
             var wds = [
               [needUnid, 'wdSent',  'unid herbs'],
               [464,      'wdSent2', 'water vials'],
@@ -8682,19 +8684,27 @@
                 return 2000;
               }
               if (Date.now() - scriptState[wkey] > 3000) {
-                if (hbCount(wid) > 0) { scriptState[wkey] = 0; continue; }
+                if (hbCount(wid) > 0) {
+                  // v421: withdraw LANDED — close the dialog and re-enter the
+                  // bank for the NEXT supply (2nd withdraw in one dialog is
+                  // silently dropped by the client).
+                  scriptState[wkey] = 0;
+                  closeBank();
+                  scriptState.phase = 'hbBankTalk';
+                  return 900;
+                }
                 scriptState.wdFails = (scriptState.wdFails || 0) + 1;
                 log('Withdraw of ' + wname + ' not landing (' + scriptState.wdFails + '/6)');
                 if (scriptState.wdFails >= 6) {
                   scriptState.hbDrySup[wid] = 1;
                   scriptState.wdFails = 0; scriptState[wkey] = 0;
                   log(wname + ' dry in bank — continuing with the rest');
-                  if ((scriptState.hbDrySup[465] || scriptState.hbDrySup[R.sec]) &&
+                  if ((scriptState.hbDrySup[464] || scriptState.hbDrySup[R.sec]) &&
                       hbCount(R_HERB_ID) + hbCount(R_UNFIN) + hbCount(needUnid) === 0) {
                     log('Bank out of supplies — herblaw done');
                     setTimeout(stopBot, 50); return function(){};
                   }
-                  continue;   // next supply THIS visit
+                  continue;   // next supply in a FRESH bank visit
                 }
                 withdrawItem(wid, WD_N);
                 scriptState[wkey] = Date.now();
