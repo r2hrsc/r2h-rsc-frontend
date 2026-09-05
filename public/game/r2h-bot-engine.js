@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v421';
+  var VERSION = 'v422';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -8636,10 +8636,13 @@
             var isIdentHerb = !!HERB_NAME[it];
             var isFillOutput = (mode === 'fill' && it === 464);
             var isLeftoverVial = (it === 464 || it === 465);
-            // v416b: FILL mode keeps its 465 INPUTS (only banks 464 output);
-            // POTION mode keeps what it re-withdrew; IDENTIFY banks both.
+            // v421b: FILL mode keeps its 465 INPUTS (only banks 464 output);
+            // POTION mode keeps what it re-withdrew — 464 WATER vials (v420
+            // changed the supply; the exemption still said 465 → every bank
+            // visit re-deposited the just-withdrawn vials (9→5→3 wobble));
+            // IDENTIFY banks both.
             var keepForMode = (mode === 'fill' && it === 465) ||
-                              (mode === 'potion' && R && (it === R.sec || it === R_HERB_ID || it === R_UNFIN || it === 465));
+                              (mode === 'potion' && R && (it === R.sec || it === R_HERB_ID || it === R_UNFIN || it === 464 || it === hbUnidFor(R_HERB_ID)));
             if (isPotion || (unidInfo && lvl < unidInfo.lvl) || (mode === 'identify' && isIdentHerb) || isFillOutput ||
                 (isLeftoverVial && !keepForMode && !unidInfo)) {
               var amt = depositAmountOf(di);
