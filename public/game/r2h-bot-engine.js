@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v413';
+  var VERSION = 'v419';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -546,7 +546,11 @@
     var walkFn = window.__r2h_walk;
     if (!walkFn) { log('walkTo FAIL: __r2h_walk not exposed'); return false; }
     // Dg(mc, playerLocalX, playerLocalZ, destLocalX, destLocalZ, walkToEntity)
-    // World coords → local: local = world - regionBase
+    // World coords → local: local = world - regionBase. du/dd = REGION BASE
+    // (large, e.g. 384), bJ/bK = PLAYER LOCAL (small, 0-127 per July probe:
+    // "locals are small numbers 37-120"). v417 briefly swapped these — WRONG:
+    // the swap produced locals ~377 (out of range) and would break every
+    // walking script. Original mapping is correct (P1 fill passed 4x on it).
     var baseX = mc.du || 0;
     var baseZ = mc.dd || 0;
     var destLocalX = x - baseX;
@@ -8616,8 +8620,12 @@
           if (!isInBank()) { scriptState.phase = 'hbToBank'; return 600; }
           var mcH = getMC(); if (!mcH) return 800;
           var cuH = Math.min(Number(mcH.cU) || 30, 30);
-          // deposit scan — fill mode banks the WATER VIALS it just made;
-          // identify mode banks identified herbs; potion mode banks products
+          // deposit scan — v416 CROSS-MODE LEFTOVER RULE: a previous fill
+          // run leaves 464/465 vials in inventory; they jam the unid
+          // withdraws (inv full → dry-stop with herbs still banked). Bank
+          // them in ALL modes (potion mode re-withdraws what it needs).
+          // fill mode banks the WATER VIALS it just made; identify mode
+          // banks identified herbs; potion mode banks products.
           for (var di = 0; di < cuH; di++) {
             var it = Number(mcH.b4.data[di]);
             if (!it || it === SLEEPING_BAG) continue;
@@ -8627,22 +8635,40 @@
             // v407: identify mode also banks the IDENTIFIED herbs (444-453 etc)
             var isIdentHerb = !!HERB_NAME[it];
             var isFillOutput = (mode === 'fill' && it === 464);
-            if (isPotion || (unidInfo && lvl < unidInfo.lvl) || (mode === 'identify' && isIdentHerb) || isFillOutput) {
+            var isLeftoverVial = (it === 464 || it === 465);
+            // v416b: FILL mode keeps its 465 INPUTS (only banks 464 output);
+            // POTION mode keeps what it re-withdrew; IDENTIFY banks both.
+            var keepForMode = (mode === 'fill' && it === 465) ||
+                              (mode === 'potion' && R && (it === R.sec || it === R_HERB_ID || it === R_UNFIN || it === 465));
+            if (isPotion || (unidInfo && lvl < unidInfo.lvl) || (mode === 'identify' && isIdentHerb) || isFillOutput ||
+                (isLeftoverVial && !keepForMode && !unidInfo)) {
               var amt = depositAmountOf(di);
               depositItem(it, Math.max(1, Math.min(amt, 32767)));
               return 900;
             }
           }
           if (mode === 'potion') {
-            // v409: crafting-proven withdraw timing (was 700ms — same disease as identify)
+            // v419: per-supply dry-set + mixable-stock awareness. v409's loop
+            // let wds[0] (unid herbs) monopolize every bank visit (withdraw→
+            // identify→count 0→re-withdraw) until the bank ran dry, then
+            // hard-stopped WITH 28 identified herbs in inventory and vials
+            // never withdrawn (live 19:50). Now: a supply proven dry (6x) is
+            // SKIPPED (not fatal); hard-stop only when nothing mixable
+            // remains (no herbs in any form) or the ESSENTIAL supplies
+            // (vials/seconds) are dry with no stock.
             var needUnid = hbUnidFor(R_HERB_ID);
             var wds = [
               [needUnid, 'wdSent',  'unid herbs'],
               [465,      'wdSent2', 'empty vials'],
               [R.sec,    'wdSent3', 'second ingredient']
             ];
+            if (!scriptState.hbDrySup) scriptState.hbDrySup = {};
+            var herbStock = hbCount(R_HERB_ID) + hbCount(R_UNFIN);
+            var initiated = false;
             for (var wi = 0; wi < wds.length; wi++) {
               var wid = wds[wi][0], wkey = wds[wi][1], wname = wds[wi][2];
+              if (scriptState.hbDrySup[wid]) continue;            // proven dry — skip
+              if (wid === needUnid && herbStock >= 14) continue;  // enough herbs already
               if (hbCount(wid) >= 14) continue;
               if (!scriptState[wkey]) {
                 log('Withdrawing ' + wname + ' (id ' + wid + ')');
@@ -8655,8 +8681,15 @@
                 scriptState.wdFails = (scriptState.wdFails || 0) + 1;
                 log('Withdraw of ' + wname + ' not landing (' + scriptState.wdFails + '/6)');
                 if (scriptState.wdFails >= 6) {
-                  log('Bank out of supplies — herblaw done');
-                  setTimeout(stopBot, 50); return function(){};
+                  scriptState.hbDrySup[wid] = 1;
+                  scriptState.wdFails = 0; scriptState[wkey] = 0;
+                  log(wname + ' dry in bank — continuing with the rest');
+                  if ((scriptState.hbDrySup[465] || scriptState.hbDrySup[R.sec]) &&
+                      hbCount(R_HERB_ID) + hbCount(R_UNFIN) + hbCount(needUnid) === 0) {
+                    log('Bank out of supplies — herblaw done');
+                    setTimeout(stopBot, 50); return function(){};
+                  }
+                  continue;   // next supply THIS visit
                 }
                 withdrawItem(wid, 14);
                 scriptState[wkey] = Date.now();
@@ -8664,8 +8697,8 @@
               }
               return 1000;
             }
-            var dryP = (hbCount(needUnid) === 0 && hbCount(465) === 0) || hbCount(R.sec) === 0;
-            if (dryP) {
+            var dryP = (hbCount(needUnid) === 0 && hbCount(465) === 0 && hbCount(R_HERB_ID) === 0 && hbCount(R_UNFIN) === 0) || hbCount(R.sec) === 0;
+            if (dryP && hbCount(R_HERB_ID) + hbCount(R_UNFIN) === 0) {
               scriptState.wdFails++;
               if (scriptState.wdFails >= 2) { log('Bank out of supplies — herblaw done'); setTimeout(stopBot, 50); return function(){}; }
               closeBank(); scriptState.phase = 'hbBankTalk'; return 900;
@@ -8775,9 +8808,32 @@
                 walkTo(WSF.x, WSF.y);
                 return 2500;
               }
-              var wOF = wObjsF[0].o;
+              var wOF = wObjsF[0];
               var wChebF = Math.max(Math.abs(wOF.worldX - getX()), Math.abs(wOF.worldY - getY()));
-              if (wChebF > 1) { walkTo(wOF.worldX + 1, wOF.worldY); return 2500; }
+              if (wChebF > 1) {
+                // v417b HOP-WALK (v387 rule): if a direct walk to the fountain
+                // isn't landing (Dg undefined — doorway/wall between), step via
+                // an intermediate tile. Send-once discipline + 3s stillness.
+                var hx = getX(), hy = getY();
+                var moved = (hx !== (scriptState.hbLastPX || -1) || hy !== (scriptState.hbLastPY || -1));
+                scriptState.hbLastPX = hx; scriptState.hbLastPY = hy;
+                if (moved) { scriptState.hbWalkStall = 0; }
+                else if (!scriptState.hbWalkSent || Date.now() - scriptState.hbWalkSent > 3000) {
+                  scriptState.hbWalkStall = (scriptState.hbWalkStall || 0) + 1;
+                  if (scriptState.hbWalkStall >= 2) {
+                    // hop: midpoint toward the fountain
+                    var hopX = Math.floor((hx + wOF.worldX) / 2);
+                    var hopY = Math.floor((hy + wOF.worldY) / 2);
+                    log('Direct walk stalled — hopping via (' + hopX + ',' + hopY + ')');
+                    walkTo(hopX, hopY);
+                    scriptState.hbWalkStall = 0;
+                  } else {
+                    walkTo(wOF.worldX + 1, wOF.worldY);
+                  }
+                  scriptState.hbWalkSent = Date.now();
+                }
+                return 2500;
+              }
               useItemOnObject(eSlotF, wOF.worldX, wOF.worldY);
               return 1400;
             }
@@ -8795,7 +8851,13 @@
             if (HERB_UNID[uid] && lvl >= HERB_UNID[uid].lvl) { idSlot = ii; break; }
           }
           if (idSlot >= 0) {
-            sendRaw(246, 0, function(stream, Z) { Z(stream, idSlot); Z(stream, 1); });
+            // v415 WIRE FIX: ITEM_COMMAND (246) carries ONE short (inv index)
+            // — Payload177Parser reads ic.index = readShort() and NOTHING else.
+            // v405 sent Z(slot)+Z(1): the trailing byte made every identify
+            // packet malformed → zero server events ever. Use useItem() — the
+            // SAME proven primitive eating uses; the item's own menu command
+            // (unid herbs default to "Identify") is what fires server-side.
+            useItem(idSlot);
             return 1400;
           }
           if (mode === 'identify') {
@@ -8818,7 +8880,8 @@
               walkTo(WS.x, WS.y);
               return 2500;
             }
-            var wO = wObjs[0].o;
+            // v414: FLAT object shape (see fill-mode fix)
+            var wO = wObjs[0];
             var wCheb = Math.max(Math.abs(wO.worldX - getX()), Math.abs(wO.worldY - getY()));
             if (wCheb > 1) { walkTo(wO.worldX + 1, wO.worldY); return 2500; }
             useItemOnObject(eSlot, wO.worldX, wO.worldY);
