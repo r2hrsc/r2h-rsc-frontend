@@ -12,6 +12,7 @@ import { MediaKit } from './pages/MediaKit';
 import { AdManagerPage } from './components/Admin/AdManager';
 import { PrivacyPolicy, TermsOfService, About } from './pages/LegalPages';
 import { useGameScale } from './hooks/useGameScale';
+import MobileKeyboard from './components/GameClient/MobileKeyboard';
 import { initWalletKit } from './lib/walletKit';
 import './index.css';
 import './layout.css';
@@ -202,6 +203,35 @@ function AppContent() {
     return () => window.removeEventListener('resize', check);
   }, []);
 
+  // ── RESTORED: fullscreen button + mobile keyboard ──
+  // Shared iframe ref — MobileKeyboard types into the game through it.
+  const gameIframeRef = useRef<HTMLIFrameElement>(null);
+  // Native Fullscreen API (NOT a CSS fake): request on the game-frame element.
+  const gameFrameRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => {
+    const onFsChange = () => {
+      setIsFullscreen(!!(document.fullscreenElement || (document as any).webkitFullscreenElement));
+    };
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      document.removeEventListener('webkitfullscreenchange', onFsChange);
+    };
+  }, []);
+  const toggleFullscreen = useCallback(() => {
+    const el = gameFrameRef.current;
+    if (!el) return;
+    if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+      const req = (el as any).requestFullscreen || (el as any).webkitRequestFullscreen;
+      if (req) req.call(el);
+    } else {
+      const exit = document.exitFullscreen || (document as any).webkitExitFullscreen;
+      if (exit) exit.call(document);
+    }
+  }, []);
+
   // Conditional ad reserves — on mobile, no side columns, only top/bottom bars
   const reserveH = isMobile ? 0 : AD_RESERVE_H;
   const reserveV = isMobile ? 0 : AD_RESERVE_V;
@@ -287,15 +317,19 @@ function AppContent() {
         </div>
 
         {/* ── Game frame — centered between all four ad zones ── */}
-        <div style={{
-          position: 'absolute',
-          left: gameLeft,
-          top: gameTop,
-          width: visualWidth,
-          height: visualGameHeight,
-          boxShadow: '0 0 0 1px #1a1a1a',
-          zIndex: 1,
-        }}>
+        <div
+          ref={gameFrameRef}
+          className="game-frame"
+          style={{
+            position: 'absolute',
+            left: gameLeft,
+            top: gameTop,
+            width: visualWidth,
+            height: visualGameHeight,
+            boxShadow: '0 0 0 1px #1a1a1a',
+            zIndex: 1,
+          }}
+        >
           <GameContainer
             key={`game-${reconnectAttempt}`}   /* v358: remount on auto-reconnect → fresh RSC_LOGIN */
             wsUrl={WS_URL}
@@ -304,7 +338,27 @@ function AppContent() {
             onLoginComplete={handleLoginComplete}
             showRscBackground={isAuthScreen}
             scale={gameScale}
+            iframeRef={gameIframeRef}
           />
+          {/* RESTORED: fullscreen toggle — real browser Fullscreen API on the game frame */}
+          <button
+            className="fs-toggle"
+            onClick={toggleFullscreen}
+            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+              </svg>
+            )}
+          </button>
+          {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
+          <MobileKeyboard iframeRef={gameIframeRef} />
           {/* Auth overlay constrained exactly to the RSC game frame only */}
           {isAuthScreen && (
             <AuthOverlay

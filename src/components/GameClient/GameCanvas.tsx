@@ -13,7 +13,7 @@ const RSA_EXPONENT = '65537';
 const RSA_MODULUS = '9115015542438186018327044408313987277889783174239809826491015549573028356381739563861028029945657804756198333660503635469704152602063914154601665525357981';
 // Cache-bust version: increment when the rsc-client/index.html is updated.
 // This forces mobile browsers to fetch the new iframe content instead of serving a cached copy.
-const CLIENT_VERSION = 'v381';
+const CLIENT_VERSION = 'v382';
 const GAME_URL = `${CACHE_CDN}?v=${CLIENT_VERSION}#members,127.0.0.1,43594,${RSA_EXPONENT},${RSA_MODULUS},1`;
 
 interface GameCanvasProps {
@@ -22,11 +22,16 @@ interface GameCanvasProps {
   rscPassword?: string;
   onLoginComplete?: () => void;
   showRscBackground?: boolean;
+  /** External iframe ref (restored features: MobileKeyboard types through it). Optional — falls back to a local ref. */
+  iframeRef?: React.RefObject<HTMLIFrameElement>;
 }
 
-export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground }: GameCanvasProps) {
+export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground, iframeRef: externalIframeRef }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const localIframeRef = useRef<HTMLIFrameElement>(null);
+  // External ref (from App via GameContainer) when provided, else local —
+  // lets App-level overlays reach the same iframe without DOM queries.
+  const iframeRef = externalIframeRef ?? localIframeRef;
   const rendererRef = useRef<RSCRenderer | null>(null);
   const credsSentRef = useRef(false);
   const loginFallbackFired = useRef(false);

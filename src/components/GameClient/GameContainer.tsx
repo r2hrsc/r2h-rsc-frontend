@@ -10,9 +10,11 @@ interface GameContainerProps {
   onLoginComplete?: () => void;
   showRscBackground?: boolean;
   scale?: number;
+  /** Forwarded to GameCanvas — App-level overlays (MobileKeyboard) share this iframe ref */
+  iframeRef?: React.RefObject<HTMLIFrameElement>;
 }
 
-export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground, scale: passedScale = 1 }: GameContainerProps) {
+export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground, scale: passedScale = 1, iframeRef }: GameContainerProps) {
   // Scale is passed from parent (single useGameScale call in App to avoid duplicate state + listeners)
   const scale = passedScale;
 
@@ -47,6 +49,7 @@ export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLogin
           rscPassword={rscPassword}
           onLoginComplete={onLoginComplete}
           showRscBackground={showRscBackground}
+          iframeRef={iframeRef}
         />
       </div>
     </div>
