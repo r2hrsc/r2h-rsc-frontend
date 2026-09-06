@@ -17,6 +17,7 @@ import { ActivitySidebar, WorldStatusStrip, MobileActivityBar, PanelToggle, useI
 import { LetterboxDock } from './components/GameClient/LetterboxDock';
 import { LeftColumn } from './components/GameClient/LeftColumn';
 import { initWalletKit } from './lib/walletKit';
+import { useDisconnect as useAppKitDisconnect } from '@reown/appkit/react';
 import './index.css';
 import './layout.css';
 
@@ -105,11 +106,17 @@ class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryStat
 
 function AppContent() {
   const { ready, authenticated, user, logout } = usePrivy();
+  const { disconnect: disconnectWallet } = useAppKitDisconnect();
 
   const logoutRef = useRef(logout);
   useEffect(() => {
     logoutRef.current = logout;
   }, [logout]);
+
+  const disconnectWalletRef = useRef(disconnectWallet);
+  useEffect(() => {
+    disconnectWalletRef.current = disconnectWallet;
+  }, [disconnectWallet]);
 
   // Initialize Reown AppKit EARLY — during the loading screen (before ad zones render).
   // This ensures the w3m-modal element is created and settled to opacity:0 while the
@@ -121,6 +128,7 @@ function AppContent() {
   const [appState, setAppState] = useState<AppState>('auth');
   const [authProvider, setAuthProvider] = useState('');
   const [authExternalId, setAuthExternalId] = useState('');
+  const [registrationToken, setRegistrationToken] = useState('');
   const [rscCredentials, setRscCredentials] = useState<{ username: string; password: string } | null>(null);
   const [loadingText, setLoadingText] = useState('Loading game...');
 
@@ -155,17 +163,20 @@ function AppContent() {
         setRscCredentials(null);
         setAuthProvider('');
         setAuthExternalId('');
+        setRegistrationToken('');
         logoutRef.current?.();
+        disconnectWalletRef.current?.(); // drop the Reown session so the wallet prompt re-arms
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, [reconnectAttempt]);
 
-  const handleAuthComplete = useCallback((provider: string, externalId: string) => {
+  const handleAuthComplete = useCallback((provider: string, externalId: string, regToken?: string) => {
     console.log('[App] Auth complete (new user):', provider, externalId);
     setAuthProvider(provider);
     setAuthExternalId(externalId);
+    setRegistrationToken(regToken ?? '');
     setAppState('username');
   }, []);
 
@@ -418,6 +429,7 @@ function AppContent() {
           apiUrl={API_URL}
           provider={authProvider}
           externalId={authExternalId}
+          registrationToken={registrationToken}
           onComplete={handleUsernameComplete}
         />
       )}

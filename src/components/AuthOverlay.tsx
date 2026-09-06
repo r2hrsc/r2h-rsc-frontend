@@ -1,16 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
-import { modal as walletModal, useAppKitAccount } from '@reown/appkit/react';
+import { modal as walletModal, useAppKitAccount, useAppKitProvider, useDisconnect } from '@reown/appkit/react';
+import type { Eip1193Provider } from 'ethers';
 
 interface AuthOverlayProps {
   apiUrl: string;
-  onAuthComplete: (provider: string, externalId: string) => void;
+  onAuthComplete: (provider: string, externalId: string, registrationToken: string) => void;
   onExistingUser: (provider: string, externalId: string, rscUsername: string, rscPassword: string) => void;
 }
 
 export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: AuthOverlayProps) {
   const [error, setError] = useState('');
   const [signingIn, setSigningIn] = useState(false);
+  const [statusText, setStatusText] = useState('Signing in...');
   const [showDirect, setShowDirect] = useState(false);
   const [rscUser, setRscUser] = useState('');
   const [rscPass, setRscPass] = useState('');
@@ -20,37 +22,85 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
 
   // Track wallet connection state via Reown hooks
   const { address, isConnected } = useAppKitAccount();
+  const { walletProvider } = useAppKitProvider('eip155');
+  const { disconnect } = useDisconnect();
 
-  // When wallet connects, send address to backend
+  // Guard against double-firing when both isConnected and address update,
+  // and against re-triggering the signature prompt for an already-handled address.
+  const handledRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (isConnected && address) {
+      if (handledRef.current === address) return;
+      handledRef.current = address;
       console.log('[Auth] Wallet connected:', address);
       handleWalletAuth(address);
     }
+    // If fully disconnected, allow a fresh attempt next connect
+    if (!isConnected) {
+      handledRef.current = null;
+    }
   }, [isConnected, address]);
 
+  /** On any wallet-auth failure: re-arm so the user can simply tap Connect again. */
+  const rearmWallet = (msg: string) => {
+    setError(msg);
+    setSigningIn(false);
+    handledRef.current = null;
+    try { disconnect(); } catch { /* already disconnected */ }
+  };
+
+  // Wallet login: nonce → personal_sign → server verifies signature.
+  // EVM personal_sign covers MetaMask, Phantom (EVM) and Trust — injected on
+  // desktop, deep-linked on mobile via the Reown modal.
   const handleWalletAuth = async (walletAddress: string) => {
     setSigningIn(true);
+    setStatusText('Requesting signature...');
     try {
+      // 1. Get single-use nonce from backend (bound to this address)
+      const nonceRes = await fetch(`${apiUrl}/auth/wallet/nonce`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ walletAddress }),
+      });
+      const nonceData = await nonceRes.json();
+      if (!nonceRes.ok || !nonceData.ok) throw new Error(nonceData.error || 'Could not get login nonce');
+      const nonce = nonceData.nonce as string;
+
+      // 2. Ask the wallet to sign the login message (EIP-191 personal_sign)
+      if (!walletProvider) throw new Error('Wallet provider not available — reconnect your wallet');
+      const { BrowserProvider } = await import('ethers');
+      const provider = new BrowserProvider(walletProvider as Eip1193Provider);
+      const signer = await provider.getSigner();
+      const message = [
+        'R2H RSC wallet login',
+        `Address: ${walletAddress.toLowerCase()}`,
+        `Nonce: ${nonce}`,
+        '',
+        'Signing proves you own this wallet. This request will not trigger a blockchain transaction.',
+      ].join('\n');
+      setStatusText('Confirm the signature in your wallet...');
+      const signature = await signer.signMessage(message);
+
+      // 3. Verify on backend → existing user logs in, new user gets a registration token
       const res = await fetch(`${apiUrl}/auth/wallet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: walletAddress }),
+        body: JSON.stringify({ walletAddress, signature, nonce }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.ok) {
-        if (data.existing && data.rscUsername && data.rscPassword) {
-          onExistingUser('wallet', walletAddress, data.rscUsername, data.rscPassword);
-        } else {
-          onAuthComplete('wallet', walletAddress);
-        }
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Wallet login failed');
+      if (data.existing) {
+        onExistingUser('wallet', walletAddress.toLowerCase(), data.rscUsername, data.rscPassword);
       } else {
-        // Backend doesn't have /auth/wallet yet — proceed with address as ID
-        onAuthComplete('wallet', walletAddress);
+        onAuthComplete('wallet', walletAddress.toLowerCase(), data.registrationToken);
       }
     } catch (err: any) {
       console.error('[Auth] Wallet auth error:', err);
-      onAuthComplete('wallet', walletAddress);
+      const rejected = err?.code === 4001 || err?.code === 'ACTION_REJECTED' || /reject|denied|cancel/i.test(err?.info?.error?.message || err?.shortMessage || err?.message || '');
+      rearmWallet(rejected
+        ? 'Signature request was cancelled — tap Connect Wallet to try again.'
+        : (err?.shortMessage || err?.message || 'Wallet login failed'));
     }
   };
 
@@ -73,7 +123,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
       if (data.existing && data.rscUsername && data.rscPassword) {
         onExistingUser(data.provider || 'google', data.externalId, data.rscUsername, data.rscPassword);
       } else {
-        onAuthComplete(data.provider || 'google', data.externalId);
+        onAuthComplete(data.provider || 'google', data.externalId, data.registrationToken);
       }
     } catch (err: any) {
       console.error('[Auth] Google auth error:', err);
@@ -103,12 +153,9 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
   if (signingIn) {
     return (
       <div style={{
-        position: 'absolute',
-    top: 0,
-    left: 0,
-    width: '100%',
-    height: '100%',
-    zIndex: 1039,
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1039,
         display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
         background: 'rgba(0,0,0,0.9)', gap: 16,
       }}>
@@ -116,7 +163,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
           width: 32, height: 32, border: '3px solid #333', borderTop: '3px solid #14F195',
           borderRadius: '50%', animation: 'spin 0.8s linear infinite',
         }} />
-        <p style={{ color: '#888', fontSize: 14, fontFamily: 'monospace', margin: 0 }}>Signing in...</p>
+        <p style={{ color: '#888', fontSize: 14, fontFamily: 'monospace', margin: 0 }}>{statusText}</p>
       </div>
     );
   }
@@ -153,10 +200,10 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
 
         {/* Wallet — Secondary / Advanced */}
         <button style={styles.btnSecondary} onClick={handleConnectWallet}>
-          Connect Wallet (Advanced)
+          Connect Wallet
         </button>
         <p style={styles.secondaryHint}>
-          Best experienced from a wallet browser or desktop
+          MetaMask · Phantom · Trust — mobile &amp; desktop
         </p>
 
         {/* Direct RSC Login — for testing / users without Google */}

@@ -6,10 +6,11 @@ interface UsernamePickerProps {
   apiUrl: string;
   provider: string;
   externalId: string;
+  registrationToken: string;
   onComplete: (rscUsername: string, rscPassword: string) => void;
 }
 
-export default function UsernamePicker({ apiUrl, provider, externalId, onComplete }: UsernamePickerProps) {
+export default function UsernamePicker({ apiUrl, provider, externalId, registrationToken, onComplete }: UsernamePickerProps) {
   const [username, setUsername] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,7 +33,7 @@ export default function UsernamePicker({ apiUrl, provider, externalId, onComplet
       const res = await fetch(`${apiUrl}/auth/register-username`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider, externalId, username }),
+        body: JSON.stringify({ provider, externalId, username, registrationToken }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
