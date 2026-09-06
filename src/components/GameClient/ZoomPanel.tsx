@@ -11,12 +11,19 @@ import { useState, useEffect, type CSSProperties, type ReactNode } from 'react';
 //
 // z = devicePixelRatio / dpr-at-load — same normalization as useGameScale.
 
-const LOAD_DPR = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+// Reference for panel-content compensation: browser zoom 100%.
+// v398 FIX: this was dpr-at-page-load — loading the page while zoomed out
+// (e.g. after testing zoom, then hard-refresh) anchored "100%" at 67% and
+// rendered panel text ~2/3 size at true 100%. Panels are desktop-only
+// (mobile is gated out), and desktop players run browser-100% with dpr 1,
+// so the constant 1 is the correct reference. z = devicePixelRatio directly:
+// 100% zoom → z=1 → text renders at plain CSS px (the full 13px+ ramp).
+const PANEL_REF_DPR = 1;
 
 export function useZoomFactor(): number {
-  const [z, setZ] = useState((window.devicePixelRatio || 1) / LOAD_DPR);
+  const [z, setZ] = useState((window.devicePixelRatio || 1) / PANEL_REF_DPR);
   useEffect(() => {
-    const on = () => setZ((window.devicePixelRatio || 1) / LOAD_DPR);
+    const on = () => setZ((window.devicePixelRatio || 1) / PANEL_REF_DPR);
     window.addEventListener('resize', on);
     return () => window.removeEventListener('resize', on);
   }, []);

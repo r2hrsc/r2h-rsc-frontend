@@ -11,7 +11,9 @@ const MAX_SCALE = 6;    // must be ≥4: game fills large monitors in fullscreen
 // normalizing by dpr/loadDpr recovers the TRUE viewport, so the game keeps a
 // constant CSS-px size and browser zoom shrinks/grows it naturally instead of
 // the scale recomputing to refill the window.
-const LOAD_DPR = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+// v398: reference = browser zoom 100% (dpr 1), NOT dpr-at-load — see ZoomPanel.
+// Loading while zoomed out must not re-anchor the game size.
+const REF_DPR = 1;
 
 export function useGameScale(): number {
   // Viewport tick — bumped on resize + fullscreenchange so scale recomputes
@@ -67,7 +69,7 @@ function calculateScale(isFullscreen: boolean): number {
   // user's reference (load-time) zoom. Browser zoom-out inflates CSS px and
   // deflates dpr proportionally — dpr/loadDpr cancels the inflation.
   const dpr = window.devicePixelRatio || 1;
-  const zoomFactor = dpr / LOAD_DPR; // <1 zoomed out, >1 zoomed in
+  const zoomFactor = dpr / REF_DPR; // <1 zoomed out, >1 zoomed in
   const normW = vw * zoomFactor;
   const normH = vh * zoomFactor;
 
