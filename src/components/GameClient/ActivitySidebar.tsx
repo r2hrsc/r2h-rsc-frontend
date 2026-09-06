@@ -233,6 +233,11 @@ export function useItemNames(): Record<string, string> {
   return names;
 }
 
+// Zoom normalization (v392): same as useGameScale — dpr/loadDpr cancels the
+// CSS inflation browser zoom-out causes, so the letterbox math sees the REAL
+// gap around the game and the columns fill ALL the freed space.
+const LOAD_DPR = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+
 /**
  * Letterbox geometry. `open` (toggle state) is the single source of truth:
  * - open + natural room  → column at natural width, game unscaled
@@ -248,8 +253,9 @@ export function useLetterbox(open: boolean): {
   const [geom, setGeom] = useState({ sideWidth: 0, naturalSideWidth: 0, forcedScaleDown: false, effectiveScaleFactor: 1 });
 
   const recalc = useCallback(() => {
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const z = (window.devicePixelRatio || 1) / LOAD_DPR;
+    const vw = window.innerWidth * z;   // zoom-normalized — matches the game's
+    const vh = window.innerHeight * z;  // constant CSS size from useGameScale
     const naturalGameW = Math.min(vw, Math.round(512 * Math.min(vh / 345 * 0.95, 6)));
     const natural = Math.max(0, Math.floor((vw - naturalGameW) / 2) - 24);
 
@@ -291,7 +297,10 @@ export function useLetterbox(open: boolean): {
 export function computeDefaultPanelOpen(): boolean {
   if (typeof window === 'undefined') return false;
   if (window.innerWidth < 768) return false; // mobile portrait → bottom bar instead
-  const naturalGameW = Math.min(window.innerWidth, Math.round(512 * Math.min(window.innerHeight / 345 * 0.95, 6)));
-  const natural = Math.max(0, Math.floor((window.innerWidth - naturalGameW) / 2) - 24);
+  const z = (window.devicePixelRatio || 1) / LOAD_DPR;
+  const vw = window.innerWidth * z;
+  const vh = window.innerHeight * z;
+  const naturalGameW = Math.min(vw, Math.round(512 * Math.min(vh / 345 * 0.95, 6)));
+  const natural = Math.max(0, Math.floor((vw - naturalGameW) / 2) - 24);
   return natural >= MIN_COLUMN_WIDTH;
 }
