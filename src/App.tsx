@@ -14,6 +14,7 @@ import { PrivacyPolicy, TermsOfService, About } from './pages/LegalPages';
 import { useGameScale } from './hooks/useGameScale';
 import MobileKeyboard from './components/GameClient/MobileKeyboard';
 import { ActivitySidebar, WorldStatusStrip, MobileActivityBar, PanelToggle, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
+import { LetterboxDock } from './components/GameClient/LetterboxDock';
 import { initWalletKit } from './lib/walletKit';
 import './index.css';
 import './layout.css';
@@ -325,10 +326,17 @@ function AppContent() {
           )}
           {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
           <MobileKeyboard iframeRef={gameIframeRef} />
-          {/* Phase 1 letterbox panel — right column + status strip; anchored to the
-              game rect, auto-hidden in fullscreen. v386: toggle opens it anywhere;
-              mobile portrait gets the compact bottom bar instead. */}
-          {showLetterboxUI && !isMobile && <ActivitySidebar sideWidth={sideWidth} itemNames={itemNames} />}
+          {/* Phase 2: tabbed dock (ACTIVITY | CHAT | TOP) replaces the single
+              activity column on desktop; mobile keeps the bottom bar. Floating
+              chat bubble retired on desktop (docked chat replaces it). */}
+          {showLetterboxUI && !isMobile && panelOpen && (
+            <LetterboxDock
+              sideWidth={sideWidth}
+              itemNames={itemNames}
+              username={rscCredentials?.username ?? null}
+            />
+          )}
+          {showLetterboxUI && !isMobile && !panelOpen && <ActivitySidebar sideWidth={0} itemNames={itemNames} />}
           {showLetterboxUI && !isMobile && <WorldStatusStrip />}
           {showLetterboxUI && isMobile && <MobileActivityBar itemNames={itemNames} />}
           {/* Script panel — all 123 APOS scripts, visible when logged in */}
@@ -409,8 +417,12 @@ function AppContent() {
         />
       )}
 
-      {/* Community Chat — floating widget, only when authenticated */}
-      <ChatWidget username={rscCredentials?.username ?? null} />
+      {/* Community Chat — floating widget only where the letterbox dock can't
+          dock it (mobile portrait, or desktop with panel toggled off).
+          Desktop + panel open → chat lives in the dock instead. */}
+      {(!isMobile ? !panelOpen || appState !== 'playing' : true) && (
+        <ChatWidget username={rscCredentials?.username ?? null} />
+      )}
     </div>
   );
 }

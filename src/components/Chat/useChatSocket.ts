@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { io, type Socket } from 'socket.io-client';
 
-const CHAT_URL = import.meta.env.VITE_CHAT_URL || 'http://localhost:3101';
+const CHAT_URL = import.meta.env.VITE_CHAT_URL || 'https://game.r2hrsc.xyz';
 
 export interface ChatMessage {
   id: string;
