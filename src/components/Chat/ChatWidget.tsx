@@ -1,15 +1,24 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { useChatSocket } from './useChatSocket';
 
 interface ChatWidgetProps {
   username: string | null;
 }
 
-export function ChatWidget({ username }: ChatWidgetProps) {
+export interface ChatWidgetHandle {
+  open: () => void;
+}
+
+export const ChatWidget = forwardRef<ChatWidgetHandle, ChatWidgetProps>(function ChatWidget({ username }, ref) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Imperative open trigger (GameControls hub)
+  useImperativeHandle(ref, () => ({
+    open: () => setOpen(true),
+  }), []);
 
   const { messages, onlineUsers, connected, error, sendMessage } = useChatSocket(
     open ? username : null,
@@ -302,4 +311,4 @@ export function ChatWidget({ username }: ChatWidgetProps) {
       </div>
     </div>
   );
-}
+});

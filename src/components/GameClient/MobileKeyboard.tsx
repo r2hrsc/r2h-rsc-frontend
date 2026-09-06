@@ -1,7 +1,11 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 
 interface MobileKeyboardProps {
   iframeRef: React.RefObject<HTMLIFrameElement | null>;
+}
+
+export interface MobileKeyboardHandle {
+  open: () => void;
 }
 
 /**
@@ -14,13 +18,21 @@ interface MobileKeyboardProps {
  *
  * Detection: only renders on touch-capable devices (coarse pointer).
  */
-export default function MobileKeyboard({ iframeRef }: MobileKeyboardProps) {
+export default forwardRef<MobileKeyboardHandle, MobileKeyboardProps>(function MobileKeyboard({ iframeRef }, ref) {
   const [isTouch, setIsTouch] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const [text, setText] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const prevTextRef = useRef('');
   const isComposingRef = useRef(false);
+
+  // Imperative open trigger (GameControls hub)
+  useImperativeHandle(ref, () => ({
+    open: () => {
+      setIsOpen(true);
+      setTimeout(() => inputRef.current?.focus(), 100);
+    },
+  }), []);
 
   // Detect touch device on mount
   useEffect(() => {
@@ -191,4 +203,4 @@ export default function MobileKeyboard({ iframeRef }: MobileKeyboardProps) {
       )}
     </>
   );
-}
+});

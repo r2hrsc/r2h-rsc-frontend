@@ -14,6 +14,9 @@ import { PrivacyPolicy, TermsOfService, About } from './pages/LegalPages';
 import { useGameScale } from './hooks/useGameScale';
 import { useLandscapeRotation } from './hooks/useLandscapeRotation';
 import MobileKeyboard from './components/GameClient/MobileKeyboard';
+import { GameControls } from './components/GameClient/GameControls';
+import type { MobileKeyboardHandle } from './components/GameClient/MobileKeyboard';
+import type { ChatWidgetHandle } from './components/Chat/ChatWidget';
 import { ActivitySidebar, WorldStatusStrip, MobileActivityBar, PanelToggle, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
 import { LetterboxDock } from './components/GameClient/LetterboxDock';
 import { LeftColumn } from './components/GameClient/LeftColumn';
@@ -232,6 +235,29 @@ function AppContent() {
   const gameIframeRef = useRef<HTMLIFrameElement>(null);
   // Native Fullscreen API (NOT a CSS fake): request on the game-frame element.
   const gameFrameRef = useRef<HTMLDivElement>(null);
+  const mobileKeyboardRef = useRef<MobileKeyboardHandle>(null);
+  const chatWidgetRef = useRef<ChatWidgetHandle>(null);
+  const [scriptPanelOpen, setScriptPanelOpen] = useState(false);
+  // Touch detection — keyboard overlay item only shown on touch devices
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+  useEffect(() => {
+    setIsTouchDevice(
+      window.matchMedia('(pointer: coarse)').matches ||
+      'ontouchstart' in window ||
+      navigator.maxTouchPoints > 0
+    );
+  }, []);
+  // Logout from the game-controls hub: back to auth screen, drop wallet session
+  const handleLogout = useCallback(() => {
+    console.log('[App] Logout via controls hub');
+    setAppState('auth');
+    setRscCredentials(null);
+    setAuthProvider('');
+    setAuthExternalId('');
+    setRegistrationToken('');
+    logoutRef.current?.();
+    disconnectWalletRef.current?.();
+  }, []);
   const [isFullscreen, setIsFullscreen] = useState(false);
   useEffect(() => {
     const onFsChange = () => {
@@ -268,15 +294,15 @@ function AppContent() {
 
   const showLetterboxUI = !isFullscreen && appState === 'playing';
 
-  // While CSS-rotated: the frame is sized in PORTRAIT dims (vh wide, vw tall),
-  // then rotated. Scale must fit the ROTATED geometry. Computed directly in
-  // render (cheap) so any resize-driven re-render refreshes it.
+  // While CSS-rotated: the frame keeps 512×345 proportions and is rotated 90°.
+  // Fit math uses the swapped axes (viewport height bounds the game's 512 width).
+  // Computed directly in render so resize-driven re-renders refresh it.
   const rotationScale = rotated
     ? Math.min(window.innerHeight / 512, window.innerWidth / 345) * 0.98
     : gameScale;
   const displayScale = rotated ? rotationScale : effectiveScale;
-  const displayWidth = rotated ? Math.round(345 * displayScale) : visualWidth;
-  const displayHeight = rotated ? Math.round(512 * displayScale) : visualGameHeight;
+  const displayWidth = Math.round(512 * displayScale);
+  const displayHeight = Math.round(345 * displayScale);
 
   // Show minimal loading while Privy initializes
   if (!ready) {
@@ -326,47 +352,29 @@ function AppContent() {
             rscPassword={rscCredentials?.password}
             onLoginComplete={handleLoginComplete}
             showRscBackground={isAuthScreen}
-            scale={effectiveScale}
+            scale={displayScale}
             iframeRef={gameIframeRef}
           />
-          {/* RESTORED: fullscreen toggle — real browser Fullscreen API on the game frame */}
-          <button
-            className="fs-toggle"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-          >
-            {isFullscreen ? (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
-              </svg>
-            )}
-          </button>
-          {/* Landscape rotate toggle (mobile wallet browsers are portrait-locked) */}
-          <button
-            className="rotate-toggle"
-            onClick={() => toggleRotate(gameFrameRef.current)}
-            title={isLandscapeMode ? 'Exit landscape' : 'Rotate to landscape'}
-            aria-label={isLandscapeMode ? 'Exit landscape' : 'Rotate to landscape'}
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="4" y="7" width="16" height="10" rx="1.5" />
-              <path d="M20 10.5v3.5a2 2 0 0 0 2-2v0a2 2 0 0 0-2-2" stroke="none" fill="currentColor" opacity="0" />
-              <path d="M8.5 12h7" />
-              <path d="M12.5 9.5 15 12l-2.5 2.5" />
-            </svg>
-          </button>
+          {/* Game controls hub — single FAB, middle-right of the game frame.
+              Replaces the scattered fs-toggle/rotate-toggle buttons. */}
+          <GameControls
+            onFullscreen={toggleFullscreen}
+            onRotate={() => toggleRotate(gameFrameRef.current)}
+            onKeyboard={() => mobileKeyboardRef.current?.open()}
+            onScripts={() => setScriptPanelOpen(true)}
+            onChat={() => chatWidgetRef.current?.open()}
+            onLogout={handleLogout}
+            isFullscreen={isFullscreen}
+            isLandscape={isLandscapeMode}
+            hasKeyboard={isTouchDevice}
+          />
           {/* v386: panel toggle — top-right; opens the activity column even on
               near-4:3 viewports (game scales down slightly to make room) */}
           {showLetterboxUI && (
             <PanelToggle open={panelOpen} onToggle={() => setPanelOpen(o => !o)} />
           )}
           {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
-          <MobileKeyboard iframeRef={gameIframeRef} />
+          <MobileKeyboard ref={mobileKeyboardRef} iframeRef={gameIframeRef} />
           {/* Left letterbox: GUIDE + XP CALC (wiki links back, welcome text) */}
           {showLetterboxUI && !isMobile && panelOpen && (
             <LeftColumn sideWidth={sideWidth} />
@@ -384,9 +392,9 @@ function AppContent() {
           {showLetterboxUI && !isMobile && !panelOpen && <ActivitySidebar sideWidth={0} itemNames={itemNames} />}
           {showLetterboxUI && !isMobile && <WorldStatusStrip />}
           {showLetterboxUI && isMobile && <MobileActivityBar itemNames={itemNames} />}
-          {/* Script panel — all 123 APOS scripts, visible when logged in */}
+          {/* Script panel — all 123 APOS scripts, opened from the controls hub */}
           <ScriptPanel
-            open={appState === 'playing'}
+            open={scriptPanelOpen}
             onStartScript={(script) => {
               console.log('[ScriptPanel] Starting:', script.id, 'config:', script.config);
               const iframe = document.querySelector('iframe[title*="Game"]') as HTMLIFrameElement;
@@ -467,7 +475,7 @@ function AppContent() {
           dock it (mobile portrait, or desktop with panel toggled off).
           Desktop + panel open → chat lives in the dock instead. */}
       {(!isMobile ? !panelOpen || appState !== 'playing' : true) && (
-        <ChatWidget username={rscCredentials?.username ?? null} />
+        <ChatWidget ref={chatWidgetRef} username={rscCredentials?.username ?? null} />
       )}
     </div>
   );
