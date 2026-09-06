@@ -1510,41 +1510,52 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  padding: 8px;
+  padding: 9px;
   backdrop-filter: blur(4px);
 }
 .gc-hub:active { background: rgba(20, 241, 149, 0.15); }
 .gc-hub svg { width: 100%; height: 100%; }
 
-/* Fan items — left-facing semicircle around the hub */
-.gc-item {
+/* Slide-out menu — vertical list anchored to the LEFT of the hub FAB.
+   A vertical list never overlaps itself and every row is a 40px touch target. */
+.gc-menu {
   position: absolute;
-  left: 0;
-  top: 0;
-  width: 54px;
-  height: 54px;
-  margin-left: -27px;    /* center on the translated arc point */
-  margin-top: -27px;
-  border-radius: 14px;
-  border: 1px solid #2a2a2a;
-  background: rgba(15, 15, 15, 0.96);
-  color: #14F195;
+  right: 28px;            /* gap between menu and the 40px hub */
+  top: -20px;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid #2a2a2a;
+  background: rgba(10, 10, 10, 0.96);
+  backdrop-filter: blur(8px);
+  animation: gc-slide-in 0.16s ease-out;
+  min-width: 148px;
+}
+@keyframes gc-slide-in {
+  from { opacity: 0; transform: translateY(-50%) translateX(8px); }
+  to   { opacity: 1; transform: translateY(-50%) translateX(0); }
+}
+.gc-menu-item {
+  display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 2px;
-  cursor: pointer;
-  padding: 4px;
-  backdrop-filter: blur(6px);
-}
-.gc-item:active { background: rgba(20, 241, 149, 0.15); }
-.gc-item svg { width: 18px; height: 18px; }
-.gc-item .gc-label {
-  font-size: 8px;
-  color: #888;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #ccc;
   font-family: monospace;
-  line-height: 1;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
   white-space: nowrap;
+  min-height: 40px;
 }
-.gc-item.gc-active { border-color: #14F195; }
+.gc-menu-item:active { background: rgba(20, 241, 149, 0.12); }
+.gc-menu-item .gc-menu-icon { display: flex; width: 16px; height: 16px; color: #14F195; }
+.gc-menu-item .gc-menu-icon svg { width: 100%; height: 100%; }
+.gc-menu-item .gc-menu-text { flex: 1; }
+.gc-menu-item.gc-active { border-color: rgba(20, 241, 149, 0.4); background: rgba(20, 241, 149, 0.08); }

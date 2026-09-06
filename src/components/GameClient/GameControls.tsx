@@ -7,6 +7,8 @@ interface GameControlsProps {
   onScripts: () => void;
   onChat: () => void;
   onLogout: () => void;
+  onPanels: () => void;
+  panelsOpen: boolean;
   isFullscreen: boolean;
   isLandscape: boolean;
   hasKeyboard: boolean; // false on desktop → item hidden
@@ -14,22 +16,23 @@ interface GameControlsProps {
 
 /**
  * GameControls — single FAB on the middle-right edge of the game frame.
- * Tap → radial fan of action buttons; tap again (or outside) to collapse.
+ * Tap → a compact vertical menu slides out to the LEFT of the FAB with all
+ * game controls. No radial fan (buttons overlapped on small screens); a
+ * vertical list never overlaps and is easy to hit. Tap an action, the FAB,
+ * or outside to close.
  */
 export function GameControls({
-  onFullscreen, onRotate, onKeyboard, onScripts, onChat, onLogout,
-  isFullscreen, isLandscape, hasKeyboard,
+  onFullscreen, onRotate, onKeyboard, onScripts, onChat, onLogout, onPanels,
+  panelsOpen, isFullscreen, isLandscape, hasKeyboard,
 }: GameControlsProps) {
   const [open, setOpen] = useState(false);
-  const hubRef = useRef<HTMLButtonElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
 
-  // Close when tapping outside
+  // Close when tapping outside the hub + menu
   useEffect(() => {
     if (!open) return;
     const onDown = (e: PointerEvent) => {
-      const t = e.target as HTMLElement;
-      if (hubRef.current?.contains(t)) return;
-      if (t.closest('.gc-item')) return;
+      if (rootRef.current?.contains(e.target as Node)) return;
       setOpen(false);
     };
     document.addEventListener('pointerdown', onDown);
@@ -43,14 +46,21 @@ export function GameControls({
 
   const items: Array<{ key: string; label: string; icon: React.ReactNode; fn: () => void; active?: boolean }> = [
     {
-      key: 'fs', label: isFullscreen ? 'Exit Full' : 'Fullscreen',
+      key: 'panels', label: panelsOpen ? 'Hide Panels' : 'Show Panels',
+      icon: <PanelsIcon />,
+      fn: onPanels,
+      active: panelsOpen,
+    },
+    {
+      key: 'fs', label: isFullscreen ? 'Exit Fullscreen' : 'Fullscreen',
       icon: <FSIcon exit={isFullscreen} />,
       fn: onFullscreen,
     },
     {
-      key: 'rot', label: isLandscape ? 'Upright' : 'Landscape',
-      icon: <RotateIcon active={isLandscape} />,
+      key: 'rot', label: isLandscape ? 'Exit Landscape' : 'Landscape',
+      icon: <RotateIcon />,
       fn: onRotate,
+      active: isLandscape,
     },
     ...(hasKeyboard ? [{
       key: 'kb', label: 'Keyboard',
@@ -59,69 +69,59 @@ export function GameControls({
     }] : []),
     { key: 'scripts', label: 'Scripts', icon: <BoltIcon />, fn: onScripts },
     { key: 'chat', label: 'Chat', icon: <ChatIcon />, fn: onChat },
-    { key: 'logout', label: 'Logout', icon: <LogoutIcon />, fn: onLogout },
+    { key: 'logout', label: 'Logout', icon: <LogoutIcon />, fn: onLogout, },
   ];
 
   return (
-    <div className="gc-root">
-      {/* Fan items — semicircle bulging INTO the game frame (hub sits on the
-          right edge): first item directly above the hub, last directly below. */}
-      {open && items.map((it, i) => {
-        const n = items.length;
-        // θ from -70° (above) to +70° (below); x negated → arc bulges left.
-        // ±70° (not ±90°) keeps the first/last buttons fully inside the frame.
-        const theta = (-70 + (140 / (n - 1)) * i) * Math.PI / 180;
-        const r = 84; // px from hub center
-        const x = -Math.cos(theta) * r;
-        const y = Math.sin(theta) * r;
-        return (
-          <button
-            key={it.key}
-            className={`gc-item${it.active ? ' gc-active' : ''}`}
-            style={{
-              transform: `translate(${x}px, ${y}px)`,
-              transitionDelay: `${(n - 1 - i) * 22}ms`,
-            }}
-            onClick={() => act(it.fn)}
-            aria-label={it.label}
-            title={it.label}
-          >
-            {it.icon}
-            <span className="gc-label">{it.label}</span>
-          </button>
-        );
-      })}
+    <div className="gc-root" ref={rootRef}>
+      {/* Slide-out menu — vertical list to the LEFT of the FAB */}
+      {open && (
+        <div className="gc-menu" role="menu">
+          {items.map(it => (
+            <button
+              key={it.key}
+              className={`gc-menu-item${it.active ? ' gc-active' : ''}`}
+              onClick={() => act(it.fn)}
+              role="menuitem"
+              aria-label={it.label}
+            >
+              <span className="gc-menu-icon">{it.icon}</span>
+              <span className="gc-menu-text">{it.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Hub FAB — middle-right edge of the game frame */}
       <button
-        ref={hubRef}
         className="gc-hub"
         onClick={() => setOpen(o => !o)}
         aria-label={open ? 'Close menu' : 'Open game controls'}
         aria-expanded={open}
         title="Game controls"
       >
-        <span className={`gc-hub-icon${open ? ' open' : ''}`}>
-          {open ? <XIcon /> : <MenuIcon />}
-        </span>
+        {open ? <XIcon /> : <MenuIcon />}
       </button>
     </div>
   );
 }
 
-/* ── Icons (inline SVG, stroke style matches .fs-toggle) ── */
+/* ── Icons (inline SVG, stroke style matches existing buttons) ── */
 const S = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
 
+function PanelsIcon() {
+  return <svg viewBox="0 0 24 24" {...S}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16" /></svg>;
+}
 function FSIcon({ exit }: { exit: boolean }) {
   return <svg viewBox="0 0 24 24" {...S}><path d={exit
     ? 'M8 3v3a2 2 0 0 1-2 2H3M16 3v3a2 2 0 0 0 2 2h3M8 21v-3a2 2 0 0 0-2-2H3M16 21v-3a2 2 0 0 1 2-2h3'
     : 'M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3'} /></svg>;
 }
-function RotateIcon({ active }: { active: boolean }) {
+function RotateIcon() {
   return <svg viewBox="0 0 24 24" {...S}><rect x="4" y="7" width="16" height="10" rx="1.5" /><path d="M8.5 12h7" /><path d="M12.5 9.5 15 12l-2.5 2.5" /></svg>;
 }
 function KeyboardIcon() {
-  return <svg viewBox="0 0 24 24" {...S}><rect x="2" y="6" width="20" height="14" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M10 14h.01M14 14h.01M18 14h.01M8 18h8" /></svg>;
+  return <svg viewBox="0 0 24 24" {...S}><rect x="2" y="6" width="20" height="14" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h.01M10 14h.01M15 14h3M8 18h8" /></svg>;
 }
 function BoltIcon() {
   return <svg viewBox="0 0 24 24" {...S}><path d="M13 2 3 14h7l-1 8 11-13h-7l1-7z" /></svg>;

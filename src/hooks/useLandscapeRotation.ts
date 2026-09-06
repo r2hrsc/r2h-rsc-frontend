@@ -12,13 +12,47 @@ import { useCallback, useEffect, useState } from 'react';
  *      inside the iframe still receives correctly translated landscape coords
  *      (its own C2 handler needs no patch).
  *
- * Native is preferred (no letterbox bars, real rotation) and auto-exits when
- * the user leaves fullscreen (including the OS back gesture). CSS mode is
- * toggled manually by tapping the button again.
+ * Viewport tracking: many wallet in-app browsers rotate WITHOUT firing a
+ * resize event, which used to leave the game portrait-sized on a landscape
+ * screen (frame cut off, half the screen unused). `viewport` is refreshed on
+ * resize + orientationchange + screen.orientation change AND polled every
+ * 400ms while a rotation mode is active, so the fit math always sees the
+ * real current dimensions.
  */
 export function useLandscapeRotation() {
   const [rotated, setRotated] = useState(false); // CSS rotation active
   const [nativeLandscape, setNativeLandscape] = useState(false); // fullscreen + orientation lock
+  const [viewport, setViewport] = useState(() => ({
+    w: typeof window !== 'undefined' ? window.innerWidth : 512,
+    h: typeof window !== 'undefined' ? window.innerHeight : 345,
+  }));
+
+  const refreshViewport = useCallback(() => {
+    const w = window.innerWidth, h = window.innerHeight;
+    setViewport(prev => (prev.w === w && prev.h === h) ? prev : { w, h });
+  }, []);
+
+  // Always-on listeners (cheap) — covers browsers that DO fire events
+  useEffect(() => {
+    window.addEventListener('resize', refreshViewport);
+    window.addEventListener('orientationchange', refreshViewport);
+    const so = (screen as any).orientation;
+    so?.addEventListener?.('change', refreshViewport);
+    return () => {
+      window.removeEventListener('resize', refreshViewport);
+      window.removeEventListener('orientationchange', refreshViewport);
+      so?.removeEventListener?.('change', refreshViewport);
+    };
+  }, [refreshViewport]);
+
+  // Poll while a rotation mode is active — wallet browsers that lock
+  // orientation without firing resize would otherwise stay stale forever.
+  useEffect(() => {
+    if (!rotated && !nativeLandscape) return;
+    refreshViewport();
+    const iv = setInterval(refreshViewport, 400);
+    return () => clearInterval(iv);
+  }, [rotated, nativeLandscape, refreshViewport]);
 
   /** Try native rotation; resolve true if it worked. */
   const tryNativeRotation = useCallback(async (el: HTMLElement | null): Promise<boolean> => {
@@ -45,11 +79,13 @@ export function useLandscapeRotation() {
     // Rung 1: native fullscreen + orientation lock (Android wallet browsers)
     if (await tryNativeRotation(el)) {
       setNativeLandscape(true);
+      refreshViewport();
       return;
     }
     // Rung 2: CSS rotation (iOS wallet browsers + anything without lock)
     setRotated(true);
-  }, [tryNativeRotation]);
+    refreshViewport();
+  }, [tryNativeRotation, refreshViewport]);
 
   const exit = useCallback(() => {
     setRotated(false);
@@ -86,5 +122,5 @@ export function useLandscapeRotation() {
     };
   }, [nativeLandscape]);
 
-  return { rotated, nativeLandscape, toggle };
+  return { rotated, nativeLandscape, viewport, toggle };
 }

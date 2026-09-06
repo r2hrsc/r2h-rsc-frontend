@@ -17,7 +17,7 @@ import MobileKeyboard from './components/GameClient/MobileKeyboard';
 import { GameControls } from './components/GameClient/GameControls';
 import type { MobileKeyboardHandle } from './components/GameClient/MobileKeyboard';
 import type { ChatWidgetHandle } from './components/Chat/ChatWidget';
-import { ActivitySidebar, WorldStatusStrip, MobileActivityBar, PanelToggle, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
+import { ActivitySidebar, WorldStatusStrip, MobileActivityBar, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
 import { LetterboxDock } from './components/GameClient/LetterboxDock';
 import { LeftColumn } from './components/GameClient/LeftColumn';
 import { initWalletKit } from './lib/walletKit';
@@ -283,9 +283,8 @@ function AppContent() {
   }, []);
 
   // ── Mobile landscape rotation (wallet in-app browsers are portrait-locked) ──
-  const { rotated, nativeLandscape, toggle: toggleRotate } = useLandscapeRotation();
+  const { rotated, nativeLandscape, viewport, toggle: toggleRotate } = useLandscapeRotation();
   const isLandscapeMode = rotated || nativeLandscape;
-
   // Conditional ad reserves — on mobile, no side columns, only top/bottom bars
   const reserveH = isMobile ? 0 : AD_RESERVE_H;
   const reserveV = isMobile ? 0 : AD_RESERVE_V;
@@ -295,10 +294,11 @@ function AppContent() {
   const showLetterboxUI = !isFullscreen && appState === 'playing';
 
   // While CSS-rotated: the frame keeps 512×345 proportions and is rotated 90°.
-  // Fit math uses the swapped axes (viewport height bounds the game's 512 width).
-  // Computed directly in render so resize-driven re-renders refresh it.
+  // Fit math uses the tracked viewport (wallet browsers often don't fire resize
+  // on orientation lock — hook polls) with swapped axes: viewport HEIGHT bounds
+  // the game's 512 width, viewport WIDTH bounds the game's 345 height.
   const rotationScale = rotated
-    ? Math.min(window.innerHeight / 512, window.innerWidth / 345) * 0.98
+    ? Math.min(viewport.h / 512, viewport.w / 345) * 0.98
     : gameScale;
   const displayScale = rotated ? rotationScale : effectiveScale;
   const displayWidth = Math.round(512 * displayScale);
@@ -356,7 +356,8 @@ function AppContent() {
             iframeRef={gameIframeRef}
           />
           {/* Game controls hub — single FAB, middle-right of the game frame.
-              Replaces the scattered fs-toggle/rotate-toggle buttons. */}
+              Slide-out menu with ALL controls (Panels, Fullscreen, Landscape,
+              Keyboard, Scripts, Chat, Logout). */}
           <GameControls
             onFullscreen={toggleFullscreen}
             onRotate={() => toggleRotate(gameFrameRef.current)}
@@ -364,15 +365,13 @@ function AppContent() {
             onScripts={() => setScriptPanelOpen(true)}
             onChat={() => chatWidgetRef.current?.open()}
             onLogout={handleLogout}
+            onPanels={() => setPanelOpen(o => !o)}
+            panelsOpen={panelOpen}
             isFullscreen={isFullscreen}
             isLandscape={isLandscapeMode}
             hasKeyboard={isTouchDevice}
           />
-          {/* v386: panel toggle — top-right; opens the activity column even on
-              near-4:3 viewports (game scales down slightly to make room) */}
-          {showLetterboxUI && (
-            <PanelToggle open={panelOpen} onToggle={() => setPanelOpen(o => !o)} />
-          )}
+          {/* v386 panel toggle retired — panels now open from the controls hub */}
           {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
           <MobileKeyboard ref={mobileKeyboardRef} iframeRef={gameIframeRef} />
           {/* Left letterbox: GUIDE + XP CALC (wiki links back, welcome text) */}
