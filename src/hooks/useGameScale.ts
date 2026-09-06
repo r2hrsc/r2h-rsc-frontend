@@ -49,12 +49,11 @@ export function useGameScale(): number {
 }
 
 function calculateScale(isFullscreen: boolean): number {
-  // Reserve space for ad frame around the game so the whole assembly fits the viewport.
-  // Side ads (250px × 2) + top/bottom bars (200px × 2) are hidden on mobile (<768px).
-  // In native fullscreen the game element owns the whole screen — no reserves.
+  // Ad bezel REMOVED 9/6 — no reserves on any screen; game scales to the full
+  // viewport (min of ratios, never distort; MAX_SCALE caps on huge monitors).
   const isMobile = window.innerWidth < 768;
-  const sideReserve = isFullscreen || isMobile ? 0 : 500;
-  const verticalReserve = isFullscreen || isMobile ? 0 : 400;
+  const sideReserve = 0;
+  const verticalReserve = 0;
   const availableWidth = Math.max(300, window.innerWidth - sideReserve);
   const availableHeight = Math.max(200, window.innerHeight - verticalReserve);
 

@@ -268,62 +268,11 @@ function AppContent() {
         inset: 0,
       }}
     >
-      {/* Connected ad frame — top/left/game/right/bottom form a unified "arcade cabinet" bezel.
-          All zones share the same dark gradient + subtle green inner glow facing the game.
-          Outer corners are rounded so the whole assembly reads as one piece. v2 */}
-      <div style={{
-        position: 'relative',
-        minWidth: visualWidth + reserveH, width: visualWidth + reserveH,
-        minHeight: visualGameHeight + reserveV, height: visualGameHeight + reserveV,
-        zIndex: 30,
-        border: '1px solid #1a1a1a',
-        borderRadius: 10,
-        overflow: 'hidden',
-      }}>
-        {/* ── Top ad bar — spans full width, rounded top corners ── */}
-        <div className="ad-zone" style={{
-          position: 'absolute',
-          top: 0, left: 0,
-          width: '100%',
-          height: AD_TOP_HEIGHT,
-          background: '#0f0f0f',
-          borderTop: '1px solid #1a1a1a',
-          borderLeft: '1px solid #1a1a1a',
-          borderRight: '1px solid #1a1a1a',
-          borderRadius: '10px 10px 0 0',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 50,
-        }}>
-          <AdSlot slot="VOTE_GATEWAY" zone="top" />
-        </div>
-
-        {/* ── Left ad column — sits between top and bottom bars (hidden on mobile) ── */}
-        <div className="ad-zone ad-zone-side" style={{
-          position: 'absolute',
-          left: 0,
-          top: AD_TOP_HEIGHT,
-          width: AD_SIDE_WIDTH,
-          height: visualGameHeight,
-          background: '#0f0f0f',
-          borderLeft: '1px solid #1a1a1a',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 50,
-        }}>
-          <AdSlot slot="LEFT_SIDEBAR" zone="left" />
-        </div>
-
-        {/* ── Game frame — centered between all four ad zones ── */}
+      {/* ── Game frame — centered in the viewport (ad bezel removed 9/6) ── */}
         <div
           ref={gameFrameRef}
           className="game-frame"
           style={{
-            position: 'absolute',
-            left: gameLeft,
-            top: gameTop,
             width: visualWidth,
             height: visualGameHeight,
             boxShadow: '0 0 0 1px #1a1a1a',
@@ -359,14 +308,6 @@ function AppContent() {
           </button>
           {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
           <MobileKeyboard iframeRef={gameIframeRef} />
-          {/* Auth overlay constrained exactly to the RSC game frame only */}
-          {isAuthScreen && (
-            <AuthOverlay
-              apiUrl={API_URL}
-              onAuthComplete={handleAuthComplete}
-              onExistingUser={handleExistingUser}
-            />
-          )}
           {/* Script panel — all 123 APOS scripts, visible when logged in */}
           <ScriptPanel
             open={appState === 'playing'}
@@ -420,47 +361,21 @@ function AppContent() {
             }}
           />
         </div>
-
-        {/* ── Right ad column — mirrors the left (hidden on mobile) ── */}
-        <div className="ad-zone ad-zone-side" style={{
-          position: 'absolute',
-          right: 0,
-          top: AD_TOP_HEIGHT,
-          width: AD_SIDE_WIDTH,
-          height: visualGameHeight,
-          background: '#0f0f0f',
-          borderRight: '1px solid #1a1a1a',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 50,
-        }}>
-          <AdSlot slot="RIGHT_SIDEBAR" zone="right" />
-        </div>
-
-        {/* ── Bottom ad bar — spans full width, rounded bottom corners ── */}
-        <div className="ad-zone" style={{
-          position: 'absolute',
-          bottom: 0, left: 0,
-          width: '100%',
-          height: AD_BOTTOM_HEIGHT,
-          background: '#0f0f0f',
-          borderBottom: '1px solid #1a1a1a',
-          borderLeft: '1px solid #1a1a1a',
-          borderRight: '1px solid #1a1a1a',
-          borderRadius: '0 0 10px 10px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 50,
-        }}>
-          <AdSlot slot="VOTE_GATEWAY" zone="bottom" />
-        </div>
-      </div>
+        {/* AD BEZEL REMOVED 9/6: right/bottom ad bars + wrapper deleted (user: no longer needed) */}
 
       {/* Loading overlay on top of game while it connects */}
       {showLoadingOverlay && <LoadingOverlay text={loadingText} />}
 
+      {/* RESTORED (9/6, July-13 fix): AuthOverlay OUTSIDE the game frame at top level —
+          position:fixed full-viewport (card 340px no longer clipped by the small game
+          frame on mobile; Gmail button reachable in Chrome/Firefox mobile). */}
+      {isAuthScreen && (
+        <AuthOverlay
+          apiUrl={API_URL}
+          onAuthComplete={handleAuthComplete}
+          onExistingUser={handleExistingUser}
+        />
+      )}
 
       {appState === 'username' && (
         <UsernamePicker

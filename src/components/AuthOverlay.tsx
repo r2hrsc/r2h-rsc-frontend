@@ -199,14 +199,17 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
 
 const styles: Record<string, React.CSSProperties> = {
   overlay: {
-    position: 'absolute',
+    // RESTORED 9/6 (July-13 fix): fixed + full viewport, NOT absolute-in-frame.
+    // On mobile the game frame is ~200px wide — the 340px card (and the Gmail
+    // button) were clipped/scroll-blocked inside it on Chrome/Firefox.
+    position: 'fixed',
     top: 0,
     left: 0,
-    width: '100%',
-    height: '100%',
+    width: '100vw',
+    height: '100vh',
     zIndex: 1039,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
-    background: 'transparent',
+    background: 'rgba(0,0,0,0.75)',
     pointerEvents: 'auto', // Block all clicks on RSC client when auth is shown
   },
   card: {
