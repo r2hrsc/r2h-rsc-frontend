@@ -13,9 +13,6 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
   const [error, setError] = useState('');
   const [signingIn, setSigningIn] = useState(false);
   const [statusText, setStatusText] = useState('Signing in...');
-  const [showDirect, setShowDirect] = useState(false);
-  const [rscUser, setRscUser] = useState('');
-  const [rscPass, setRscPass] = useState('');
 
   // initWalletKit() is now called in AppContent — during the loading screen,
   // before ad zones render, to prevent the w3m-modal initialization flash.
@@ -138,17 +135,6 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     walletModal?.open();
   };
 
-  const handleDirectLogin = () => {
-    if (!rscUser.trim() || !rscPass.trim()) {
-      setError('Enter your RSC username and password.');
-      return;
-    }
-    setError('');
-    console.log('[Auth] Direct RSC login:', rscUser);
-    // Pass credentials directly — App.tsx will load the game iframe with these creds
-    onExistingUser('direct', rscUser.trim(), rscUser.trim(), rscPass.trim());
-  };
-
   // Full-screen signing in state
   if (signingIn) {
     return (
@@ -205,40 +191,6 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
         <p style={styles.secondaryHint}>
           MetaMask · Phantom · Trust — mobile &amp; desktop
         </p>
-
-        {/* Direct RSC Login — for testing / users without Google */}
-        <button
-          style={{ ...styles.btnSecondary, marginTop: 8, fontSize: 12, color: '#666' }}
-          onClick={() => setShowDirect(!showDirect)}
-        >
-          {showDirect ? '▲ Hide' : '▼ Direct RSC Login'}
-        </button>
-        {showDirect && (
-          <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <input
-              style={styles.directInput}
-              type="text"
-              placeholder="RSC username"
-              value={rscUser}
-              onChange={e => setRscUser(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleDirectLogin()}
-            />
-            <input
-              style={styles.directInput}
-              type="password"
-              placeholder="Password"
-              value={rscPass}
-              onChange={e => setRscPass(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleDirectLogin()}
-            />
-            <button
-              style={styles.btnDirect}
-              onClick={handleDirectLogin}
-            >
-              Play
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
@@ -322,30 +274,5 @@ const styles: Record<string, React.CSSProperties> = {
     margin: '2px 0 0',
     maxWidth: 260,
     lineHeight: 1.4,
-  },
-
-  // Direct RSC login inputs
-  directInput: {
-    width: '100%',
-    padding: '10px 12px',
-    borderRadius: 8,
-    border: '1px solid #333',
-    background: '#1a1a1a',
-    color: '#fff',
-    fontSize: 14,
-    fontFamily: 'monospace',
-    outline: 'none',
-    boxSizing: 'border-box' as const,
-  },
-  btnDirect: {
-    width: '100%',
-    padding: '10px 0',
-    borderRadius: 8,
-    border: 'none',
-    background: '#14F195',
-    color: '#000',
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: 'pointer',
   },
 };
