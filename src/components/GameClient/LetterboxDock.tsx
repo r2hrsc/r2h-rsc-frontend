@@ -68,7 +68,7 @@ function usePlayerLookup() {
   return { query, setQuery, summary, skills, loading, error, search };
 }
 
-function PlayerPane({ me }: { me: string | null }) {
+function PlayerPane({ me, autoLookup }: { me: string | null; autoLookup?: { name: string; nonce: number } | null }) {
   const { query, setQuery, summary, skills, loading, error, search } = usePlayerLookup();
   const [recent, setRecent] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('r2h.playerLookup.recent') || '[]'); } catch { return []; }
@@ -84,6 +84,15 @@ function PlayerPane({ me }: { me: string | null }) {
       return next;
     });
   };
+
+  // Clicked a TOP row → look that player up here
+  useEffect(() => {
+    if (autoLookup?.name) {
+      setQuery(autoLookup.name);
+      doSearch(autoLookup.name);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoLookup?.nonce]);
 
   return (
     <div className="ld-player">
@@ -220,6 +229,13 @@ export function LetterboxDock({
   username: string | null;
 }) {
   const [tab, setTab] = useState<Tab>('activity');
+  const [playerLookup, setPlayerLookup] = useState<{ name: string; nonce: number } | null>(null);
+
+  /** TOP → PLAYER: look a leaderboard row up. */
+  const lookupPlayer = (name: string) => {
+    setPlayerLookup({ name, nonce: Date.now() });
+    setTab('player');
+  };
   const activityRows = useActivityFeedRows(itemNames);
   const hiscores = useHiscores();
   const { messages, onlineUsers, connected, error: chatError, sendMessage } = useChatSocket(username ?? undefined);
@@ -285,17 +301,22 @@ export function LetterboxDock({
           {hiscores === null && <div className="ld-empty">Loading hiscores…</div>}
           {hiscores && hiscores.length === 0 && <div className="ld-empty">No ranked players yet.</div>}
           {hiscores && hiscores.map(h => (
-            <div key={h.username} className={h.username === username ? 'ld-row ld-row-me' : 'ld-row'}>
+            <button
+              key={h.username}
+              className={h.username === username ? 'ld-row ld-row-me ld-row-link' : 'ld-row ld-row-link'}
+              onClick={() => lookupPlayer(h.username)}
+              title={`View ${h.username}'s stats`}
+            >
               <span className="ld-rank">{h.rank}</span>
               <span className="ld-text">{h.username}</span>
               <span className="ld-level">{h.totalLevel}</span>
-            </div>
+            </button>
           ))}
         </div>
       )}
 
       {/* Pane: PLAYER (lookup) */}
-      {tab === 'player' && <PlayerPane me={username} />}
+      {tab === 'player' && <PlayerPane me={username} autoLookup={playerLookup} />}
     </div>
   );
 }

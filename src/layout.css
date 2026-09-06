@@ -1259,3 +1259,17 @@
 
 /* 99 highlight */
 .ld-skill[data-max="1"] { border-color: rgba(20,241,149,0.35); }
+
+/* ── TOP rows → clickable PLAYER links ── */
+.ld-row-link {
+  width: 100%;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  padding: 5px 10px;
+}
+
+.ld-row-link:hover { background: rgba(255,255,255,0.04); }
+.ld-row-link:hover .ld-text { color: #14F195; }
