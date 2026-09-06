@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useChatSocket, type ChatMessage } from '../Chat/useChatSocket';
+import { ZoomPanel } from './ZoomPanel';
 
 // ── Phase 2 letterbox dock ───────────────────────────────────────────────
 // Replaces the single ACTIVITY column with a tabbed dock: ACTIVITY | CHAT | TOP.
@@ -264,11 +265,12 @@ export function LetterboxDock({
         right: -sideWidth - 12,
         width: sideWidth,
         height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
         pointerEvents: 'auto',
       }}
     >
+      {/* Content at constant physical size — column CSS px grow as the game
+          shrinks under browser zoom-out; ZoomPanel fills it at 100%-zoom scale */}
+      <ZoomPanel className="letterbox-dock-inner">
       {/* Tab bar */}
       <div className="ld-tabs">
         <button className={tab === 'activity' ? 'ld-tab ld-tab-active' : 'ld-tab'} onClick={() => setTab('activity')}>ACTIVITY</button>
@@ -317,6 +319,7 @@ export function LetterboxDock({
 
       {/* Pane: PLAYER (lookup) */}
       {tab === 'player' && <PlayerPane me={username} autoLookup={playerLookup} />}
+      </ZoomPanel>
     </div>
   );
 }

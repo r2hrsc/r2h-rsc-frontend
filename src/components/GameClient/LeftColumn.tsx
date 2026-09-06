@@ -1,4 +1,5 @@
 import { useState, useMemo } from 'react';
+import { ZoomPanel } from './ZoomPanel';
 
 // ── Left letterbox column ────────────────────────────────────────────────
 // Reference panel: welcome + RSC Wiki links + XP calculator (real RSC
@@ -57,11 +58,12 @@ export function LeftColumn({ sideWidth }: { sideWidth: number }) {
         left: -sideWidth - 12,
         width: sideWidth,
         height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
         pointerEvents: 'auto',
       }}
     >
+      {/* Content at constant physical size — column CSS px grow as the game
+          shrinks under browser zoom-out; ZoomPanel fills it at 100%-zoom scale */}
+      <ZoomPanel className="left-col-inner">
       <div className="lc-tabs">
         <button className={section === 'welcome' ? 'lc-tab lc-tab-active' : 'lc-tab'} onClick={() => setSection('welcome')}>GUIDE</button>
         <button className={section === 'calc' ? 'lc-tab lc-tab-active' : 'lc-tab'} onClick={() => setSection('calc')}>XP CALC</button>
@@ -69,6 +71,7 @@ export function LeftColumn({ sideWidth }: { sideWidth: number }) {
 
       {section === 'welcome' && <WelcomePane />}
       {section === 'calc' && <CalcPane />}
+      </ZoomPanel>
     </div>
   );
 }

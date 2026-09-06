@@ -936,13 +936,7 @@
    ════════════════════════════════════════════════════════════════ */
 
 .letterbox-dock {
-  background: rgba(10, 10, 10, 0.6);
-  border: 1px solid #161616;
-  border-radius: 8px;
-  overflow: hidden;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  z-index: 5;
+  /* outer layout box only — chrome lives on .letterbox-dock-inner (ZoomPanel) */
 }
 
 .ld-tabs {
@@ -1278,13 +1272,7 @@
    Left letterbox column — GUIDE | XP CALC
    ════════════════════════════════════════════════════════════════ */
 .left-col {
-  background: rgba(10, 10, 10, 0.6);
-  border: 1px solid #161616;
-  border-radius: 8px;
-  overflow: hidden;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  z-index: 5;
+  /* outer layout box only — chrome lives on .left-col-inner (ZoomPanel) */
 }
 
 .lc-tabs {
@@ -1459,3 +1447,28 @@
 
 /* Fullscreen hide */
 .game-frame:fullscreen ~ * .left-col { display: none !important; }
+
+/* ── ZoomPanel inner (constant-physical-size content) ──
+   Outer column boxes keep their CSS-px size (they grow as the game shrinks
+   under browser zoom-out). The ZoomPanel inner is laid out at z× and scaled
+   back by 1/z, so the visible chrome (border/radius/blur) moves here and
+   renders at exactly 100%-zoom proportions at every zoom level. */
+.letterbox-dock-inner {
+  background: rgba(10, 10, 10, 0.6);
+  border: 1px solid #161616;
+  border-radius: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 5;
+}
+
+.left-col-inner {
+  background: rgba(10, 10, 10, 0.6);
+  border: 1px solid #161616;
+  border-radius: 8px;
+  overflow: hidden;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 5;
+}
