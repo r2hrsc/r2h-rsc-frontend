@@ -210,6 +210,79 @@
     })();
     </script>
 
+    <!-- R2H Activity Monitor (Phase 1 letterbox panel): read-only. Polls the game's
+         own stat arrays (mc.kN XP / mc.fw base / mc.hy current) + inventory every 2s
+         and postMessages DELTAS to the parent for the side-panel ticker.
+         Field names verified in the sealed bot engine (statXp:'kN', statBase:'fw',
+         statCurrent:'hy', invItemId:'b4', invAmount:'e2', invCount:'cU', bank:'lD').
+         Bank/shop dialogs gate loot detection (withdrawals are NOT loot). -->
+    <script>
+    (function() {
+      'use strict';
+      var SKILL_NAMES = ['Attack','Defense','Strength','Hits','Ranged','Prayer','Magic',
+        'Cooking','Woodcutting','Fletching','Fishing','Firemaking','Crafting','Smithing',
+        'Mining','Herblaw','Agility','Thieving'];
+      var lastXp = null, lastBase = null, lastInv = null;
+
+      function snapshot(mc) {
+        var xp = [], base = [];
+        var xpArr = mc.kN && mc.kN.data, baseArr = mc.fw && mc.fw.data;
+        for (var i = 0; i < 18; i++) {
+          xp.push(xpArr ? (xpArr[i] || 0) : 0);
+          base.push(baseArr ? (baseArr[i] || 0) : 0);
+        }
+        // inventory: aggregate count per item id (slots 0..cU)
+        var inv = {};
+        var ids = mc.b4 && mc.b4.data, amts = mc.e2 && mc.e2.data;
+        var n = mc.cU || 0;
+        for (var s = 0; s < n && s < 30; s++) {
+          var id = ids ? ids[s] : 0;
+          if (!id) continue;
+          inv[id] = (inv[id] || 0) + ((amts && amts[s]) ? amts[s] : 1);
+        }
+        return { xp: xp, base: base, inv: inv };
+      }
+
+      function poll() {
+        try {
+          var mc = window.__r2h_mc;
+          if (!mc || !mc.kN || !mc.kN.data) { setTimeout(poll, 2000); return; }
+          var snap = snapshot(mc);
+          var events = [];
+
+          if (lastXp) {
+            for (var i = 0; i < 18; i++) {
+              var d = snap.xp[i] - lastXp[i];
+              if (d > 0) {
+                var leveled = snap.base[i] > lastBase[i];
+                events.push({ kind: leveled ? 'level' : 'xp', skill: i,
+                  skillName: SKILL_NAMES[i] || ('skill ' + i), xpGain: d,
+                  level: snap.base[i] });
+              }
+            }
+            // loot: inventory gains while NO dialog is open (bank 'lD', shop 'lv')
+            if (!mc.lD && !mc.lv) {
+              var invEvents = [];
+              for (var id in snap.inv) {
+                var gain = snap.inv[id] - (lastInv[id] || 0);
+                if (gain > 0) invEvents.push({ kind: 'loot', itemId: parseInt(id, 10), count: gain });
+              }
+              // one event per tick, batched — parent renders a single line
+              if (invEvents.length > 0) events.push({ kind: 'lootBatch', items: invEvents });
+            }
+          }
+
+          if (events.length > 0 && window.parent && window.parent !== window) {
+            window.parent.postMessage({ type: 'R2H_ACTIVITY', events: events }, '*');
+          }
+          lastXp = snap.xp; lastBase = snap.base; lastInv = snap.inv;
+        } catch (e) { /* never break the game page */ }
+        setTimeout(poll, 2000);
+      }
+      setTimeout(poll, 5000);
+    })();
+    </script>
+
     <!-- R2H Bot Engine: receives script commands from parent, automates character -->
     <script src="r2h-bot-engine.js?v=v422"></script>
   </head>

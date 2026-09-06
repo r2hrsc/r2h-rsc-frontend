@@ -13,6 +13,7 @@ import { AdManagerPage } from './components/Admin/AdManager';
 import { PrivacyPolicy, TermsOfService, About } from './pages/LegalPages';
 import { useGameScale } from './hooks/useGameScale';
 import MobileKeyboard from './components/GameClient/MobileKeyboard';
+import { ActivitySidebar, WorldStatusStrip, useItemNames, useLetterbox } from './components/GameClient/ActivitySidebar';
 import { initWalletKit } from './lib/walletKit';
 import './index.css';
 import './layout.css';
@@ -238,6 +239,11 @@ function AppContent() {
   const gameLeft = isMobile ? 0 : AD_SIDE_WIDTH + AD_SIDE_GAP;
   const gameTop = isMobile ? 0 : AD_TOP_HEIGHT;
 
+  // ── Phase 1 letterbox panel (9/6): fills black bars flanking the game ──
+  const itemNames = useItemNames();
+  const { sideWidth } = useLetterbox();
+  const showLetterboxUI = !isFullscreen && appState === 'playing';
+
   // Show minimal loading while Privy initializes
   if (!ready) {
     return (
@@ -308,6 +314,10 @@ function AppContent() {
           </button>
           {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
           <MobileKeyboard iframeRef={gameIframeRef} />
+          {/* Phase 1 letterbox panel — right column + status strip; anchored to the
+              game rect, auto-hidden in fullscreen and on narrow letterboxes */}
+          {showLetterboxUI && <ActivitySidebar sideWidth={sideWidth} itemNames={itemNames} />}
+          {showLetterboxUI && <WorldStatusStrip />}
           {/* Script panel — all 123 APOS scripts, visible when logged in */}
           <ScriptPanel
             open={appState === 'playing'}
