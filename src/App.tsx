@@ -15,6 +15,7 @@ import { useGameScale } from './hooks/useGameScale';
 import MobileKeyboard from './components/GameClient/MobileKeyboard';
 import { ActivitySidebar, WorldStatusStrip, MobileActivityBar, PanelToggle, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
 import { LetterboxDock } from './components/GameClient/LetterboxDock';
+import { LeftColumn } from './components/GameClient/LeftColumn';
 import { initWalletKit } from './lib/walletKit';
 import './index.css';
 import './layout.css';
@@ -326,6 +327,10 @@ function AppContent() {
           )}
           {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
           <MobileKeyboard iframeRef={gameIframeRef} />
+          {/* Left letterbox: GUIDE + XP CALC (wiki links back, welcome text) */}
+          {showLetterboxUI && !isMobile && panelOpen && (
+            <LeftColumn sideWidth={sideWidth} />
+          )}
           {/* Phase 2: tabbed dock (ACTIVITY | CHAT | TOP) replaces the single
               activity column on desktop; mobile keeps the bottom bar. Floating
               chat bubble retired on desktop (docked chat replaces it). */}
