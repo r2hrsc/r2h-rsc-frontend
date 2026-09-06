@@ -16,7 +16,6 @@ import { useLandscapeRotation } from './hooks/useLandscapeRotation';
 import MobileKeyboard from './components/GameClient/MobileKeyboard';
 import { GameControls } from './components/GameClient/GameControls';
 import type { MobileKeyboardHandle } from './components/GameClient/MobileKeyboard';
-import type { ChatWidgetHandle } from './components/Chat/ChatWidget';
 import { ActivitySidebar, WorldStatusStrip, MobileActivityBar, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
 import { LetterboxDock } from './components/GameClient/LetterboxDock';
 import { LeftColumn } from './components/GameClient/LeftColumn';
@@ -236,7 +235,6 @@ function AppContent() {
   // Native Fullscreen API (NOT a CSS fake): request on the game-frame element.
   const gameFrameRef = useRef<HTMLDivElement>(null);
   const mobileKeyboardRef = useRef<MobileKeyboardHandle>(null);
-  const chatWidgetRef = useRef<ChatWidgetHandle>(null);
   const [scriptPanelOpen, setScriptPanelOpen] = useState(false);
   // Touch detection — keyboard overlay item only shown on touch devices
   const [isTouchDevice, setIsTouchDevice] = useState(false);
@@ -246,17 +244,6 @@ function AppContent() {
       'ontouchstart' in window ||
       navigator.maxTouchPoints > 0
     );
-  }, []);
-  // Logout from the game-controls hub: back to auth screen, drop wallet session
-  const handleLogout = useCallback(() => {
-    console.log('[App] Logout via controls hub');
-    setAppState('auth');
-    setRscCredentials(null);
-    setAuthProvider('');
-    setAuthExternalId('');
-    setRegistrationToken('');
-    logoutRef.current?.();
-    disconnectWalletRef.current?.();
   }, []);
   const [isFullscreen, setIsFullscreen] = useState(false);
   useEffect(() => {
@@ -363,8 +350,6 @@ function AppContent() {
             onRotate={() => toggleRotate(gameFrameRef.current)}
             onKeyboard={() => mobileKeyboardRef.current?.open()}
             onScripts={() => setScriptPanelOpen(true)}
-            onChat={() => chatWidgetRef.current?.open()}
-            onLogout={handleLogout}
             onPanels={() => setPanelOpen(o => !o)}
             panelsOpen={panelOpen}
             isFullscreen={isFullscreen}
@@ -474,7 +459,7 @@ function AppContent() {
           dock it (mobile portrait, or desktop with panel toggled off).
           Desktop + panel open → chat lives in the dock instead. */}
       {(!isMobile ? !panelOpen || appState !== 'playing' : true) && (
-        <ChatWidget ref={chatWidgetRef} username={rscCredentials?.username ?? null} />
+        <ChatWidget username={rscCredentials?.username ?? null} />
       )}
     </div>
   );
