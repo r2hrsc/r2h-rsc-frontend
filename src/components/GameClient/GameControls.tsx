@@ -10,6 +10,7 @@ interface GameControlsProps {
   isFullscreen: boolean;
   isLandscape: boolean;
   hasKeyboard: boolean; // false on desktop → item hidden
+  canRotate: boolean;   // mobile-like device (touch + narrow) → Landscape item hidden on desktop
 }
 
 /**
@@ -23,7 +24,7 @@ interface GameControlsProps {
  */
 export function GameControls({
   onFullscreen, onRotate, onKeyboard, onScripts, onPanels,
-  panelsOpen, isFullscreen, isLandscape, hasKeyboard,
+  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate,
 }: GameControlsProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -56,12 +57,12 @@ export function GameControls({
       icon: <FSIcon exit={isFullscreen} />,
       fn: onFullscreen,
     },
-    {
+    ...(canRotate ? [{
       key: 'rot', label: isLandscape ? 'Exit Landscape' : 'Landscape',
       icon: <RotateIcon />,
       fn: onRotate,
       active: isLandscape,
-    },
+    }] : []),
     ...(hasKeyboard ? [{
       key: 'kb', label: 'Keyboard',
       icon: <KeyboardIcon />,
