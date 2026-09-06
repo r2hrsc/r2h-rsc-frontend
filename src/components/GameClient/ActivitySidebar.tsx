@@ -254,6 +254,12 @@ export function useLetterbox(open: boolean): {
   const [geom, setGeom] = useState({ sideWidth: 0, naturalSideWidth: 0, forcedScaleDown: false, effectiveScaleFactor: 1 });
 
   const recalc = useCallback(() => {
+    // Native fullscreen: the side column is hidden, so the shrink factor must
+    // not apply — compute as if the panel were closed (effectiveScaleFactor 1).
+    // Without this, fullscreen on narrow viewports kept the panel-open shrink.
+    const fsOpen = !!document.fullscreenElement;
+    const openNow = open && !fsOpen;
+
     const z = (window.devicePixelRatio || 1) / REF_DPR;
     const rawVW = window.innerWidth;   // zoomed CSS px — where the column box lives
     const rawVH = window.innerHeight;
@@ -273,7 +279,7 @@ export function useLetterbox(open: boolean): {
     // Column CSS width in RAW px — spans ALL the freed space at any zoom
     const sideFromGap = (gw: number) => Math.max(0, Math.floor((rawVW - gw) / 2) - 24);
 
-    if (!open) {
+    if (!openNow) {
       setGeom({ sideWidth: 0, naturalSideWidth: natural, forcedScaleDown: false, effectiveScaleFactor: 1 });
       return;
     }

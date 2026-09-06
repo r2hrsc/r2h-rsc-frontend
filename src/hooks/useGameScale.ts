@@ -60,21 +60,22 @@ export function useGameScale(): number {
 function calculateScale(isFullscreen: boolean): number {
   // Ad bezel REMOVED 9/6 — no reserves on any screen; game scales to the viewport.
   // Fullscreen element owns the whole screen — same fit math, no reserves either.
-  void isFullscreen;
 
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
   // Zoom-normalized viewport: what innerWidth/innerHeight would be at the
   // user's reference (load-time) zoom. Browser zoom-out inflates CSS px and
-  // deflates dpr proportionally — dpr/loadDpr cancels the inflation.
+  // deflates dpr proportionally — dpr/loadDpr cancels the fullscreen.
   const dpr = window.devicePixelRatio || 1;
   const zoomFactor = dpr / REF_DPR; // <1 zoomed out, >1 zoomed in
   const normW = vw * zoomFactor;
   const normH = vh * zoomFactor;
 
   // Natural size: fill the normalized viewport (constant CSS px across zooms)
-  const sNorm = Math.min(normW / GAME_WIDTH, normH / GAME_HEIGHT) * PADDING_BUFFER;
+  // Fullscreen: drop the 5% padding — the user asked for FULL full screen.
+  const buffer = isFullscreen ? 1.0 : PADDING_BUFFER;
+  const sNorm = Math.min(normW / GAME_WIDTH, normH / GAME_HEIGHT) * buffer;
 
   // Hard fit: never overflow the ACTUAL CSS viewport (zoom-in cap — the game
   // is already filling it there, so this keeps it at fill instead of clipping)
