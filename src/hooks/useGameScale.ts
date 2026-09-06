@@ -6,11 +6,18 @@ const PADDING_BUFFER = 0.95;
 const MIN_SCALE = 0.4;  // restored July value — very small phone screens
 const MAX_SCALE = 6;    // must be ≥4: game fills large monitors in fullscreen (was 2 = the "fullscreen caps at 1024px" bug)
 
+// Browser-zoom support (v391): dpr at page load is the user's reference zoom.
+// Zooming out raises innerWidth (CSS px) while lowering devicePixelRatio —
+// normalizing by dpr/loadDpr recovers the TRUE viewport, so the game keeps a
+// constant CSS-px size and browser zoom shrinks/grows it naturally instead of
+// the scale recomputing to refill the window.
+const LOAD_DPR = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+
 export function useGameScale(): number {
   // Viewport tick — bumped on resize + fullscreenchange so scale recomputes
   // in the SAME render as the state change (no one-render stale window).
   const [viewportTick, setViewportTick] = useState(0);
-  // Track native fullscreen so ad reserves are dropped while fullscreened.
+  // Track native fullscreen so reserves are dropped while fullscreened.
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -49,18 +56,29 @@ export function useGameScale(): number {
 }
 
 function calculateScale(isFullscreen: boolean): number {
-  // Ad bezel REMOVED 9/6 — no reserves on any screen; game scales to the full
-  // viewport (min of ratios, never distort; MAX_SCALE caps on huge monitors).
-  const isMobile = window.innerWidth < 768;
-  const sideReserve = 0;
-  const verticalReserve = 0;
-  const availableWidth = Math.max(300, window.innerWidth - sideReserve);
-  const availableHeight = Math.max(200, window.innerHeight - verticalReserve);
+  // Ad bezel REMOVED 9/6 — no reserves on any screen; game scales to the viewport.
+  // Fullscreen element owns the whole screen — same fit math, no reserves either.
+  void isFullscreen;
 
-  // min() of the two ratios — never distort, letterbox the remainder
-  const scaleX = availableWidth / GAME_WIDTH;
-  const scaleY = availableHeight / GAME_HEIGHT;
-  const scale = Math.max(MIN_SCALE, Math.min(scaleX, scaleY) * PADDING_BUFFER);
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  // Zoom-normalized viewport: what innerWidth/innerHeight would be at the
+  // user's reference (load-time) zoom. Browser zoom-out inflates CSS px and
+  // deflates dpr proportionally — dpr/loadDpr cancels the inflation.
+  const dpr = window.devicePixelRatio || 1;
+  const zoomFactor = dpr / LOAD_DPR; // <1 zoomed out, >1 zoomed in
+  const normW = vw * zoomFactor;
+  const normH = vh * zoomFactor;
+
+  // Natural size: fill the normalized viewport (constant CSS px across zooms)
+  const sNorm = Math.min(normW / GAME_WIDTH, normH / GAME_HEIGHT) * PADDING_BUFFER;
+
+  // Hard fit: never overflow the ACTUAL CSS viewport (zoom-in cap — the game
+  // is already filling it there, so this keeps it at fill instead of clipping)
+  const sFit = Math.min(vw / GAME_WIDTH, vh / GAME_HEIGHT);
+
+  const scale = Math.max(MIN_SCALE, Math.min(sNorm, sFit));
 
   return Math.min(scale, MAX_SCALE);
 }
