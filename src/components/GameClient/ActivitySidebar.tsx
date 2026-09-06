@@ -254,26 +254,39 @@ export function useLetterbox(open: boolean): {
 
   const recalc = useCallback(() => {
     const z = (window.devicePixelRatio || 1) / LOAD_DPR;
-    const vw = window.innerWidth * z;   // zoom-normalized — matches the game's
-    const vh = window.innerHeight * z;  // constant CSS size from useGameScale
-    const naturalGameW = Math.min(vw, Math.round(512 * Math.min(vh / 345 * 0.95, 6)));
-    const natural = Math.max(0, Math.floor((vw - naturalGameW) / 2) - 24);
+    const rawVW = window.innerWidth;   // zoomed CSS px — where the column box lives
+    const rawVH = window.innerHeight;
+    const normW = rawVW * z;           // normalized — where threshold decisions live
+    const normH = rawVH * z;
+
+    // Game scale — EXACTLY useGameScale's math (game keeps constant CSS size
+    // across zooms; fit-capped by the raw viewport on zoom-in)
+    const sNorm = Math.min(normW / 512, normH / 345) * 0.95;
+    const sFit = Math.min(rawVW / 512, rawVH / 345);
+    const gameScale = Math.min(6, Math.max(0.4, Math.min(sNorm, sFit)));
+    const naturalGameW = Math.round(512 * gameScale);
+
+    // Threshold decision in NORMALIZED px (same answer at every zoom level)
+    const natural = Math.max(0, Math.floor((normW - naturalGameW) / 2) - 24);
+
+    // Column CSS width in RAW px — spans ALL the freed space at any zoom
+    const sideFromGap = (gw: number) => Math.max(0, Math.floor((rawVW - gw) / 2) - 24);
 
     if (!open) {
       setGeom({ sideWidth: 0, naturalSideWidth: natural, forcedScaleDown: false, effectiveScaleFactor: 1 });
       return;
     }
     if (natural >= MIN_COLUMN_WIDTH) {
-      setGeom({ sideWidth: natural, naturalSideWidth: natural, forcedScaleDown: false, effectiveScaleFactor: 1 });
+      setGeom({ sideWidth: sideFromGap(naturalGameW), naturalSideWidth: natural, forcedScaleDown: false, effectiveScaleFactor: 1 });
       return;
     }
-    // Open on a narrow letterbox: shrink the game just enough to fit
-    // a proper column (never below 60% of the natural size).
-    const targetGameW = Math.max(Math.round(512 * 0.6), vw - OPEN_COLUMN_WIDTH - 36);
+    // Open on a narrow letterbox: shrink the game just enough (normalized space)
+    // for a proper column — never below 60% of the natural size.
+    const targetGameW = Math.max(Math.round(512 * 0.6), normW - OPEN_COLUMN_WIDTH - 36);
     const factor = Math.min(1, targetGameW / naturalGameW);
     const gameW = Math.round(naturalGameW * factor);
     setGeom({
-      sideWidth: Math.max(0, Math.floor((vw - gameW) / 2) - 24),
+      sideWidth: sideFromGap(gameW),
       naturalSideWidth: natural,
       forcedScaleDown: true,
       effectiveScaleFactor: factor,
