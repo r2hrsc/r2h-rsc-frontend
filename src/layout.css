@@ -877,3 +877,56 @@
 /* Fullscreen: letterbox UI must never intrude on the game */
 .game-frame:fullscreen ~ * .activity-sidebar,
 .game-frame:fullscreen ~ * .world-strip { display: none !important; }
+
+/* ── Panel toggle (top-right of game frame, fs-toggle family) ── */
+.panel-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 9999;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid #1a1a1a;
+  background: rgba(15, 15, 15, 0.9);
+  color: #14F195;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.panel-toggle:hover {
+  background: rgba(30, 30, 30, 0.95);
+  border-color: #14F195;
+}
+
+.panel-toggle svg {
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+}
+
+/* ── Mobile portrait activity bar (lower letterbox) ── */
+.mobile-activity-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 11px;
+  color: #777;
+  padding: 0 8px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.mab-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70vw;
+}
+
+.mab-level { color: #14F195; font-weight: 600; }

@@ -4,6 +4,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 // Fills the black bars that flank the 512×345 game on wide screens.
 // Anchored to the game frame's rect (never overlaps the canvas), hidden in
 // fullscreen, hidden when the letterbox is too narrow to be useful.
+// v386: TOGGLE — on near-4:3 viewports (letterbox < 150px) the user can open
+// the panel anyway; App scales the game down to make room. On mobile portrait
+// a compact bottom bar replaces the column.
 // Data: R2H_ACTIVITY postMessages from the game page's read-only ActivityMonitor
 // (XP / level / loot deltas) + /v1/world/stats poll for the status strip.
 
@@ -34,7 +37,8 @@ interface WorldStats {
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
 const MAX_ROWS = 40;
-const MIN_COLUMN_WIDTH = 150; // below this the letterbox is too thin — hide
+const MIN_COLUMN_WIDTH = 150; // natural letterbox below this: panel needs the toggle
+const OPEN_COLUMN_WIDTH = 240; // when toggled open on narrow letterboxes, make this much room
 
 function fmtAgo(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -44,8 +48,13 @@ function fmtAgo(ts: number): string {
   return `${Math.floor(s / 3600)}h`;
 }
 
-/** The side column. Absolute-positioned against the game frame (parent has position:relative). */
-export function ActivitySidebar({ sideWidth, itemNames }: { sideWidth: number; itemNames: Record<string, string> }) {
+function fmtNum(n?: number): string {
+  if (n === undefined) return '?';
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
+/** Shared feed collection — used by the column, the toggle, and the mobile bar. */
+function useActivityFeed(itemNames: Record<string, string>) {
   const [rows, setRows] = useState<FeedRow[]>([]);
   const rowId = useRef(0);
 
@@ -78,7 +87,13 @@ export function ActivitySidebar({ sideWidth, itemNames }: { sideWidth: number; i
     return () => window.removeEventListener('message', handler);
   }, [itemNames]);
 
-  if (sideWidth < MIN_COLUMN_WIDTH) return null;
+  return rows;
+}
+
+/** The side column. Absolute-positioned against the game frame (parent has position:relative). */
+export function ActivitySidebar({ sideWidth, itemNames }: { sideWidth: number; itemNames: Record<string, string> }) {
+  const rows = useActivityFeed(itemNames);
+  if (sideWidth < 100) return null;
 
   return (
     <div
@@ -109,6 +124,60 @@ export function ActivitySidebar({ sideWidth, itemNames }: { sideWidth: number; i
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Toggle button docked top-right of the game frame — same family as fs-toggle. */
+export function PanelToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      className="panel-toggle"
+      onClick={onToggle}
+      title={open ? 'Hide activity panel' : 'Show activity panel'}
+      aria-label={open ? 'Hide activity panel' : 'Show activity panel'}
+    >
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {open ? (
+          <path d="M3 3h18v18H3zM15 3v18" />
+        ) : (
+          <path d="M3 3h18v18H3zM15 3v18" />
+        )}
+      </svg>
+    </button>
+  );
+}
+
+/** Mobile portrait: compact bar in the large lower letterbox — last event + status. */
+export function MobileActivityBar({ itemNames }: { itemNames: Record<string, string> }) {
+  const rows = useActivityFeed(itemNames);
+  const [stats, setStats] = useState<WorldStats | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_URL}/v1/world/stats`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (alive) setStats(data);
+      } catch { /* keep last */ }
+    };
+    load();
+    const t = setInterval(load, 30_000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  const last = rows[0];
+
+  return (
+    <div className="mobile-activity-bar" style={{ position: 'absolute', left: 0, right: 0, bottom: -46, height: 36 }}>
+      <span className="ws-dot" />
+      <span className="ws-players">{stats ? `${stats.playersOnline} online` : '…'}</span>
+      <span className="ws-sep">·</span>
+      <span className={last?.highlight ? 'mab-text mab-level' : 'mab-text'}>
+        {last ? `${last.text} · ${fmtAgo(last.ts)}` : 'Your XP drops and loot appear here'}
+      </span>
     </div>
   );
 }
@@ -164,22 +233,46 @@ export function useItemNames(): Record<string, string> {
   return names;
 }
 
-function fmtNum(n?: number): string {
-  if (n === undefined) return '?';
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-}
-
-/** Letterbox geometry — recomputed with the game scale. Exported for App. */
-export function useLetterbox(): { sideWidth: number } {
-  const [sideWidth, setSideWidth] = useState(0);
+/**
+ * Letterbox geometry. `open` (toggle state) is the single source of truth:
+ * - open + natural room  → column at natural width, game unscaled
+ * - open + thin letterbox → game scales down just enough for a proper column
+ * - closed → no column, game at natural scale
+ */
+export function useLetterbox(open: boolean): {
+  sideWidth: number;
+  naturalSideWidth: number;
+  forcedScaleDown: boolean;
+  effectiveScaleFactor: number;
+} {
+  const [geom, setGeom] = useState({ sideWidth: 0, naturalSideWidth: 0, forcedScaleDown: false, effectiveScaleFactor: 1 });
 
   const recalc = useCallback(() => {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const gameW = Math.min(vw, Math.round(512 * Math.min(vh / 345 * 0.95, 6)));
-    const width = Math.max(0, Math.floor((vw - gameW) / 2) - 24);
-    setSideWidth(width);
-  }, []);
+    const naturalGameW = Math.min(vw, Math.round(512 * Math.min(vh / 345 * 0.95, 6)));
+    const natural = Math.max(0, Math.floor((vw - naturalGameW) / 2) - 24);
+
+    if (!open) {
+      setGeom({ sideWidth: 0, naturalSideWidth: natural, forcedScaleDown: false, effectiveScaleFactor: 1 });
+      return;
+    }
+    if (natural >= MIN_COLUMN_WIDTH) {
+      setGeom({ sideWidth: natural, naturalSideWidth: natural, forcedScaleDown: false, effectiveScaleFactor: 1 });
+      return;
+    }
+    // Open on a narrow letterbox: shrink the game just enough to fit
+    // a proper column (never below 60% of the natural size).
+    const targetGameW = Math.max(Math.round(512 * 0.6), vw - OPEN_COLUMN_WIDTH - 36);
+    const factor = Math.min(1, targetGameW / naturalGameW);
+    const gameW = Math.round(naturalGameW * factor);
+    setGeom({
+      sideWidth: Math.max(0, Math.floor((vw - gameW) / 2) - 24),
+      naturalSideWidth: natural,
+      forcedScaleDown: true,
+      effectiveScaleFactor: factor,
+    });
+  }, [open]);
 
   useEffect(() => {
     recalc();
@@ -191,5 +284,14 @@ export function useLetterbox(): { sideWidth: number } {
     };
   }, [recalc]);
 
-  return { sideWidth };
+  return geom;
+}
+
+/** Default toggle state: open when the viewport has natural side letterbox room. */
+export function computeDefaultPanelOpen(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (window.innerWidth < 768) return false; // mobile portrait → bottom bar instead
+  const naturalGameW = Math.min(window.innerWidth, Math.round(512 * Math.min(window.innerHeight / 345 * 0.95, 6)));
+  const natural = Math.max(0, Math.floor((window.innerWidth - naturalGameW) / 2) - 24);
+  return natural >= MIN_COLUMN_WIDTH;
 }

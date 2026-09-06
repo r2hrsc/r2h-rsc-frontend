@@ -13,7 +13,7 @@ import { AdManagerPage } from './components/Admin/AdManager';
 import { PrivacyPolicy, TermsOfService, About } from './pages/LegalPages';
 import { useGameScale } from './hooks/useGameScale';
 import MobileKeyboard from './components/GameClient/MobileKeyboard';
-import { ActivitySidebar, WorldStatusStrip, useItemNames, useLetterbox } from './components/GameClient/ActivitySidebar';
+import { ActivitySidebar, WorldStatusStrip, MobileActivityBar, PanelToggle, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
 import { initWalletKit } from './lib/walletKit';
 import './index.css';
 import './layout.css';
@@ -193,8 +193,17 @@ function AppContent() {
   // useGameScale + useMemo were previously after the if(!ready) return, causing a
   // hook-count mismatch when Privy transitioned ready=false→true → re-render loop (#310).
   const gameScale = useGameScale();
-  const visualWidth = useMemo(() => Math.round(512 * gameScale), [gameScale]);
-  const visualGameHeight = useMemo(() => Math.round(345 * gameScale), [gameScale]);
+
+  // ── Phase 1 letterbox panel (9/6): fills black bars flanking the game ──
+  // v386: TOGGLE for near-4:3 viewports (natural letterbox < 150px) + mobile bar.
+  const itemNames = useItemNames();
+  const [panelOpen, setPanelOpen] = useState(computeDefaultPanelOpen);
+  const { sideWidth, naturalSideWidth, effectiveScaleFactor } = useLetterbox(panelOpen);
+  // Game shrinks slightly ONLY when the user toggled the panel open on a viewport
+  // with no natural letterbox. Otherwise effectiveScaleFactor === 1 (no change).
+  const effectiveScale = gameScale * effectiveScaleFactor;
+  const visualWidth = useMemo(() => Math.round(512 * effectiveScale), [effectiveScale]);
+  const visualGameHeight = useMemo(() => Math.round(345 * effectiveScale), [effectiveScale]);
 
   // Mobile detection — side ad columns hidden on narrow screens (see index.css .ad-zone-side)
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
@@ -239,9 +248,6 @@ function AppContent() {
   const gameLeft = isMobile ? 0 : AD_SIDE_WIDTH + AD_SIDE_GAP;
   const gameTop = isMobile ? 0 : AD_TOP_HEIGHT;
 
-  // ── Phase 1 letterbox panel (9/6): fills black bars flanking the game ──
-  const itemNames = useItemNames();
-  const { sideWidth } = useLetterbox();
   const showLetterboxUI = !isFullscreen && appState === 'playing';
 
   // Show minimal loading while Privy initializes
@@ -292,7 +298,7 @@ function AppContent() {
             rscPassword={rscCredentials?.password}
             onLoginComplete={handleLoginComplete}
             showRscBackground={isAuthScreen}
-            scale={gameScale}
+            scale={effectiveScale}
             iframeRef={gameIframeRef}
           />
           {/* RESTORED: fullscreen toggle — real browser Fullscreen API on the game frame */}
@@ -312,12 +318,19 @@ function AppContent() {
               </svg>
             )}
           </button>
+          {/* v386: panel toggle — top-right; opens the activity column even on
+              near-4:3 viewports (game scales down slightly to make room) */}
+          {showLetterboxUI && (
+            <PanelToggle open={panelOpen} onToggle={() => setPanelOpen(o => !o)} />
+          )}
           {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
           <MobileKeyboard iframeRef={gameIframeRef} />
           {/* Phase 1 letterbox panel — right column + status strip; anchored to the
-              game rect, auto-hidden in fullscreen and on narrow letterboxes */}
-          {showLetterboxUI && <ActivitySidebar sideWidth={sideWidth} itemNames={itemNames} />}
-          {showLetterboxUI && <WorldStatusStrip />}
+              game rect, auto-hidden in fullscreen. v386: toggle opens it anywhere;
+              mobile portrait gets the compact bottom bar instead. */}
+          {showLetterboxUI && !isMobile && <ActivitySidebar sideWidth={sideWidth} itemNames={itemNames} />}
+          {showLetterboxUI && !isMobile && <WorldStatusStrip />}
+          {showLetterboxUI && isMobile && <MobileActivityBar itemNames={itemNames} />}
           {/* Script panel — all 123 APOS scripts, visible when logged in */}
           <ScriptPanel
             open={appState === 'playing'}
