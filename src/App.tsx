@@ -15,8 +15,9 @@ import { useGameScale } from './hooks/useGameScale';
 import { useLandscapeRotation } from './hooks/useLandscapeRotation';
 import MobileKeyboard from './components/GameClient/MobileKeyboard';
 import { GameControls } from './components/GameClient/GameControls';
+import { TopFrameBar, BottomFrameBar } from './components/GameClient/FrameBar';
 import type { MobileKeyboardHandle } from './components/GameClient/MobileKeyboard';
-import { ActivitySidebar, WorldStatusStrip, MobileActivityBar, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
+import { ActivitySidebar, MobileActivityBar, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
 import { LetterboxDock } from './components/GameClient/LetterboxDock';
 import { LeftColumn } from './components/GameClient/LeftColumn';
 import { initWalletKit } from './lib/walletKit';
@@ -332,6 +333,9 @@ function AppContent() {
             zIndex: 1,
           }}
         >
+          {/* Data bars above/below the game frame (wallet + burn up top,
+              world metrics below) — same style as the outside columns */}
+          <TopFrameBar />
           <GameContainer
             key={`game-${reconnectAttempt}`}   /* v358: remount on auto-reconnect → fresh RSC_LOGIN */
             wsUrl={WS_URL}
@@ -360,6 +364,7 @@ function AppContent() {
           {/* v386 panel toggle retired — panels now open from the controls hub */}
           {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
           <MobileKeyboard ref={mobileKeyboardRef} iframeRef={gameIframeRef} />
+          <BottomFrameBar />
           {/* Left letterbox: GUIDE + XP CALC (wiki links back, welcome text) */}
           {showLetterboxUI && !isMobile && panelOpen && (
             <LeftColumn sideWidth={sideWidth} />
@@ -375,7 +380,7 @@ function AppContent() {
             />
           )}
           {showLetterboxUI && !isMobile && !panelOpen && <ActivitySidebar sideWidth={0} itemNames={itemNames} />}
-          {showLetterboxUI && !isMobile && <WorldStatusStrip />}
+          {/* WorldStatusStrip retired — its metrics live in BottomFrameBar now */}
           {showLetterboxUI && isMobile && <MobileActivityBar itemNames={itemNames} />}
           {/* Script panel — all 123 APOS scripts, opened from the controls hub */}
           <ScriptPanel
