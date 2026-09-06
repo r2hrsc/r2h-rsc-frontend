@@ -12,6 +12,7 @@ import { MediaKit } from './pages/MediaKit';
 import { AdManagerPage } from './components/Admin/AdManager';
 import { PrivacyPolicy, TermsOfService, About } from './pages/LegalPages';
 import { useGameScale } from './hooks/useGameScale';
+import { useLandscapeRotation } from './hooks/useLandscapeRotation';
 import MobileKeyboard from './components/GameClient/MobileKeyboard';
 import { ActivitySidebar, WorldStatusStrip, MobileActivityBar, PanelToggle, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
 import { LetterboxDock } from './components/GameClient/LetterboxDock';
@@ -255,6 +256,10 @@ function AppContent() {
     }
   }, []);
 
+  // ── Mobile landscape rotation (wallet in-app browsers are portrait-locked) ──
+  const { rotated, nativeLandscape, toggle: toggleRotate } = useLandscapeRotation();
+  const isLandscapeMode = rotated || nativeLandscape;
+
   // Conditional ad reserves — on mobile, no side columns, only top/bottom bars
   const reserveH = isMobile ? 0 : AD_RESERVE_H;
   const reserveV = isMobile ? 0 : AD_RESERVE_V;
@@ -262,6 +267,16 @@ function AppContent() {
   const gameTop = isMobile ? 0 : AD_TOP_HEIGHT;
 
   const showLetterboxUI = !isFullscreen && appState === 'playing';
+
+  // While CSS-rotated: the frame is sized in PORTRAIT dims (vh wide, vw tall),
+  // then rotated. Scale must fit the ROTATED geometry. Computed directly in
+  // render (cheap) so any resize-driven re-render refreshes it.
+  const rotationScale = rotated
+    ? Math.min(window.innerHeight / 512, window.innerWidth / 345) * 0.98
+    : gameScale;
+  const displayScale = rotated ? rotationScale : effectiveScale;
+  const displayWidth = rotated ? Math.round(345 * displayScale) : visualWidth;
+  const displayHeight = rotated ? Math.round(512 * displayScale) : visualGameHeight;
 
   // Show minimal loading while Privy initializes
   if (!ready) {
@@ -296,10 +311,10 @@ function AppContent() {
       {/* ── Game frame — centered in the viewport (ad bezel removed 9/6) ── */}
         <div
           ref={gameFrameRef}
-          className="game-frame"
+          className={`game-frame${rotated ? ' rotated' : ''}`}
           style={{
-            width: visualWidth,
-            height: visualGameHeight,
+            width: displayWidth,
+            height: displayHeight,
             boxShadow: '0 0 0 1px #1a1a1a',
             zIndex: 1,
           }}
@@ -330,6 +345,20 @@ function AppContent() {
                 <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
               </svg>
             )}
+          </button>
+          {/* Landscape rotate toggle (mobile wallet browsers are portrait-locked) */}
+          <button
+            className="rotate-toggle"
+            onClick={() => toggleRotate(gameFrameRef.current)}
+            title={isLandscapeMode ? 'Exit landscape' : 'Rotate to landscape'}
+            aria-label={isLandscapeMode ? 'Exit landscape' : 'Rotate to landscape'}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="4" y="7" width="16" height="10" rx="1.5" />
+              <path d="M20 10.5v3.5a2 2 0 0 0 2-2v0a2 2 0 0 0-2-2" stroke="none" fill="currentColor" opacity="0" />
+              <path d="M8.5 12h7" />
+              <path d="M12.5 9.5 15 12l-2.5 2.5" />
+            </svg>
           </button>
           {/* v386: panel toggle — top-right; opens the activity column even on
               near-4:3 viewports (game scales down slightly to make room) */}
