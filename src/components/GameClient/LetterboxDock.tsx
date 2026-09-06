@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useChatSocket, type ChatMessage } from '../Chat/useChatSocket';
 
 // ── Phase 2 letterbox dock ───────────────────────────────────────────────
@@ -22,7 +22,125 @@ interface HighscoreRow {
   totalXp: number;
 }
 
-type Tab = 'activity' | 'chat' | 'top';
+type Tab = 'activity' | 'chat' | 'top' | 'player';
+
+// Player lookup tab — search any player, full 18-skill profile.
+// Data: sidecar GET /v1/players/:u (summary) + /v1/players/:u/skills.
+
+interface PlayerSkill { id: number; key: string; name: string; level: number; xp: number }
+interface PlayerSummary { username: string; totalLevel: number; totalXp: number; online: boolean }
+
+function usePlayerLookup() {
+  const [query, setQuery] = useState('');
+  const [summary, setSummary] = useState<PlayerSummary | null>(null);
+  const [skills, setSkills] = useState<PlayerSkill[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const search = useCallback(async (raw: string) => {
+    const u = raw.trim().toLowerCase();
+    if (!u) return;
+    setLoading(true); setError(''); setSummary(null); setSkills(null);
+    try {
+      const [sumRes, skRes] = await Promise.all([
+        fetch(`${API_URL}/v1/players/${encodeURIComponent(u)}`),
+        fetch(`${API_URL}/v1/players/${encodeURIComponent(u)}/skills`),
+      ]);
+      if (!sumRes.ok) {
+        setError(sumRes.status === 404 ? 'Player not found.' : 'Lookup failed.');
+        return;
+      }
+      setSummary(await sumRes.json());
+      if (skRes.ok) {
+        const d = await skRes.json();
+        if (Array.isArray(d.skills)) {
+          // RSC core 18 only (server extras like harvesting/runecraft stay out)
+          setSkills(d.skills.filter((s: PlayerSkill) => s.id < 18));
+        }
+      }
+    } catch {
+      setError('Lookup failed — check connection.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { query, setQuery, summary, skills, loading, error, search };
+}
+
+function PlayerPane({ me }: { me: string | null }) {
+  const { query, setQuery, summary, skills, loading, error, search } = usePlayerLookup();
+  const [recent, setRecent] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('r2h.playerLookup.recent') || '[]'); } catch { return []; }
+  });
+
+  const doSearch = (name: string) => {
+    const n = name.trim().toLowerCase();
+    if (!n) return;
+    search(n);
+    setRecent(prev => {
+      const next = [n, ...prev.filter(p => p !== n)].slice(0, 5);
+      try { localStorage.setItem('r2h.playerLookup.recent', JSON.stringify(next)); } catch { /* private mode */ }
+      return next;
+    });
+  };
+
+  return (
+    <div className="ld-player">
+      <form className="ld-player-search" onSubmit={e => { e.preventDefault(); doSearch(query); }}>
+        <input
+          type="text"
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Search player…"
+          maxLength={12}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <button type="submit" disabled={loading || !query.trim()} aria-label="Search">🔍</button>
+      </form>
+
+      {(recent.length > 0 || me) && (
+        <div className="ld-player-recent">
+          {me && (
+            <button className="ld-chip ld-chip-me" onClick={() => { setQuery(me); doSearch(me); }}>{me}</button>
+          )}
+          {recent.map(r => (
+            <button key={r} className="ld-chip" onClick={() => { setQuery(r); doSearch(r); }}>{r}</button>
+          ))}
+        </div>
+      )}
+
+      {loading && <div className="ld-empty">Looking up…</div>}
+      {!loading && error && <div className="ld-empty">{error}</div>}
+
+      {!loading && summary && (
+        <div className="ld-player-card">
+          <div className="ld-player-head">
+            <span className="ld-player-name">{summary.username}</span>
+            <span className={summary.online ? 'ld-online' : 'ld-offline'}>
+              {summary.online ? 'online' : 'offline'}
+            </span>
+          </div>
+          <div className="ld-player-totals">
+            <span>Total <b>{summary.totalLevel}</b></span>
+            <span>XP <b>{fmtNum(summary.totalXp)}</b></span>
+          </div>
+          {skills && (
+            <div className="ld-skill-grid">
+              {skills.map(s => (
+                <div key={s.key} className="ld-skill" data-max={s.level >= 99 ? '1' : undefined}>
+                  <span className="ld-skill-name">{s.name}</span>
+                  <span className="ld-skill-lvl">{s.level}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function fmtAgo(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
@@ -142,6 +260,7 @@ export function LetterboxDock({
           CHAT{onlineUsers.length > 0 ? ` ${onlineUsers.length}` : ''}
         </button>
         <button className={tab === 'top' ? 'ld-tab ld-tab-active' : 'ld-tab'} onClick={() => setTab('top')}>TOP</button>
+        <button className={tab === 'player' ? 'ld-tab ld-tab-active' : 'ld-tab'} onClick={() => setTab('player')}>PLAYER</button>
       </div>
 
       {/* Pane: ACTIVITY */}
@@ -174,6 +293,9 @@ export function LetterboxDock({
           ))}
         </div>
       )}
+
+      {/* Pane: PLAYER (lookup) */}
+      {tab === 'player' && <PlayerPane me={username} />}
     </div>
   );
 }
