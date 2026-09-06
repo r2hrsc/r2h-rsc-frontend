@@ -261,10 +261,13 @@ export function LetterboxDock({
       className="letterbox-dock"
       style={{
         position: 'absolute',
-        top: 0,
+        // v395: span the FULL viewport vertically. The frame is centered, so
+        // 50% (half the frame) − 50vh (half the window) = offset up to the
+        // viewport top; 100vh covers the whole window at any zoom.
+        top: 'calc(50% - 50vh)',
+        height: '100vh',
         right: -sideWidth - 12,
         width: sideWidth,
-        height: '100%',
         pointerEvents: 'auto',
       }}
     >

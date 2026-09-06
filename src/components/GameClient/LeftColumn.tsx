@@ -54,10 +54,11 @@ export function LeftColumn({ sideWidth }: { sideWidth: number }) {
       className="left-col"
       style={{
         position: 'absolute',
-        top: 0,
+        // v395: span the FULL viewport vertically (see LetterboxDock note)
+        top: 'calc(50% - 50vh)',
+        height: '100vh',
         left: -sideWidth - 12,
         width: sideWidth,
-        height: '100%',
         pointerEvents: 'auto',
       }}
     >
