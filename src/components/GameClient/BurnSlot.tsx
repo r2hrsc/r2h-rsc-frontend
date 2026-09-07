@@ -1,17 +1,18 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * BurnSlot — PLAY-TO-BURN section of the top frame bar (data-slot="burn").
  *
  * Live view of the play-to-burn pipeline (GET {API}/v1/burn/stats, 10s poll).
- * - Idle:    flickering flame + total burned (count-up animated on change)
- *            + "today" subtotal.
- * - Live:    when a new burn lands between polls, the flame bursts, an ember
- *            particle cloud rises, and a toast pops above the bar naming the
- *            player and the feat ("+10 · walletconne3 hit Magic 30").
- * - Hover:   mini-card with the most recent burns (player · feat · amount).
  *
- * RSC skill ids → names (classic 18-skill order, matches server Skill enum).
+ * IDLE:   three-layer flame with glow halo · gradient count-up total ·
+ *         neon "+N today" chip · SIM badge in dry-run · degen hover card.
+ *
+ * LIVE BURN (the bang): a full-width banner portals into the game frame —
+ *   "+10 R2H BURNED" in glowing gold→orange gradient, player + feat subline,
+ *   glitch entrance, scanlines, ember storm — while the ENTIRE game frame
+ *   pulses with a burning edge glow and the counter slams up.
  */
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
@@ -47,10 +48,10 @@ interface BurnStats {
 interface FlashEvent {
   key: number;
   amount: number;
+  title: string;
   label: string;
 }
 
-/** Describe a ledger entry in player language. */
 function describe(e: BurnEntry): string {
   if (e.status !== 'burned' && e.status !== 'dry_run') return '';
   if (e.username === 'admin') return 'test burn';
@@ -73,7 +74,7 @@ function describe(e: BurnEntry): string {
 /** Poll burn stats; detect NEW burned entries between polls. */
 function useBurnStats(onNew: (entries: BurnEntry[]) => void): BurnStats | null {
   const [stats, setStats] = useState<BurnStats | null>(null);
-  const seen = useRef<Set<string> | null>(null); // null until first load (no toast storm)
+  const seen = useRef<Set<string> | null>( null ); // null until first load (no toast storm)
   const cb = useRef(onNew);
   cb.current = onNew;
 
@@ -88,7 +89,6 @@ function useBurnStats(onNew: (entries: BurnEntry[]) => void): BurnStats | null {
 
         const burned = data.recent.filter(e => e.status === 'burned');
         if (seen.current === null) {
-          // First load: remember, don't celebrate history.
           seen.current = new Set(burned.map(e => `${e.username}:${e.ts}`));
         } else {
           const fresh = burned.filter(e => !seen.current!.has(`${e.username}:${e.ts}`));
@@ -106,8 +106,8 @@ function useBurnStats(onNew: (entries: BurnEntry[]) => void): BurnStats | null {
   return stats;
 }
 
-/** Count-up animation: eased tween from previous to next value. */
-function useCountUp(target: number, duration = 900): number {
+/** Eased count-up tween. */
+function useCountUp(target: number, duration = 1100): number {
   const [display, setDisplay] = useState(target);
   const fromRef = useRef(target);
   const rafRef = useRef<number>(0);
@@ -130,21 +130,25 @@ function useCountUp(target: number, duration = 900): number {
   return display;
 }
 
-const fmtTokens = (n: number) =>
-  n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
-/** One ember particle's random trajectory (computed once per flash). */
-function emberStyle(i: number, total: number): React.CSSProperties {
-  const seed = (i * 2654435761) % 1000 / 1000; // deterministic-ish spread
-  const x = -14 + seed * 28;                   // px around flame center
-  const drift = (i % 2 === 0 ? 1 : -1) * (6 + seed * 14);
-  const delay = seed * 0.35;
-  const dur = 0.9 + ((i * 7919) % 600) / 1000;
+const EMBER_COLORS = ['#ffd166', '#ff9f1c', '#ff6b35', '#ff4500', '#ffb36b'];
+
+/** Deterministic-per-index ember particle style. */
+function emberStyle(i: number): React.CSSProperties {
+  const r1 = ((i * 2654435761) % 997) / 997;
+  const r2 = ((i * 40503) % 991) / 991;
+  const size = 2 + r2 * 4;
   return {
-    left: `${x}px`,
-    ['--drift' as string]: `${drift}px`,
-    animationDelay: `${delay}s`,
-    animationDuration: `${dur}s`,
+    left: `${(r1 * 100).toFixed(1)}%`,
+    width: size,
+    height: size,
+    background: EMBER_COLORS[i % EMBER_COLORS.length],
+    ['--drift' as string]: `${(r2 * 44 - 22).toFixed(0)}px`,
+    ['--sway' as string]: `${(r1 * 30 - 15).toFixed(0)}px`,
+    animationDelay: `${(r1 * 0.5).toFixed(2)}s`,
+    animationDuration: `${(1.0 + r2 * 1.1).toFixed(2)}s`,
+    filter: `blur(${(r2 * 0.8).toFixed(1)}px)`,
   };
 }
 
@@ -152,48 +156,62 @@ export function BurnSlot() {
   const [flash, setFlash] = useState<FlashEvent | null>(null);
   const flashKey = useRef(0);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rootRef = useRef<HTMLElement | null>(null);
+  const [frameEl, setFrameEl] = useState<HTMLElement | null>(null);
+  const [slam, setSlam] = useState(0);
+
+  // Locate the game-frame ancestor once (banner portals into it).
+  useEffect(() => {
+    if (rootRef.current) {
+      setFrameEl(rootRef.current.closest('.game-frame') as HTMLElement | null);
+    }
+  }, []);
+
+  // Frame burning-edge: toggle a class on the game frame for the flash duration.
+  useEffect(() => {
+    if (!frameEl || !flash) return;
+    frameEl.classList.add('burn-frame-glow');
+    const t = setTimeout(() => frameEl.classList.remove('burn-frame-glow'), 3400);
+    return () => { frameEl.classList.remove('burn-frame-glow'); clearTimeout(t); };
+  }, [frameEl, flash]);
 
   const onNew = useCallback((entries: BurnEntry[]) => {
     const amount = entries.reduce((s, e) => s + e.tokens, 0);
     const last = entries[entries.length - 1];
     flashKey.current += 1;
-    setFlash({ key: flashKey.current, amount, label: describe(last) || 'a player burned' });
+    setFlash({
+      key: flashKey.current,
+      amount,
+      title: `+${fmt(amount)} R2H BURNED`,
+      label: describe(last) || 'a player burned',
+    });
+    setSlam(slam + 1);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setFlash(null), 4200);
-  }, []);
+    toastTimer.current = setTimeout(() => setFlash(null), 3600);
+  }, [slam]);
 
   const stats = useBurnStats(onNew);
   const total = useCountUp(stats ? Math.round(stats.totalBurned) : 0);
   const today = stats ? Math.round(stats.burnedToday) : 0;
 
   return (
-    <section data-slot="burn" className={`fb-section fb-burn${flash ? ' fb-burn-flash' : ''}`}>
-      {/* Flame — steady flicker; bursts when a burn lands */}
+    <section ref={rootRef} data-slot="burn" className={`fb-section fb-burn${flash ? ' fb-burn-flash' : ''}`}>
+      {/* Flame — three layers, glow halo */}
       <span className="fb-flame" aria-hidden>
-        <svg viewBox="0 0 24 24" width="13" height="13">
+        <span className="fb-flame-halo" />
+        <svg viewBox="0 0 24 24" width="15" height="15">
           <path className="fb-flame-outer" d="M12 2c1 4-4 5.5-4 10a4 4 0 0 0 8 0c0-2-1-3-1-3s3 1 3 4a7 7 0 1 1-14 0C4 8 10 6.5 12 2z" />
-          <path className="fb-flame-inner" d="M12 9c.5 2-2 2.6-2 5a2 2 0 0 0 4 0c0-1.4-.8-2-.8-2s1.8.6 1.8 2.6a3.2 3.2 0 1 1-6.4 0C8.6 11.6 11 10.7 12 9z" />
+          <path className="fb-flame-mid" d="M12 6c.8 3.2-3 4.2-3 7.6a3 3 0 0 0 6 0c0-1.6-.9-2.4-.9-2.4s2.2.8 2.2 3.2a5.2 5.2 0 1 1-10.4 0C5.9 9.7 10.4 8.6 12 6z" />
+          <path className="fb-flame-inner" d="M12 11c.4 1.6-1.6 2-1.6 3.9a1.6 1.6 0 0 0 3.2 0c0-1.1-.6-1.6-.6-1.6s1.4.5 1.4 2a2.6 2.6 0 1 1-5.2 0c0-3 2.6-3.4 2.8-4.3z" />
         </svg>
-        {/* ember burst on live burn */}
-        {flash && Array.from({ length: 12 }, (_, i) => (
-          <span key={`${flash.key}-${i}`} className="fb-ember" style={emberStyle(i, 12)} />
-        ))}
       </span>
 
       <span className="fb-label">BURNED</span>
-      <span className="fb-value fb-burn-total">{fmtTokens(total)} R2H</span>
-      {today > 0 && <span className="fb-burn-today">+{fmtTokens(today)} today</span>}
+      <span key={slam} className="fb-value fb-burn-total">{fmt(total)} R2H</span>
+      {today > 0 && <span className="fb-burn-today">+{fmt(today)} today</span>}
       {stats?.dryRun && <span className="fb-burn-sim" title="Dry-run mode: burns are simulated">SIM</span>}
 
-      {/* Toast — pops above the bar when a burn lands live */}
-      {flash && (
-        <div key={flash.key} className="fb-burn-toast" role="status">
-          <span className="fb-burn-toast-amt">+{fmtTokens(flash.amount)}</span>
-          <span className="fb-burn-toast-label">{flash.label}</span>
-        </div>
-      )}
-
-      {/* Hover card — recent burns */}
+      {/* Hover card — degen panel */}
       {stats && stats.recent.length > 0 && (
         <div className="fb-burn-card">
           <div className="fb-burn-card-title">RECENT BURNS</div>
@@ -201,11 +219,32 @@ export function BurnSlot() {
             <div key={`${e.username}-${e.ts}-${i}`} className="fb-burn-card-row">
               <span className="fb-burn-card-feat">{describe(e) || e.username}</span>
               <span className="fb-burn-card-amt">
-                {e.status === 'burned' ? `🔥 ${fmtTokens(e.tokens)}` : e.status === 'dry_run' ? `∼${fmtTokens(e.tokens)}` : '·'}
+                {e.status === 'burned' ? `🔥 ${fmt(e.tokens)}` : e.status === 'dry_run' ? `∼${fmt(e.tokens)}` : '·'}
               </span>
             </div>
           ))}
+          {stats.walletBalance != null && (
+            <div className="fb-burn-card-balance">
+              <span>burn tank</span>
+              <span>{fmt(stats.walletBalance)} R2H</span>
+            </div>
+          )}
         </div>
+      )}
+
+      {/* THE BANG — banner portals into the game frame, centered over the game */}
+      {flash && frameEl && createPortal(
+        <div key={flash.key} className="burn-banner" role="status">
+          <div className="burn-banner-scan" aria-hidden />
+          <div className="burn-banner-title">{flash.title}</div>
+          <div className="burn-banner-sub">{flash.label}</div>
+          <div className="burn-banner-embers" aria-hidden>
+            {Array.from({ length: 26 }, (_, i) => (
+              <span key={i} className="burn-ember" style={emberStyle(i)} />
+            ))}
+          </div>
+        </div>,
+        frameEl
       )}
     </section>
   );
