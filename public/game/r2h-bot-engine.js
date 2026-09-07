@@ -23,7 +23,7 @@
   if (window.__r2h_bot_engine) return;
   window.__r2h_bot_engine = true;
 
-  var VERSION = 'v422';
+  var VERSION = 'v423';
   var LOG_PREFIX = '[R2H ' + VERSION + ']';
 
   // ═══════════════════════════════════════════════════════════════
@@ -10624,6 +10624,47 @@ return 1000;
     var mc = getMC();
     if (mc) mc.d4 = 0;
   }, 5000);
+
+  // v423 MOVEMENT KEEPALIVE — server-side "Movement time-out" (GameStateUpdater:
+  // lastMoved only updates in setLocation, i.e. an actual TILE CHANGE; IDLE_TIMER
+  // = 5min → warn → 60s later FORCED unregister). Combat scripts in aggressive
+  // areas legitimately stand still fighting, so the v359 mouse-counter keepalive
+  // never covers it. Every 4 minutes WHILE A BOT RUNS: if the player is NOT in a
+  // fight (mc.O.g8 < 8 — walking mid-fight cancels the engagement), step one
+  // adjacent tile and remember the origin; the next step returns to origin. A 2-
+  // step cycle = permanent movement for the server without drifting the position
+  // and without breaking aggro-area training. No bot running → do nothing (a
+  // human idling SHOULD time out).
+  var _moveKeepLast = 0;
+  var _moveKeepHome = null;
+  setInterval(function() {
+    try {
+      // botActive is declared below (hoisted var) — only step while a script runs
+      if (!botActive) return;
+      var mc = getMC();
+      if (!mc || !mc.O) return;
+      var fighting = Number(mc.O.g8 || 0) >= 8;
+      if (fighting) return;                     // never step mid-fight
+      if (Date.now() - _moveKeepLast < 240000) return;   // every 4 min
+      var x = getX(), y = getY();
+      if (_moveKeepHome && (_moveKeepHome.x !== x || _moveKeepHome.y !== y)) {
+        // we stepped aside last time but SOMETHING ELSE moved us (retreat,
+        // script walk) — adopt the new position as home, step beside it.
+        _moveKeepHome = null;
+      }
+      if (!_moveKeepHome) {
+        _moveKeepHome = { x: x, y: y };
+        walkTo(x + 1, y);                       // step aside
+        log('[KEEPALIVE] movement step @ ' + x + ',' + y + ' (idle-timer reset)');
+      } else {
+        var h = _moveKeepHome;
+        _moveKeepHome = null;
+        walkTo(h.x, h.y);                       // return home
+        log('[KEEPALIVE] returning to ' + h.x + ',' + h.y);
+      }
+      _moveKeepLast = Date.now();
+    } catch (e) { /* keepalive must never break a script */ }
+  }, 15000);
 
   function antiIdle() {
     var mc = getMC();
