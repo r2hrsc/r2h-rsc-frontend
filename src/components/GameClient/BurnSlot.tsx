@@ -233,8 +233,9 @@ export function BurnSlot() {
         </div>
       )}
 
-      {/* STAGE 2 — glorified scoreboard burst at the top of the viewport */}
-      {flash && createPortal(
+      {/* STAGE 2 — glorified scoreboard burst — explodes OUT OF the top bar,
+          hanging down over the game's top edge (portals into the game frame) */}
+      {flash && frameEl && createPortal(
         <div key={`sb-${flash.key}`} className="burn-scoreboard" role="status">
           <div className="burn-scoreboard-inner">
             <div className="burn-scoreboard-shine" aria-hidden />
@@ -252,7 +253,7 @@ export function BurnSlot() {
             ))}
           </div>
         </div>,
-        document.body
+        frameEl
       )}
 
       {/* STAGE 3 — compact punchy ribbon inside the game frame */}
