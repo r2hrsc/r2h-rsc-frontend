@@ -1917,7 +1917,7 @@
 .vf2-head {
   position: relative; z-index: 2;
   display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 8px 18px 0; flex-shrink: 0;
+  gap: 16px; padding: 0 18px 10px; flex-shrink: 0;
 }
 .vf2-logo {
   display: inline-flex; align-items: center; gap: 7px;
@@ -1941,34 +1941,6 @@
 }
 .vf2-stat em { font-style: normal; font-size: 8px; letter-spacing: 2px; color: #64748b; }
 .vf2-stat b { color: #ffd166; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(255, 209, 102, 0.4); }
-
-.vf2-marquee {
-  position: relative; z-index: 2;
-  flex: 0 0 auto; display: flex; align-items: center;
-  overflow: hidden;
-  mask-image: linear-gradient(90deg, transparent 0, #000 4%, #000 96%, transparent 100%);
-  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 4%, #000 96%, transparent 100%);
-}
-.vf2-marquee-track {
-  display: inline-flex; align-items: center; gap: 28px;
-  white-space: nowrap; animation: vf2-scroll 38s linear infinite; will-change: transform;
-}
-@keyframes vf2-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-.vf2-marquee:hover .vf2-marquee-track { animation-play-state: paused; }
-
-.vf2-item { display: inline-flex; align-items: center; gap: 12px; font-size: 13px; }
-.vf2-item-feat { color: #94a3b8; letter-spacing: 0.5px; }
-.vf2-item-feat i { font-style: normal; color: #334155; margin: 0 6px; }
-.vf2-item-feat i + * { color: #e2e8f0; }
-.vf2-item-feat { color: #64748b; }
-.vf2-item-feat:first-letter { color: #64748b; }
-.vf2-item-feat b, .vf2-item-feat strong { color: #e2e8f0; }
-.vf2-item-amt {
-  color: #ff6b35; font-weight: 700; font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 10px rgba(255, 107, 53, 0.55);
-}
-.vf2-item-amt.vf2-sim { color: #7a6a3d; text-shadow: none; }
-.vf2-item-sep { color: #1e293b; }
 
 /* ── BOTTOM: rules + leaderboard ── */
 .vf2-btm {

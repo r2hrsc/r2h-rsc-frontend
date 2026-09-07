@@ -79,23 +79,9 @@ function useBurnStatsLite(): BurnStats | null {
 /** TOP — LIVE BURN FEED: HUD stat blocks + fire ticker. */
 export function VerticalFillTop() {
   const stats = useBurnStatsLite();
-  const recent = (stats?.recent ?? []).filter(e => e.status === 'burned' || e.status === 'dry_run');
-
-  const items = recent.length
-    ? recent.map((e, i) => (
-        <span key={`${e.ts}-${i}`} className="vf2-item">
-          <span className="vf2-item-feat">{e.username}<i>▲</i>{featLabel(e)}</span>
-          <span className={`vf2-item-amt${e.status === 'dry_run' ? ' vf2-sim' : ''}`}>
-            {e.status === 'dry_run' ? '∼' : '+'}{fmt(e.tokens)}
-          </span>
-          <span className="vf2-item-sep">／</span>
-        </span>
-      ))
-    : <span className="vf2-item"><span className="vf2-item-feat">AWAITING FIRST BURN — LEVEL UP · COMPLETE A QUEST · WIN A DUEL</span><span className="vf2-item-sep">／</span></span>;
-
   return (
     <div className="vfill vf-top vf2">
-      <ZoomPanel center anchor="inset">
+      <ZoomPanel anchor="inset" style={{ justifyContent: 'flex-end' }}>
         <div className="vf2-scan" aria-hidden />
         <div className="vf2-head">
           <span className="vf2-logo">
@@ -113,12 +99,6 @@ export function VerticalFillTop() {
             {stats?.walletBalance != null && (
               <span className="vf2-stat"><em>BURN TANK</em><b>{fmt(stats.walletBalance)}</b></span>
             )}
-          </div>
-        </div>
-        <div className="vf2-marquee">
-          <div className="vf2-marquee-track">
-            {items}
-            {items}
           </div>
         </div>
       </ZoomPanel>
