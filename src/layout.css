@@ -1654,7 +1654,6 @@
 .game-frame:fullscreen .frame-bar { display: none !important; }
 
 /* ═══ PLAY-TO-BURN live slot (BurnSlot.tsx) — dual-stage degen edition ═══ */
-.fb-burn { position: relative; cursor: default; }
 
 /* Flame — three layers + glow halo; idle flicker */
 .fb-flame { position: relative; display: inline-flex; width: 16px; height: 16px; }
@@ -1701,33 +1700,6 @@
   font-size: 8px; letter-spacing: 1px; font-weight: 700; color: #7a6a3d;
   border: 1px solid #3a3524; border-radius: 3px; padding: 0 3px; margin-left: 2px;
 }
-
-/* Hover card — degen panel */
-/* Card opens UPWARD — the burn slot lives in the bar ABOVE the game;
-   opening downward got painted over by the game canvas. */
-.fb-burn-card {
-  display: none; position: absolute; bottom: 18px; right: 0; width: 262px;
-  background: #0a0603; border: 2px solid #5c2e10; border-radius: 10px;
-  padding: 10px 12px; box-shadow: 0 0 28px rgba(255, 107, 53, 0.22), 0 8px 28px rgba(0, 0, 0, 0.65);
-  z-index: 1150;
-}
-.fb-burn:hover .fb-burn-card { display: block; }
-.fb-burn-card-title {
-  font-size: 9px; letter-spacing: 1.5px; font-weight: 800; color: #ff9f1c;
-  text-transform: uppercase; margin-bottom: 6px; text-shadow: 0 0 8px rgba(255, 159, 28, 0.5);
-}
-.fb-burn-card-row {
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
-  padding: 3px 0; font-size: 11px; color: #8a8a8a; border-bottom: 1px solid #1c110a;
-}
-.fb-burn-card-row:last-of-type { border-bottom: none; }
-.fb-burn-card-feat { color: #cdb89a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fb-burn-card-amt { color: #ff9f1c; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.fb-burn-card-balance {
-  display: flex; justify-content: space-between; margin-top: 7px; padding-top: 6px;
-  border-top: 2px solid #331b0b; font-size: 10px; color: #6b5a48;
-}
-.fb-burn-card-balance span:last-child { color: #ffb36b; font-variant-numeric: tabular-nums; }
 
 /* ═══ STAGE 2 — GLORIFIED SCOREBOARD (viewport top) ═══ */
 .burn-scoreboard {
@@ -1869,7 +1841,6 @@
   .burn-scoreboard, .burn-ribbon, .burn-ember, .fb-flame *, .fb-burn-total { animation: none !important; }
 }
 @media (max-width: 768px) {
-  .fb-burn-card { width: 215px; }
   .burn-ribbon { top: 6px; padding: 4px 12px; }
   .burn-ribbon-title { font-size: 13px; }
   .burn-ribbon-label { font-size: 9px; max-width: 150px; }

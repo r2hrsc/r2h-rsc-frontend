@@ -212,27 +212,6 @@ export function BurnSlot() {
       {today > 0 && <span className="fb-burn-today">+{fmt(today)} today</span>}
       {stats?.dryRun && <span className="fb-burn-sim" title="Dry-run mode: burns are simulated">SIM</span>}
 
-      {/* Hover card — degen panel */}
-      {stats && stats.recent.length > 0 && (
-        <div className="fb-burn-card">
-          <div className="fb-burn-card-title">RECENT BURNS</div>
-          {stats.recent.slice(0, 5).map((e, i) => (
-            <div key={`${e.username}-${e.ts}-${i}`} className="fb-burn-card-row">
-              <span className="fb-burn-card-feat">{describe(e) || e.username}</span>
-              <span className="fb-burn-card-amt">
-                {e.status === 'burned' ? `🔥 ${fmt(e.tokens)}` : e.status === 'dry_run' ? `∼${fmt(e.tokens)}` : '·'}
-              </span>
-            </div>
-          ))}
-          {stats.walletBalance != null && (
-            <div className="fb-burn-card-balance">
-              <span>burn tank</span>
-              <span>{fmt(stats.walletBalance)} R2H</span>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* STAGE 2 — glorified scoreboard burst — explodes OUT OF the top bar,
           hanging down over the game's top edge (portals into the game frame) */}
       {flash && frameEl && createPortal(
