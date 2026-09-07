@@ -1716,7 +1716,7 @@
 .burn-scoreboard {
   position: absolute; top: 0; left: 0; right: 0; z-index: 2100;
   display: flex; flex-direction: column; align-items: center;
-  padding: 0 16px 22px; pointer-events: none; overflow: hidden;
+  padding: 6px 12px 20px; pointer-events: none; overflow: hidden;
   border-radius: 0 0 14px 14px;
   background:
     radial-gradient(ellipse 95% 120% at 50% -35%, rgba(255, 107, 53, 0.2) 0%, transparent 62%),
@@ -1731,7 +1731,8 @@
 @keyframes sb-out { to { opacity: 0; transform: translateY(-55%); filter: blur(2px); } }
 .burn-scoreboard-inner {
   position: relative; display: flex; flex-direction: column; align-items: center; gap: 10px;
-  padding: 14px 44px 16px; border-radius: 18px;
+  max-width: calc(100% - 24px); box-sizing: border-box;
+  padding: 12px 28px 14px; border-radius: 18px;
   background: #0a0502;
   border: 3px solid #7a3512;
   box-shadow: 0 0 44px rgba(255, 107, 53, 0.5), 0 0 120px rgba(255, 69, 0, 0.28), inset 0 0 34px rgba(255, 107, 53, 0.1);
@@ -1762,7 +1763,8 @@
 }
 .burn-scoreboard-title {
   position: relative;
-  font-size: clamp(34px, 7vw, 64px); font-weight: 900; letter-spacing: 3px; line-height: 1;
+  font-size: clamp(26px, 5.5vw, 52px); font-weight: 900; letter-spacing: 2px; line-height: 1.05;
+  text-align: center; max-width: 100%; overflow-wrap: break-word;
   background: linear-gradient(180deg, #fff3cf 0%, #ffd166 32%, #ff9f1c 60%, #ff4500 100%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
   filter: drop-shadow(0 0 22px rgba(255, 107, 53, 0.8)) drop-shadow(0 3px 3px rgba(0, 0, 0, 0.85));
@@ -1777,8 +1779,8 @@
 .burn-scoreboard-sub {
   position: relative;
   font-size: clamp(12px, 2.4vw, 19px); font-weight: 800; letter-spacing: 3px;
-  color: #ffe8c2; text-transform: uppercase; white-space: nowrap; max-width: 90vw;
-  overflow: hidden; text-overflow: ellipsis;
+  color: #ffe8c2; text-transform: uppercase; white-space: nowrap; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; box-sizing: border-box;
   border: 2px solid #7a3512; border-radius: 8px; padding: 5px 18px;
   background: #170b03;
   text-shadow: 0 0 14px rgba(255, 159, 28, 0.6);
@@ -1803,6 +1805,7 @@
   position: absolute; top: 10px; left: 50%; z-index: 2000;
   transform: translateX(-50%);
   display: flex; align-items: center; gap: 8px;
+  max-width: calc(100% - 20px); box-sizing: border-box;
   padding: 5px 16px; border-radius: 999px;
   background: #0a0502;
   border: 2px solid #7a3512;
@@ -1822,6 +1825,7 @@
 .burn-ribbon-flame { display: inline-flex; animation: rb-flame 0.55s ease-in-out infinite; transform-origin: 50% 90%; }
 @keyframes rb-flame { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.2); } }
 .burn-ribbon-title {
+  flex-shrink: 0;
   font-size: 15px; font-weight: 900; letter-spacing: 1px;
   background: linear-gradient(180deg, #ffd166 0%, #ff9f1c 60%, #ff4500 100%);
   -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
@@ -1829,8 +1833,9 @@
 }
 .burn-ribbon-sep { color: #7a3512; font-weight: 900; }
 .burn-ribbon-label {
+  flex: 0 1 auto; min-width: 0;
   font-size: 11px; font-weight: 700; letter-spacing: 1.5px; color: #e8c9a0;
-  text-transform: uppercase; max-width: 300px; overflow: hidden; text-overflow: ellipsis;
+  text-transform: uppercase; overflow: hidden; text-overflow: ellipsis;
 }
 
 /* Whole game frame catches fire while the flash is up */
