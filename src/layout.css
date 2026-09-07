@@ -1578,23 +1578,18 @@
   white-space: nowrap;
   overflow: visible;   /* top bar needs to show its oversized burn counter */
 }
+/* Bars are transparent strips (original look) — no panel box. Geometry only. */
 .frame-bar-top {
   top: -46px;
   height: 40px;
   align-items: center;
   gap: 16px;
-  background: linear-gradient(180deg, rgba(10, 6, 3, 0.75) 0%, rgba(10, 6, 3, 0.35) 100%);
-  border-top: 2px solid #241305;
-  border-radius: 8px 8px 0 0;
   overflow: visible;
 }
 .frame-bar-bottom {
   bottom: -46px;
   height: 40px;
   gap: 16px; /* applies to the ZoomPanel wrapper; inner spacing below */
-  background: linear-gradient(0deg, rgba(10, 6, 3, 0.75) 0%, rgba(10, 6, 3, 0.35) 100%);
-  border-bottom: 2px solid #241305;
-  border-radius: 0 0 8px 8px;
   overflow: visible;
 }
 
