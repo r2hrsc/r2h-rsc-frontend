@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAppKitAccount } from '@reown/appkit/react';
 import { BurnSlot } from './BurnSlot';
-import { ZoomPanel, useZoomFactor } from './ZoomPanel';
 
 /**
  * FrameBar — horizontal data bars above/below the game frame, same metric
@@ -47,37 +46,16 @@ function useWorldStats(): WorldStats | null {
 }
 
 /**
- * Zoom-constant bar geometry — the letterbox columns' fix (ZoomPanel),
- * applied to the frame bars. Browser zoom-out (z<1) shrinks the game frame
- * physically; the bars' CSS-px chrome would shrink with it and miniaturize
- * the text. We keep the bar at constant PHYSICAL size:
- *   - bar box height & offset scaled by 1/z (CSS px), so post-zoom it
- *     renders exactly as at 100%
- *   - content wrapped in ZoomPanel (layout at z×, scale 1/z) — the exact
- *     mechanism the left/right columns use for their text.
- * Desktop only: on touch/mobile devices devicePixelRatio is pixel density,
- * not browser zoom, so compensation is gated off (same as the columns).
+ * Bar geometry (v424 redesign): the bars scale with the game frame itself —
+ * exactly like the game canvas. The frame keeps a constant CSS-px size across
+ * browser zoom (v391) and shrinks physically on zoom-out; the bars share that
+ * fate by laying out at the frame's width in plain CSS px. No compensation
+ * squeeze: the previous mechanism laid the content out at z× in a stage z×
+ * wider than the bar — at zoom <100% that forced full-size content into ~z×
+ * the width and the sections collided and stacked. Plain scaling can never
+ * collide: the layout width never changes with zoom, so the bar always
+ * renders as a clean miniature of the 100% view.
  */
-function useBarZoom(): { z: number; style: Record<string, string> } {
-  const z = useZoomFactor();
-  const [desktop, setDesktop] = useState(true);
-  useEffect(() => {
-    const mq = window.matchMedia('(pointer: fine)');
-    const update = () => setDesktop(mq.matches && window.innerWidth >= 768);
-    update();
-    mq.addEventListener?.('change', update);
-    window.addEventListener('resize', update);
-    return () => {
-      mq.removeEventListener?.('change', update);
-      window.removeEventListener('resize', update);
-    };
-  }, []);
-  if (!desktop || z === 1) return { z: 1, style: {} };
-  return { z, style: {
-    height: `${40 / z}px`,
-    top: `${-46 / z}px`,
-  } };
-}
 
 function shortAddr(a: string): string {
   return a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
@@ -115,11 +93,9 @@ function useServerClock(serverTimeIso?: string): string {
 /** Bar above the game frame — WALLET (left) + PLAY-TO-BURN (right). */
 export function TopFrameBar() {
   const { address, isConnected } = useAppKitAccount();
-  const { z, style } = useBarZoom();
 
   return (
-    <div className="frame-bar frame-bar-top" style={style}>
-      <ZoomPanel key={z === 1 ? 'n' : 'z'} direction="row" center anchor="inset" factor={z}>
+    <div className="frame-bar frame-bar-top">
       {/* ── WALLET slot — reserved for wallet-connected features ── */}
       <section data-slot="wallet" className="fb-section fb-wallet">
         <span className="ws-dot" style={{ background: isConnected ? '#14F195' : '#555' }} />
@@ -133,7 +109,6 @@ export function TopFrameBar() {
 
       {/* ── PLAY-TO-BURN slot — live burn feed (see BurnSlot.tsx) ── */}
       <BurnSlot />
-      </ZoomPanel>
     </div>
   );
 }
@@ -142,12 +117,8 @@ export function TopFrameBar() {
 export function BottomFrameBar() {
   const stats = useWorldStats();
   const clock = useServerClock(stats?.serverTime);
-  const { z, style } = useBarZoom();
-  const bottomStyle = z === 1 ? {} : { height: style.height, bottom: style.top };
-
   return (
-    <div className="frame-bar frame-bar-bottom" style={bottomStyle}>
-      <ZoomPanel key={z === 1 ? 'n' : 'z'} direction="row" center anchor="inset" factor={z}>
+    <div className="frame-bar frame-bar-bottom">
       <section data-slot="players" className="fb-section">
         <span className="ws-dot" />
         <span className="fb-value">{stats ? `${stats.playersOnline} online` : '…'}</span>
@@ -172,7 +143,6 @@ export function BottomFrameBar() {
           </section>
         </>
       )}
-      </ZoomPanel>
     </div>
   );
 }
