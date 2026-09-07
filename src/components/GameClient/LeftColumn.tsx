@@ -92,17 +92,6 @@ function WelcomePane() {
           <span className="lc-link-desc">{l.desc}</span>
         </a>
       ))}
-
-      <div className="lc-section-title">KEYBINDS</div>
-      <div className="lc-keys">
-        {[['F1', 'inventory'], ['F2', 'minimap'], ['F3', 'stats'], ['F4', 'equipment'],
-          ['F5', 'prayer'], ['Enter', 'chat']].map(([k, v]) => (
-          <div key={k} className="lc-key-row">
-            <kbd className="lc-kbd">{k}</kbd>
-            <span className="lc-key-desc">{v}</span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }

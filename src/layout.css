@@ -1360,8 +1360,8 @@
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-.lc-keys { display: flex; flex-direction: column; gap: 3px; }
-
+/* XP calc milestone rows — reuse the key-row visual (level chip + note);
+   the KEYBINDS section was removed but the calc still styles rows this way */
 .lc-key-row {
   display: flex;
   align-items: center;
