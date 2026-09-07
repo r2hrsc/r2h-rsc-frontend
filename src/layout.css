@@ -1588,7 +1588,15 @@
   border-radius: 8px 8px 0 0;
   overflow: visible;
 }
-.frame-bar-bottom { bottom: -32px; }
+.frame-bar-bottom {
+  bottom: -46px;
+  height: 40px;
+  gap: 16px;
+  background: linear-gradient(0deg, rgba(10, 6, 3, 0.75) 0%, rgba(10, 6, 3, 0.35) 100%);
+  border-bottom: 2px solid #241305;
+  border-radius: 0 0 8px 8px;
+  overflow: visible;
+}
 
 .fb-section { display: flex; align-items: center; gap: 8px; min-width: 0; }
 
@@ -1613,6 +1621,14 @@
 .fb-flame svg { width: 22px; height: 22px; }
 .fb-wallet .fb-label { font-size: 10px; }
 .fb-wallet .fb-value { font-size: 14px; font-weight: 600; letter-spacing: 0.5px; }
+
+/* Bottom bar metrics — same scale as the top bar's wallet/burn sections */
+.frame-bar-bottom .fb-value { font-size: 14px; font-weight: 600; letter-spacing: 0.5px; }
+.frame-bar-bottom [data-slot="players"] .fb-value { color: #8fd8b4; }
+.frame-bar-bottom [data-slot="world"] .fb-value,
+.frame-bar-bottom [data-slot="worldnum"] .fb-value { color: #cdb89a; }
+.frame-bar-bottom .fb-clock { color: #7d8a80; font-size: 14px; font-weight: 600; }
+.frame-bar-bottom .ws-dot { box-shadow: 0 0 8px rgba(20, 241, 149, 0.6); }
 .fb-label {
   font-size: 9px;
   letter-spacing: 1px;
@@ -1859,6 +1875,7 @@
   .burn-scoreboard { padding: 0 8px 14px; }
   .burn-scoreboard-inner { padding: 10px 18px 12px; }
   .frame-bar-top { top: -38px; height: 32px; gap: 10px; }
+  .frame-bar-bottom { bottom: -38px; height: 32px; gap: 10px; }
   .fb-burn-total { font-size: 19px; }
   .fb-burn .fb-label { font-size: 11px; letter-spacing: 2px; }
   .fb-flame, .fb-flame svg { width: 16px; height: 16px; }
@@ -1879,7 +1896,7 @@
 .vfill.vf-top { top: 0; height: calc((100vh - var(--game-display-h, 0px)) / 2 - 58px); }
 .vfill.vf-bottom {
   top: auto; bottom: 0;
-  height: calc((100vh - var(--game-display-h, 0px)) / 2 - 44px);
+  height: calc((100vh - var(--game-display-h, 0px)) / 2 - 58px);
   border-bottom: none;
   border-top: 1px solid #16211a;
   background: linear-gradient(0deg, #0b0d0b 0%, #0e120e 100%);
