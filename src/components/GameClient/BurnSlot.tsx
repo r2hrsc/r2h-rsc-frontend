@@ -6,13 +6,14 @@ import { createPortal } from 'react-dom';
  *
  * Live view of the play-to-burn pipeline (GET {API}/v1/burn/stats, 10s poll).
  *
- * IDLE:   three-layer flame with glow halo · gradient count-up total ·
- *         neon "+N today" chip · SIM badge in dry-run · degen hover card.
- *
- * LIVE BURN (the bang): a full-width banner portals into the game frame —
- *   "+10 R2H BURNED" in glowing gold→orange gradient, player + feat subline,
- *   glitch entrance, scanlines, ember storm — while the ENTIRE game frame
- *   pulses with a burning edge glow and the counter slams up.
+ * THREE STAGES:
+ *  1. IDLE CHIP (top bar slot): solid-dark degen chip — three-layer flame with
+ *     halo, gradient count-up total, neon today chip. Always present.
+ *  2. SCOREBOARD BURST (viewport top, glorified): when a burn lands, a wide
+ *     scoreboard banner slams in at the top of the screen — huge gold→fire
+ *     gradient title, player/feat chip, ember fountain, shine sweep. ~3s.
+ *  3. IN-GAME RIBBON (compact punch): tight top-center strip inside the game
+ *     frame — small gradient title, quick glitch slide, thin ember trail. ~1.8s.
  */
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
@@ -74,7 +75,7 @@ function describe(e: BurnEntry): string {
 /** Poll burn stats; detect NEW burned entries between polls. */
 function useBurnStats(onNew: (entries: BurnEntry[]) => void): BurnStats | null {
   const [stats, setStats] = useState<BurnStats | null>(null);
-  const seen = useRef<Set<string> | null>( null ); // null until first load (no toast storm)
+  const seen = useRef<Set<string> | null>(null); // null until first load
   const cb = useRef(onNew);
   cb.current = onNew;
 
@@ -160,7 +161,7 @@ export function BurnSlot() {
   const [frameEl, setFrameEl] = useState<HTMLElement | null>(null);
   const [slam, setSlam] = useState(0);
 
-  // Locate the game-frame ancestor once (banner portals into it).
+  // Locate the game-frame ancestor once (ribbon portals into it).
   useEffect(() => {
     if (rootRef.current) {
       setFrameEl(rootRef.current.closest('.game-frame') as HTMLElement | null);
@@ -171,7 +172,7 @@ export function BurnSlot() {
   useEffect(() => {
     if (!frameEl || !flash) return;
     frameEl.classList.add('burn-frame-glow');
-    const t = setTimeout(() => frameEl.classList.remove('burn-frame-glow'), 3400);
+    const t = setTimeout(() => frameEl.classList.remove('burn-frame-glow'), 3200);
     return () => { frameEl.classList.remove('burn-frame-glow'); clearTimeout(t); };
   }, [frameEl, flash]);
 
@@ -187,7 +188,7 @@ export function BurnSlot() {
     });
     setSlam(slam + 1);
     if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setFlash(null), 3600);
+    toastTimer.current = setTimeout(() => setFlash(null), 3200);
   }, [slam]);
 
   const stats = useBurnStats(onNew);
@@ -199,7 +200,7 @@ export function BurnSlot() {
       {/* Flame — three layers, glow halo */}
       <span className="fb-flame" aria-hidden>
         <span className="fb-flame-halo" />
-        <svg viewBox="0 0 24 24" width="15" height="15">
+        <svg viewBox="0 0 24 24" width="16" height="16">
           <path className="fb-flame-outer" d="M12 2c1 4-4 5.5-4 10a4 4 0 0 0 8 0c0-2-1-3-1-3s3 1 3 4a7 7 0 1 1-14 0C4 8 10 6.5 12 2z" />
           <path className="fb-flame-mid" d="M12 6c.8 3.2-3 4.2-3 7.6a3 3 0 0 0 6 0c0-1.6-.9-2.4-.9-2.4s2.2.8 2.2 3.2a5.2 5.2 0 1 1-10.4 0C5.9 9.7 10.4 8.6 12 6z" />
           <path className="fb-flame-inner" d="M12 11c.4 1.6-1.6 2-1.6 3.9a1.6 1.6 0 0 0 3.2 0c0-1.1-.6-1.6-.6-1.6s1.4.5 1.4 2a2.6 2.6 0 1 1-5.2 0c0-3 2.6-3.4 2.8-4.3z" />
@@ -232,17 +233,40 @@ export function BurnSlot() {
         </div>
       )}
 
-      {/* THE BANG — banner portals into the game frame, centered over the game */}
-      {flash && frameEl && createPortal(
-        <div key={flash.key} className="burn-banner" role="status">
-          <div className="burn-banner-scan" aria-hidden />
-          <div className="burn-banner-title">{flash.title}</div>
-          <div className="burn-banner-sub">{flash.label}</div>
-          <div className="burn-banner-embers" aria-hidden>
-            {Array.from({ length: 26 }, (_, i) => (
+      {/* STAGE 2 — glorified scoreboard burst at the top of the viewport */}
+      {flash && createPortal(
+        <div key={`sb-${flash.key}`} className="burn-scoreboard" role="status">
+          <div className="burn-scoreboard-inner">
+            <div className="burn-scoreboard-shine" aria-hidden />
+            <div className="burn-scoreboard-flames" aria-hidden>
+              <span className="bsf-flame bsf-1" />
+              <span className="bsf-flame bsf-2" />
+              <span className="bsf-flame bsf-3" />
+            </div>
+            <div className="burn-scoreboard-title">{flash.title}</div>
+            <div className="burn-scoreboard-sub">{flash.label}</div>
+          </div>
+          <div className="burn-scoreboard-embers" aria-hidden>
+            {Array.from({ length: 30 }, (_, i) => (
               <span key={i} className="burn-ember" style={emberStyle(i)} />
             ))}
           </div>
+        </div>,
+        document.body
+      )}
+
+      {/* STAGE 3 — compact punchy ribbon inside the game frame */}
+      {flash && frameEl && createPortal(
+        <div key={`rb-${flash.key}`} className="burn-ribbon" role="status">
+          <span className="burn-ribbon-flame" aria-hidden>
+            <svg viewBox="0 0 24 24" width="14" height="14">
+              <path fill="#ff4500" d="M12 2c1 4-4 5.5-4 10a4 4 0 0 0 8 0c0-2-1-3-1-3s3 1 3 4a7 7 0 1 1-14 0C4 8 10 6.5 12 2z" />
+              <path fill="#ffd166" d="M12 9c.5 2-2 2.6-2 5a2 2 0 0 0 4 0c0-1.4-.8-2-.8-2s1.8.6 1.8 2.6a3.2 3.2 0 1 1-6.4 0C8.6 11.6 11 10.7 12 9z" />
+            </svg>
+          </span>
+          <span className="burn-ribbon-title">{flash.title}</span>
+          <span className="burn-ribbon-sep">·</span>
+          <span className="burn-ribbon-label">{flash.label}</span>
         </div>,
         frameEl
       )}
