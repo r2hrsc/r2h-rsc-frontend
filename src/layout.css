@@ -1703,8 +1703,10 @@
 }
 
 /* Hover card — degen panel */
+/* Card opens UPWARD — the burn slot lives in the bar ABOVE the game;
+   opening downward got painted over by the game canvas. */
 .fb-burn-card {
-  display: none; position: absolute; top: 18px; right: 0; width: 262px;
+  display: none; position: absolute; bottom: 18px; right: 0; width: 262px;
   background: #0a0603; border: 2px solid #5c2e10; border-radius: 10px;
   padding: 10px 12px; box-shadow: 0 0 28px rgba(255, 107, 53, 0.22), 0 8px 28px rgba(0, 0, 0, 0.65);
   z-index: 1150;
@@ -1942,7 +1944,7 @@
 
 .vf2-marquee {
   position: relative; z-index: 2;
-  flex: 1; min-height: 0; display: flex; align-items: center;
+  flex: 0 0 auto; display: flex; align-items: center;
   overflow: hidden;
   mask-image: linear-gradient(90deg, transparent 0, #000 4%, #000 96%, transparent 100%);
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 4%, #000 96%, transparent 100%);

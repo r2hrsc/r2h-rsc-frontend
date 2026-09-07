@@ -95,7 +95,7 @@ export function VerticalFillTop() {
 
   return (
     <div className="vfill vf-top vf2">
-      <ZoomPanel>
+      <ZoomPanel center anchor="inset">
         <div className="vf2-scan" aria-hidden />
         <div className="vf2-head">
           <span className="vf2-logo">
