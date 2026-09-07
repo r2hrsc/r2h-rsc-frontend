@@ -1875,7 +1875,6 @@
 .vfill.vf-bottom {
   top: auto; bottom: 0;
   height: calc((100vh - var(--game-display-h, 0px)) / 2 - 58px);
-  border-top: 1px solid rgba(220, 38, 38, 0.25);
 }
 
 /* CRT scanline overlay for both sections */
@@ -1888,26 +1887,17 @@
   background: radial-gradient(ellipse at center, transparent 55%, rgba(2, 6, 18, 0.5) 100%);
 }
 
-/* ── TOP: header + ticker ── */
-/* The HUD strip IS sketch-C's hud: game-width, navy gradient, scanlines,
-   red keyline — floating on plain background, tight above the burn bar.
-   Width comes from gameWidthStyle() in VerticalFill.tsx (game-width × z —
-   renders at exactly the game frame's on-screen width at every zoom). */
+/* ── TOP: logo line + stats line, stacked as plain text ── */
+/* No panel box (user: boxes made sub-pixel zoom drift visible and the text
+   read as misaligned against them). Two centered lines; width + row gap come
+   from gameWidthStyle()/stackStyle() in VerticalFill.tsx so the stack keeps
+   a constant 12 physical px gap to the burn bar at every browser zoom. */
 .vf2-head {
   position: relative; z-index: 2;
   margin: 0 auto;
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 0 10px; flex-shrink: 0;
-  height: 46px;
-  background:
-    radial-gradient(ellipse 120% 90% at 50% 0%, rgba(37, 99, 235, 0.05), transparent 55%),
-    linear-gradient(180deg, #0c1226 0%, #0f172a 60%, #0a0f1f 100%);
-  border-bottom: 1px solid rgba(220, 38, 38, 0.25);
-  overflow: hidden;
-}
-.vf2-head::after {
-  content: ""; position: absolute; inset: 0; pointer-events: none;
-  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 12px; padding: 0 10px; flex-shrink: 0;
 }
 .vf2-logo {
   display: inline-flex; align-items: center; gap: 7px;
@@ -1919,26 +1909,24 @@
 .vf2-logo-flame { display: inline-flex; animation: vf2-flick 1.4s ease-in-out infinite; transform-origin: 50% 90%; }
 @keyframes vf2-flick { 0%, 100% { transform: scale(1); } 40% { transform: scale(1.25); } 70% { transform: scale(0.9); } }
 
-.vf2-stats { display: flex; gap: 10px; min-width: 0; }
+.vf2-stats { display: flex; gap: 18px; min-width: 0; }
 .vf2-stat {
   display: inline-flex; align-items: baseline; gap: 7px;
-  font-size: 11px; padding: 3px 10px;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(220, 38, 38, 0.35);
-  border-left: 3px solid #dc2626;
-  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  font-size: 11px; padding: 0;
+  background: none;
+  border: none;
   white-space: nowrap;
 }
 .vf2-stat em { font-style: normal; font-size: 8px; letter-spacing: 2px; color: #64748b; }
 .vf2-stat b { color: #ffd166; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(255, 209, 102, 0.4); }
 
-/* ── BOTTOM: rules + leaderboard ── */
-/* Width comes from gameWidthStyle() in VerticalFill.tsx — same anchoring as
-   the top HUD strip: renders at exactly the game frame's on-screen width at
-   every browser zoom. No bleeding into the side columns. */
+/* ── BOTTOM: rules line + leaderboard line, stacked as plain text ── */
+/* Same no-box treatment as the top: two centered lines, game-width, constant
+   12px physical gap to the world bar below the game. */
 .vf2-btm {
-  display: flex; align-items: center; justify-content: center; gap: 26px;
-  flex-wrap: wrap;
+  display: flex; flex-direction: column;
+  align-items: center;
+  gap: 12px;
   margin: 0 auto;
   padding: 0 18px;
 }
@@ -1951,18 +1939,15 @@
 .vf2-chip {
   display: inline-flex; align-items: baseline; gap: 6px;
   font-size: 11px; font-weight: 500; letter-spacing: 1px; color: #cbd5e1;
-  padding: 4px 12px;
-  background: rgba(15, 23, 42, 0.9);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
-  transition: border-color 200ms, box-shadow 200ms;
+  padding: 0;
+  background: none;
+  border: none;
 }
 .vf2-chip:hover { border-color: rgba(255, 107, 53, 0.6); box-shadow: 0 0 16px rgba(255, 107, 53, 0.25); }
 .vf2-chip b { color: #ff9f1c; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(255, 159, 28, 0.5); }
 
 .vf2-board {
   display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  border-left: 1px solid rgba(148, 163, 184, 0.15); padding-left: 18px;
 }
 .vf2-board-row { display: inline-flex; align-items: baseline; gap: 8px; font-size: 11px; white-space: nowrap; }
 .vf2-board-row em { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }

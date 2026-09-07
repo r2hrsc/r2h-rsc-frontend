@@ -61,6 +61,20 @@ function gameWidthStyle(z: number): CSSProperties {
   };
 }
 
+/**
+ * Stack spacing must read at a constant PHYSICAL size (12px) under browser
+ * zoom. Inside the ZoomPanel stage a raw gap g renders at g×z physical px,
+ * while the frame bars' hugging offsets (46/z, 58/z …) are what actually
+ * anchor the two zones — so the raw gap that keeps a constant 12px gap to
+ * the burn bar at every zoom is: zoneEdge + zoneEdge×(1−z)/z − 46/z.
+ * (Verified: exactly 12.00 physical px at z = 0.5…2.)
+ */
+function stackStyle(z: number): CSSProperties {
+  const zoneEdge = 58;
+  const gapRaw = zoneEdge + (zoneEdge * (1 - z)) / z - 46 / z;
+  return { rowGap: `${gapRaw}px` };
+}
+
 function featLabel(e: BurnEntry): string {
   switch (e.event_type) {
     case 'questcomplete': return `QUEST COMPLETE${e.quest_name ? ` · ${e.quest_name}` : ''}`;
@@ -98,7 +112,7 @@ export function VerticalFillTop() {
   return (
     <div className="vfill vf-top vf2">
       <ZoomPanel anchor="inset" style={{ justifyContent: 'flex-end' }}>
-        <div className="vf2-head" style={gameWidthStyle(z)}>
+        <div className="vf2-head" style={{ ...gameWidthStyle(z), ...stackStyle(z) }}>
           <span className="vf2-logo">
             <span className="vf2-logo-flame" aria-hidden>
               <svg viewBox="0 0 24 24" width="12" height="12">
@@ -137,7 +151,7 @@ export function VerticalFillBottom() {
     <div className="vfill vf-bottom vf2">
       <ZoomPanel center anchor="inset">
         <div className="vf2-scan" aria-hidden />
-        <div className="vf2-btm" style={gameWidthStyle(z)}>
+        <div className="vf2-btm" style={{ ...gameWidthStyle(z), ...stackStyle(z) }}>
           <div className="vf2-rules">
             <span className="vf2-rules-title">EARN BURNS</span>
             <span className="vf2-chip">LEVEL-UP<b>+10</b></span>
