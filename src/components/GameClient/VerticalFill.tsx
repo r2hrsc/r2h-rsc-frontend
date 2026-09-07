@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { ZoomPanel } from './ZoomPanel';
+import { useState, useEffect, type CSSProperties } from 'react';
+import { ZoomPanel, useZoomFactor } from './ZoomPanel';
 
 /**
  * VerticalFill — the letterbox sections ABOVE and BELOW the game frame.
@@ -46,6 +46,21 @@ interface BurnStats {
 
 const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 0 });
 
+/**
+ * Letterbox strips must span exactly the GAME FRAME's width — never the
+ * viewport, never the letterbox zone. Inside the ZoomPanel stage the scale(1/z)
+ * maps layout px → screen px, so a strip laid out at W renders at W/z; the
+ * game frame is constant in CSS px across browser zoom. Rendering at the
+ * game's exact on-screen width at EVERY zoom therefore requires layout width
+ * gameWidth × z (z = devicePixelRatio referenced to 100% browser zoom).
+ */
+function gameWidthStyle(z: number): CSSProperties {
+  return {
+    width: `calc(var(--game-display-w, 100%) * ${z})`,
+    maxWidth: '10000px',
+  };
+}
+
 function featLabel(e: BurnEntry): string {
   switch (e.event_type) {
     case 'questcomplete': return `QUEST COMPLETE${e.quest_name ? ` · ${e.quest_name}` : ''}`;
@@ -79,10 +94,11 @@ function useBurnStatsLite(): BurnStats | null {
 /** TOP — LIVE BURN FEED: HUD stat blocks + fire ticker. */
 export function VerticalFillTop() {
   const stats = useBurnStatsLite();
+  const z = useZoomFactor();
   return (
     <div className="vfill vf-top vf2">
       <ZoomPanel anchor="inset" style={{ justifyContent: 'flex-end' }}>
-        <div className="vf2-head">
+        <div className="vf2-head" style={gameWidthStyle(z)}>
           <span className="vf2-logo">
             <span className="vf2-logo-flame" aria-hidden>
               <svg viewBox="0 0 24 24" width="12" height="12">
@@ -108,6 +124,7 @@ export function VerticalFillTop() {
 /** BOTTOM — EARN BURNS chips + TOP BURNERS leaderboard. */
 export function VerticalFillBottom() {
   const stats = useBurnStatsLite();
+  const z = useZoomFactor();
 
   const tally = new Map<string, number>();
   for (const e of (stats?.recent ?? [])) {
@@ -120,7 +137,7 @@ export function VerticalFillBottom() {
     <div className="vfill vf-bottom vf2">
       <ZoomPanel center anchor="inset">
         <div className="vf2-scan" aria-hidden />
-        <div className="vf2-btm">
+        <div className="vf2-btm" style={gameWidthStyle(z)}>
           <div className="vf2-rules">
             <span className="vf2-rules-title">EARN BURNS</span>
             <span className="vf2-chip">LEVEL-UP<b>+10</b></span>

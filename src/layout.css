@@ -1884,7 +1884,8 @@
 }
 
 /* ═══ VERTICAL LETTERBOX FILL — Retro-Futurism HUD edition (VerticalFill.tsx) ═══ */
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@700;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
+/* Fonts load via <link> in index.html (a mid-file @import was dropped by the
+   bundler — production silently fell back to generic fonts). */
 
 .vfill {
   position: fixed;
@@ -1918,10 +1919,11 @@
 
 /* ── TOP: header + ticker ── */
 /* The HUD strip IS sketch-C's hud: game-width, navy gradient, scanlines,
-   red keyline — floating on plain background, tight above the burn bar. */
+   red keyline — floating on plain background, tight above the burn bar.
+   Width comes from gameWidthStyle() in VerticalFill.tsx (game-width × z —
+   renders at exactly the game frame's on-screen width at every zoom). */
 .vf2-head {
   position: relative; z-index: 2;
-  width: var(--game-display-w, 100%);
   margin: 0 auto;
   display: flex; align-items: center; justify-content: space-between;
   gap: 16px; padding: 0 10px; flex-shrink: 0;
@@ -1960,9 +1962,14 @@
 .vf2-stat b { color: #ffd166; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(255, 209, 102, 0.4); }
 
 /* ── BOTTOM: rules + leaderboard ── */
+/* Width comes from gameWidthStyle() in VerticalFill.tsx — same anchoring as
+   the top HUD strip: renders at exactly the game frame's on-screen width at
+   every browser zoom. No bleeding into the side columns. */
 .vf2-btm {
   display: flex; align-items: center; justify-content: center; gap: 26px;
-  flex-wrap: wrap; width: 100%; padding: 0 18px;
+  flex-wrap: wrap;
+  margin: 0 auto;
+  padding: 0 18px;
 }
 .vf2-rules { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .vf2-rules-title {
