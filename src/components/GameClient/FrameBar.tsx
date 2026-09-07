@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAppKitAccount } from '@reown/appkit/react';
+import { BurnSlot } from './BurnSlot';
 
 /**
  * FrameBar — horizontal data bars above/below the game frame, same metric
@@ -94,12 +95,8 @@ export function TopFrameBar() {
 
       <span className="ws-sep">·</span>
 
-      {/* ── PLAY-TO-BURN slot — reserved for the burn mechanism ── */}
-      <section data-slot="burn" className="fb-section fb-burn">
-        <span className="ws-dot" style={{ background: '#ff6b35' }} />
-        <span className="fb-label">PLAY-TO-BURN</span>
-        <span className="fb-value">coming soon</span>
-      </section>
+      {/* ── PLAY-TO-BURN slot — live burn feed (see BurnSlot.tsx) ── */}
+      <BurnSlot />
     </div>
   );
 }
