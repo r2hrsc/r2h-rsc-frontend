@@ -62,17 +62,15 @@ function gameWidthStyle(z: number): CSSProperties {
 }
 
 /**
- * Stack spacing must read at a constant PHYSICAL size (12px) under browser
- * zoom. Inside the ZoomPanel stage a raw gap g renders at g×z physical px,
- * while the frame bars' hugging offsets (46/z, 58/z …) are what actually
- * anchor the two zones — so the raw gap that keeps a constant 12px gap to
- * the burn bar at every zoom is: zoneEdge + zoneEdge×(1−z)/z − 46/z.
- * (Verified: exactly 12.00 physical px at z = 0.5…2.)
+ * Single-line layout: the two groups sit at OPPOSITE ENDS of the game-width
+ * line (justify-content: space-between). At zoom <100% the frame's burn bar
+ * pokes up into the top zone (top: -46/z raw), so the merged top line lifts
+ * by max(0, 58/z − 58) raw px to keep a constant 12 physical px clearance
+ * from it; above 100% the natural gap only grows, so no lift (clamped to 0).
  */
-function stackStyle(z: number): CSSProperties {
-  const zoneEdge = 58;
-  const gapRaw = zoneEdge + (zoneEdge * (1 - z)) / z - 46 / z;
-  return { rowGap: `${gapRaw}px` };
+function liftStyle(z: number): CSSProperties {
+  const pad = Math.max(0, 58 / z - 58);
+  return { marginTop: `${pad}px` };
 }
 
 function featLabel(e: BurnEntry): string {
@@ -112,7 +110,8 @@ export function VerticalFillTop() {
   return (
     <div className="vfill vf-top vf2">
       <ZoomPanel anchor="inset" style={{ justifyContent: 'flex-end' }}>
-        <div className="vf2-head" style={{ ...gameWidthStyle(z), ...stackStyle(z) }}>
+        {/* One line, two ends: LIVE BURN FEED ↔ TOTAL/TODAY/BURN TANK */}
+        <div className="vf2-head" style={{ ...gameWidthStyle(z), ...liftStyle(z) }}>
           <span className="vf2-logo">
             <span className="vf2-logo-flame" aria-hidden>
               <svg viewBox="0 0 24 24" width="12" height="12">
@@ -151,7 +150,8 @@ export function VerticalFillBottom() {
     <div className="vfill vf-bottom vf2">
       <ZoomPanel center anchor="inset">
         <div className="vf2-scan" aria-hidden />
-        <div className="vf2-btm" style={{ ...gameWidthStyle(z), ...stackStyle(z) }}>
+        {/* One line, two ends: EARN BURNS ↔ TOP BURNERS */}
+        <div className="vf2-btm" style={gameWidthStyle(z)}>
           <div className="vf2-rules">
             <span className="vf2-rules-title">EARN BURNS</span>
             <span className="vf2-chip">LEVEL-UP<b>+10</b></span>

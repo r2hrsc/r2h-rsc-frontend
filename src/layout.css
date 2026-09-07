@@ -1887,17 +1887,17 @@
   background: radial-gradient(ellipse at center, transparent 55%, rgba(2, 6, 18, 0.5) 100%);
 }
 
-/* ── TOP: logo line + stats line, stacked as plain text ── */
-/* No panel box (user: boxes made sub-pixel zoom drift visible and the text
-   read as misaligned against them). Two centered lines; width + row gap come
-   from gameWidthStyle()/stackStyle() in VerticalFill.tsx so the stack keeps
-   a constant 12 physical px gap to the burn bar at every browser zoom. */
+/* ── TOP: one line, two ends — LIVE BURN FEED ↔ stats ── */
+/* No panel box (user: boxes made sub-pixel zoom drift visible). Groups sit
+   at opposite ends of the game-width line; the per-zoom lift that keeps a
+   constant clearance from the burn bar comes from liftStyle() in
+   VerticalFill.tsx. */
 .vf2-head {
   position: relative; z-index: 2;
   margin: 0 auto;
-  display: flex; flex-direction: column;
-  align-items: center;
-  gap: 12px; padding: 0 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; row-gap: 12px;
+  gap: 16px; padding: 0 10px; flex-shrink: 0;
 }
 .vf2-logo {
   display: inline-flex; align-items: center; gap: 7px;
@@ -1920,13 +1920,13 @@
 .vf2-stat em { font-style: normal; font-size: 8px; letter-spacing: 2px; color: #64748b; }
 .vf2-stat b { color: #ffd166; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(255, 209, 102, 0.4); }
 
-/* ── BOTTOM: rules line + leaderboard line, stacked as plain text ── */
-/* Same no-box treatment as the top: two centered lines, game-width, constant
-   12px physical gap to the world bar below the game. */
+/* ── BOTTOM: one line, two ends — EARN BURNS ↔ TOP BURNERS ── */
+/* Same no-box treatment as the top: single centered line at game width,
+   rule chips on the left end, leaderboard on the right end. */
 .vf2-btm {
-  display: flex; flex-direction: column;
-  align-items: center;
-  gap: 12px;
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; row-gap: 12px;
+  gap: 24px;
   margin: 0 auto;
   padding: 0 18px;
 }
