@@ -37,23 +37,37 @@ export function useZoomFactor(): number {
  * 50% browser zoom the column is 2× wide in CSS px and the content renders
  * exactly as it did at 100%.
  */
-export function ZoomPanel({ className, style, children }: {
+export function ZoomPanel({ className, style, children,
+  direction = 'column', center = false, anchor = 'flow', factor }: {
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
+  /** flex direction of the compensated content box (columns: column). */
+  direction?: 'row' | 'column';
+  /** center content inside the box (bars are centered strips). */
+  center?: boolean;
+  /** 'flow' = columns' original fill-the-parent behavior; 'inset' = absolute
+   *  inset-0 anchoring for containers whose own flex centering would shift
+   *  the oversized layout box (the frame bars). */
+  anchor?: 'flow' | 'inset';
+  /** externally gated zoom factor (e.g. desktop-only). Defaults to own hook. */
+  factor?: number;
 }) {
-  const z = useZoomFactor();
+  const ownZ = useZoomFactor();
+  const z = factor ?? ownZ;
   return (
     <div
       className={className}
       style={{
         ...(style || {}),
+        ...(anchor === 'inset' ? { position: 'absolute' as const, inset: 0 } : null),
         width: `${100 * z}%`,
         height: `${100 * z}%`,
         transform: `scale(${1 / z})`,
         transformOrigin: 'top left',
         display: 'flex',
-        flexDirection: 'column',
+        flexDirection: direction,
+        ...(center ? { justifyContent: 'center', alignItems: 'center' } : null),
       }}
     >
       {children}
