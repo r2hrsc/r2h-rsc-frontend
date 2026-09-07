@@ -1863,3 +1863,89 @@
   .fb-burn .fb-label { font-size: 11px; letter-spacing: 2px; }
   .fb-flame, .fb-flame svg { width: 16px; height: 16px; }
 }
+
+/* ═══ VERTICAL LETTERBOX FILL (VerticalFill.tsx) — dense strips above/below the game ═══ */
+.vfill {
+  position: fixed;
+  left: 0; right: 0;
+  z-index: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, #0b0d0b 0%, #0e120e 100%);
+  border-bottom: 1px solid #16211a;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  display: flex; flex-direction: column;
+  max-height: calc((100vh - var(--game-display-h, 0px)) / 2 - 58px);
+}
+.vfill.vf-top { top: 0; height: calc((100vh - var(--game-display-h, 0px)) / 2 - 58px); }
+.vfill.vf-bottom {
+  top: auto; bottom: 0;
+  height: calc((100vh - var(--game-display-h, 0px)) / 2 - 44px);
+  border-bottom: none;
+  border-top: 1px solid #16211a;
+  background: linear-gradient(0deg, #0b0d0b 0%, #0e120e 100%);
+  flex-direction: row; align-items: stretch; justify-content: center; gap: 18px;
+  padding: 8px 18px;
+}
+
+/* ── top strip: header + marquee ── */
+.vf-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; padding: 7px 18px 0; flex-shrink: 0;
+}
+.vf-title {
+  font-size: 10px; letter-spacing: 3px; font-weight: 900; color: #ff9f1c;
+  text-transform: uppercase; text-shadow: 0 0 10px rgba(255, 159, 28, 0.5);
+  white-space: nowrap;
+}
+.vf-stats { display: flex; gap: 14px; min-width: 0; }
+.vf-stat { font-size: 11px; color: #5c6b60; white-space: nowrap; }
+.vf-stat em { font-style: normal; letter-spacing: 1px; font-size: 9px; color: #3d5246; }
+.vf-stat b { color: #cdb89a; font-variant-numeric: tabular-nums; font-weight: 700; }
+
+.vf-marquee {
+  flex: 1; min-height: 0; display: flex; align-items: center;
+  overflow: hidden; position: relative;
+  mask-image: linear-gradient(90deg, transparent 0, #000 4%, #000 96%, transparent 100%);
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 4%, #000 96%, transparent 100%);
+}
+.vf-marquee-track {
+  display: inline-flex; align-items: center; gap: 26px;
+  white-space: nowrap; animation: vf-scroll 36s linear infinite;
+  will-change: transform;
+}
+@keyframes vf-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.vf-marquee:hover .vf-marquee-track { animation-play-state: paused; }
+.vf-feed-item { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; }
+.vf-feed-feat { color: #9ab8a6; }
+.vf-feed-feat strong { color: #d5efe0; font-weight: 700; }
+.vf-feed-amt { color: #ff9f1c; font-weight: 800; font-variant-numeric: tabular-nums; }
+.vf-feed-amt.vf-sim { color: #7a6a3d; }
+.vf-feed-sep { color: #2a3a2f; font-size: 8px; }
+
+/* ── bottom strip: rules + board ── */
+.vf-rules { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.vf-rules-title, .vf-board-title {
+  font-size: 10px; letter-spacing: 3px; font-weight: 900; color: #3d6b52;
+  text-transform: uppercase; white-space: nowrap; align-self: center;
+}
+.vf-chip {
+  font-size: 11px; letter-spacing: 1px; color: #cdb89a; font-weight: 700;
+  border: 2px solid #241305; border-radius: 6px; padding: 3px 10px;
+  background: #160c04; white-space: nowrap;
+}
+.vf-chip b { color: #ff9f1c; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(255, 159, 28, 0.45); }
+.vf-board {
+  display: flex; align-items: center; gap: 14px;
+  border-left: 2px solid #16211a; padding-left: 16px; flex-wrap: wrap;
+}
+.vf-board-row { font-size: 11px; color: #8a8a8a; white-space: nowrap; display: inline-flex; gap: 6px; }
+.vf-board-row em { font-style: normal; color: #3d5246; font-weight: 900; }
+.vf-board-row strong { color: #cdb89a; }
+.vf-board-row b { color: #ff9f1c; font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vf-marquee-track { animation: none; }
+}
+@media (max-height: 760px) {
+  .vfill { display: none; } /* tight viewports: no vertical letterbox to spare */
+}

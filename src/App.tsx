@@ -19,6 +19,7 @@ import { TopFrameBar, BottomFrameBar } from './components/GameClient/FrameBar';
 import type { MobileKeyboardHandle } from './components/GameClient/MobileKeyboard';
 import { ActivitySidebar, MobileActivityBar, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
 import { LetterboxDock } from './components/GameClient/LetterboxDock';
+import { VerticalFillTop, VerticalFillBottom } from './components/GameClient/VerticalFill';
 import { LeftColumn } from './components/GameClient/LeftColumn';
 import { initWalletKit } from './lib/walletKit';
 import { useDisconnect as useAppKitDisconnect } from '@reown/appkit/react';
@@ -320,8 +321,11 @@ function AppContent() {
         overflow: 'visible',
         position: 'fixed',
         inset: 0,
+        ['--game-display-h' as string]: `${displayHeight}px`,
       }}
     >
+      {/* Vertical letterbox fill — dense strips above/below the game (desktop) */}
+      {showLetterboxUI && !isMobile && <VerticalFillTop />}
       {/* ── Game frame — centered in the viewport (ad bezel removed 9/6) ── */}
         <div
           ref={gameFrameRef}
@@ -436,6 +440,8 @@ function AppContent() {
           />
         </div>
         {/* AD BEZEL REMOVED 9/6: right/bottom ad bars + wrapper deleted (user: no longer needed) */}
+
+      {showLetterboxUI && !isMobile && <VerticalFillBottom />}
 
       {/* Loading overlay on top of game while it connects */}
       {showLoadingOverlay && <LoadingOverlay text={loadingText} />}
