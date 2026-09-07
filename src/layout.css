@@ -1872,12 +1872,8 @@
   top: 0; height: calc((100vh - var(--game-display-h, 0px)) / 2 - 58px);
   background: none; border-bottom: none;   /* zone invisible — C puts plain bg here */
 }
-.vfill.vf-bottom {
-  top: auto; bottom: 0;
-  height: calc((100vh - var(--game-display-h, 0px)) / 2 - 58px);
-}
 
-/* CRT scanline overlay for both sections */
+/* CRT scanline overlay for the top section */
 .vf2-scan {
   position: absolute; inset: 0; pointer-events: none; z-index: 1; opacity: 0.5;
   background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
@@ -1919,40 +1915,6 @@
 }
 .vf2-stat em { font-style: normal; font-size: 8px; letter-spacing: 2px; color: #64748b; }
 .vf2-stat b { color: #ffd166; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(255, 209, 102, 0.4); }
-
-/* ── BOTTOM: one line, groups adjacent — EARN BURNS · TOP BURNERS ── */
-/* Same no-box treatment as the top: the rules run and the leaderboard flow
-   side by side as one centered line at game width. */
-.vf2-btm {
-  display: flex; align-items: center; justify-content: center;
-  flex-wrap: wrap; row-gap: 12px;
-  gap: 40px;
-  margin: 0 auto;
-  padding: 0 18px;
-}
-.vf2-rules { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
-.vf2-rules-title {
-  font-family: 'Orbitron', sans-serif; font-size: 10px; font-weight: 900;
-  letter-spacing: 4px; color: #ff5544; text-transform: uppercase; white-space: nowrap;
-  text-shadow: 0 0 10px rgba(220, 38, 38, 0.5);
-}
-.vf2-chip {
-  display: inline-flex; align-items: baseline; gap: 6px;
-  font-size: 11px; font-weight: 500; letter-spacing: 1px; color: #cbd5e1;
-  padding: 0;
-  background: none;
-  border: none;
-}
-.vf2-chip:hover { border-color: rgba(255, 107, 53, 0.6); box-shadow: 0 0 16px rgba(255, 107, 53, 0.25); }
-.vf2-chip b { color: #ff9f1c; font-weight: 700; font-variant-numeric: tabular-nums; text-shadow: 0 0 8px rgba(255, 159, 28, 0.5); }
-
-.vf2-board {
-  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-}
-.vf2-board-row { display: inline-flex; align-items: baseline; gap: 8px; font-size: 11px; white-space: nowrap; }
-.vf2-board-row em { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
-.vf2-board-row strong { color: #e2e8f0; }
-.vf2-board-row b { color: #ff6b35; font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
   .vf2-marquee-track, .vf2-logo-flame { animation: none; }
