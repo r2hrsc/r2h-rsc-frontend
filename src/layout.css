@@ -1896,7 +1896,10 @@
     linear-gradient(180deg, #0c1226 0%, #0f172a 60%, #0a0f1f 100%);
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
 }
-.vfill.vf-top { top: 0; height: calc((100vh - var(--game-display-h, 0px)) / 2 - 58px); border-bottom: 1px solid rgba(220, 38, 38, 0.25); }
+.vfill.vf-top {
+  top: 0; height: calc((100vh - var(--game-display-h, 0px)) / 2 - 58px);
+  background: none; border-bottom: none;   /* zone invisible — C puts plain bg here */
+}
 .vfill.vf-bottom {
   top: auto; bottom: 0;
   height: calc((100vh - var(--game-display-h, 0px)) / 2 - 58px);
@@ -1914,10 +1917,24 @@
 }
 
 /* ── TOP: header + ticker ── */
+/* The HUD strip IS sketch-C's hud: game-width, navy gradient, scanlines,
+   red keyline — floating on plain background, tight above the burn bar. */
 .vf2-head {
   position: relative; z-index: 2;
+  width: var(--game-display-w, 100%);
+  margin: 0 auto;
   display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 0 18px 10px; flex-shrink: 0;
+  gap: 16px; padding: 0 10px; flex-shrink: 0;
+  height: 46px;
+  background:
+    radial-gradient(ellipse 120% 90% at 50% 0%, rgba(37, 99, 235, 0.05), transparent 55%),
+    linear-gradient(180deg, #0c1226 0%, #0f172a 60%, #0a0f1f 100%);
+  border-bottom: 1px solid rgba(220, 38, 38, 0.25);
+  overflow: hidden;
+}
+.vf2-head::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 3px);
 }
 .vf2-logo {
   display: inline-flex; align-items: center; gap: 7px;

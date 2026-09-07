@@ -322,6 +322,7 @@ function AppContent() {
         position: 'fixed',
         inset: 0,
         ['--game-display-h' as string]: `${displayHeight}px`,
+        ['--game-display-w' as string]: `${displayWidth}px`,
       }}
     >
       {/* Vertical letterbox fill — dense strips above/below the game (desktop) */}
