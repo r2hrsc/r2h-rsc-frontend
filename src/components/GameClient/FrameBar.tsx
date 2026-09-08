@@ -90,19 +90,21 @@ function useServerClock(serverTimeIso?: string): string {
   return fmtClock(new Date(Date.now() + offset));
 }
 
-/** Bar above the game frame — WALLET (left) + PLAY-TO-BURN (right). */
+/** Bar above the game frame — WALLET (left) + PLAY-TO-BURN (right).
+ *  Wallet-gated (user 9/7): the bar's content renders ONLY for
+ *  wallet-connected users; otherwise the strip is blank. BurnSlot stays
+ *  mounted regardless — its scoreboard/ribbon celebrations portal into the
+ *  game frame and keep firing for everyone; only the bar chrome is hidden. */
 export function TopFrameBar() {
   const { address, isConnected } = useAppKitAccount();
 
   return (
-    <div className="frame-bar frame-bar-top">
+    <div className="frame-bar frame-bar-top" style={isConnected ? undefined : { visibility: 'hidden' }}>
       {/* ── WALLET slot — reserved for wallet-connected features ── */}
       <section data-slot="wallet" className="fb-section fb-wallet">
         <span className="ws-dot" style={{ background: isConnected ? '#14F195' : '#555' }} />
         <span className="fb-label">WALLET</span>
-        <span className="fb-value">
-          {isConnected && address ? shortAddr(address) : 'not connected'}
-        </span>
+        <span className="fb-value">{address ? shortAddr(address) : ''}</span>
       </section>
 
       <span className="ws-sep">·</span>
