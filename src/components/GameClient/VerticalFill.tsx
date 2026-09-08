@@ -1,4 +1,5 @@
 import { useState, useEffect, type CSSProperties } from 'react';
+import { useAppKitAccount } from '@reown/appkit/react';
 import { ZoomPanel, useZoomFactor } from './ZoomPanel';
 
 /**
@@ -67,10 +68,17 @@ function useBurnStatsLite(): BurnStats | null {
   return stats;
 }
 
-/** TOP — LIVE BURN FEED + stats, one adjacent centered line. */
+/** TOP — LIVE BURN FEED + stats, one adjacent centered line.
+ *  Wallet-gated (user 9/8): renders ONLY for wallet-connected users;
+ *  the letterbox area stays blank otherwise — same contract as the frame
+ *  bar's gate in FrameBar.tsx. Early return sits after all hooks. */
 export function VerticalFillTop() {
   const stats = useBurnStatsLite();
   const z = useZoomFactor();
+  const { isConnected } = useAppKitAccount();
+
+  if (!isConnected) return null;
+
   return (
     <div className="vfill vf-top vf2">
       <ZoomPanel anchor="inset" style={{ justifyContent: 'flex-end' }}>
