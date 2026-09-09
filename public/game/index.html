@@ -408,13 +408,18 @@
       var shown = false;
 
       function currentOverlayState() {
-        if (window._r2h_ws_open) return false;            // logged in
-        if (window._r2h_login_fail) return false;         // login errored — show client msg
-        if (window.__r2h_bot_panel_open) return false;    // bot panel overlaying game
-        if (document.hidden) return false;                // tab hidden
+        // Hide ONLY when the CLIENT says it's in-game (mc.fv = loggedIn:
+        // 0=login screens, 1=game world — classes.js offset ~66698:
+        // !fv→drawLoginScreens, fv==1→drawGame). Never hide on _r2h_ws_open:
+        // the socket opens while the client is still drawing its own login
+        // screen — hiding there is what flashed the old login art on entry.
         var mc = window.__r2h_mc;
-        if (!mc) return true;                             // engine pre-boot: welcome screen
-        return mc.bM === 0 || mc.bM === 2;                // loginScreen 0/2 = logo visible
+        if (mc && mc.fv === 1) return false;            // in game world
+        if (window._r2h_login_fail) return false;       // login errored — show client msg
+        if (window.__r2h_bot_panel_open) return false;  // bot panel overlaying game
+        if (document.hidden) return false;              // tab hidden
+        if (!mc) return true;                           // engine pre-boot: welcome screen
+        return mc.bM === 0 || mc.bM === 2;              // loginScreen 0/2 = logo visible
       }
 
       function tick() {
