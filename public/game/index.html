@@ -386,17 +386,17 @@
       });
     })();
 
-    // ── R2H LOGIN LOGO OVERLAY (placeholder) ─────────────────────────────
-    // Blue box over the client-drawn "RUNESCAPE" logo region, for states 0/2
-    // only. Geometry = measured sprite 2010 (runescape.dat): 438x141 at
-    // canvas (22,12) on the fixed 512x345 canvas → percentages.
-    // Drawn on TOP of the canvas (z 5) but UNDER any higher UI.
+    // ── R2H LOGIN SCREEN OVERLAY (placeholder) ───────────────────────────
+    // Blue box covering the ENTIRE login screen (welcome + credentials form).
+    // The canvas fills the iframe body exactly (CSS width/height:100%), so a
+    // 100%/100% absolutely-positioned div matches the canvas pixel-for-pixel
+    // at any zoom/scale. Supersedes the v399 logo-region box.
     // Hide conditions (any): _r2h_ws_open (logged in), _r2h_login_fail,
     // bot panel open, tab hidden, or loginScreen not in {0,2}.
     var __r2hLoginBox = document.createElement('div');
     __r2hLoginBox.id = 'r2h-login-logo-box';
     __r2hLoginBox.style.cssText =
-      'position:absolute;left:4.297%;top:3.478%;width:85.547%;height:40.87%;' +
+      'position:absolute;left:0;top:0;width:100%;height:100%;' +
       'background:#1a56db;z-index:5;pointer-events:none;display:none;';
     document.body.appendChild(__r2hLoginBox);
 
@@ -426,7 +426,7 @@
       setInterval(tick, 250);
       tick();
     })();
-    // ── END R2H LOGIN LOGO OVERLAY ──────────────────────────────────────
+    // ── END R2H LOGIN SCREEN OVERLAY ─────────────────────────────────────
   </script>
   </body>
 </html>

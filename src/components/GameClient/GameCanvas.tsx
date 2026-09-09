@@ -14,7 +14,8 @@ const RSA_MODULUS = '91150155424381860183270444083139872778897831742398098264910
 // Cache-bust version: increment when the rsc-client/index.html is updated.
 // This forces mobile browsers to fetch the new iframe content instead of serving a cached copy.
 // v399: login logo overlay (blue placeholder box) added to /game/index.html.
-const CLIENT_VERSION = 'v399';
+// v400: overlay expanded to cover the ENTIRE login screen (100%x100% of canvas).
+const CLIENT_VERSION = 'v400';
 const GAME_URL = `${CACHE_CDN}?v=${CLIENT_VERSION}#members,127.0.0.1,43594,${RSA_EXPONENT},${RSA_MODULUS},1`;
 
 interface GameCanvasProps {
