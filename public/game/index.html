@@ -386,18 +386,19 @@
       });
     })();
 
-    // ── R2H LOGIN SCREEN OVERLAY (placeholder) ───────────────────────────
-    // Blue box covering the ENTIRE login screen (welcome + credentials form).
-    // The canvas fills the iframe body exactly (CSS width/height:100%), so a
-    // 100%/100% absolutely-positioned div matches the canvas pixel-for-pixel
-    // at any zoom/scale. Supersedes the v399 logo-region box.
+    // ── R2H LOGIN SCREEN OVERLAY (custom art) ────────────────────────────
+    // Full-screen login art over the client-drawn login screen (welcome +
+    // credentials form). Art: login-logo.png, designed at 512x345 (the game's
+    // fixed internal resolution), stretched 100%x100% to match the canvas
+    // pixel-for-pixel at any zoom/scale.
     // Hide conditions (any): _r2h_ws_open (logged in), _r2h_login_fail,
     // bot panel open, tab hidden, or loginScreen not in {0,2}.
     var __r2hLoginBox = document.createElement('div');
     __r2hLoginBox.id = 'r2h-login-logo-box';
     __r2hLoginBox.style.cssText =
       'position:absolute;left:0;top:0;width:100%;height:100%;' +
-      'background:#1a56db;z-index:5;pointer-events:none;display:none;';
+      'background:#000 url(login-logo.png) no-repeat center/100% 100%;' +
+      'z-index:5;pointer-events:none;display:none;';
     document.body.appendChild(__r2hLoginBox);
 
     (function() {

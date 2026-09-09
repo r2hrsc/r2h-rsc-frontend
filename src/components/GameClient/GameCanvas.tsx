@@ -15,7 +15,8 @@ const RSA_MODULUS = '91150155424381860183270444083139872778897831742398098264910
 // This forces mobile browsers to fetch the new iframe content instead of serving a cached copy.
 // v399: login logo overlay (blue placeholder box) added to /game/index.html.
 // v400: overlay expanded to cover the ENTIRE login screen (100%x100% of canvas).
-const CLIENT_VERSION = 'v400';
+// v401: blue placeholder replaced with custom login art (login-logo.png, 512x345).
+const CLIENT_VERSION = 'v401';
 const GAME_URL = `${CACHE_CDN}?v=${CLIENT_VERSION}#members,127.0.0.1,43594,${RSA_EXPONENT},${RSA_MODULUS},1`;
 
 interface GameCanvasProps {
