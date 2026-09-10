@@ -6,11 +6,13 @@ interface GameControlsProps {
   onKeyboard: () => void;
   onScripts: () => void;
   onPanels: () => void;
+  onSwitchRealm?: () => void;   // PVP Arena <-> Main World (hidden if not provided)
   panelsOpen: boolean;
   isFullscreen: boolean;
   isLandscape: boolean;
   hasKeyboard: boolean; // false on desktop → item hidden
   canRotate: boolean;   // mobile-like device (touch + narrow) → Landscape item hidden on desktop
+  realmLabel?: string;  // e.g. "PVP Arena" / "Main World" — label for the switch item
 }
 
 /**
@@ -23,8 +25,8 @@ interface GameControlsProps {
  * leaves the player defenseless — removal requested by user.
  */
 export function GameControls({
-  onFullscreen, onRotate, onKeyboard, onScripts, onPanels,
-  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate,
+  onFullscreen, onRotate, onKeyboard, onScripts, onPanels, onSwitchRealm,
+  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, realmLabel,
 }: GameControlsProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -46,6 +48,11 @@ export function GameControls({
   }, []);
 
   const items: Array<{ key: string; label: string; icon: React.ReactNode; fn: () => void; active?: boolean }> = [
+    ...(onSwitchRealm ? [{
+      key: 'realm', label: realmLabel ?? 'Switch Realm',
+      icon: <RealmIcon />,
+      fn: onSwitchRealm,
+    }] : []),
     {
       key: 'panels', label: panelsOpen ? 'Hide Panels' : 'Show Panels',
       icon: <PanelsIcon />,
@@ -107,6 +114,16 @@ export function GameControls({
 
 /* ── Icons (inline SVG, stroke style matches existing buttons) ── */
 const S = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+
+function RealmIcon() {
+  // crossed swords — PvP realm switch
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+      <path d="M2.5 2.5 L10.5 10.5 M13.5 2.5 L5.5 10.5" />
+      <path d="M2.5 10.5 L4.5 13 M13.5 10.5 L11.5 13" />
+    </svg>
+  );
+}
 
 function PanelsIcon() {
   return <svg viewBox="0 0 24 24" {...S}><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16" /></svg>;

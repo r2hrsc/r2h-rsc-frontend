@@ -18,8 +18,13 @@ const RSA_MODULUS = '91150155424381860183270444083139872778897831742398098264910
 // v401: blue placeholder replaced with custom login art (login-logo.png, 512x345).
 // v402: no-flash fix — overlay now hides on mc.fv (client loggedIn) instead of
 // _r2h_ws_open, closing the gap that flashed the old client login screen on login.
-const CLIENT_VERSION = 'v402';
-const GAME_URL = `${CACHE_CDN}?v=${CLIENT_VERSION}#members,127.0.0.1,43594,${RSA_EXPONENT},${RSA_MODULUS},1`;
+// v403: PVP Arena realm support — iframe hash port selects realm (43594=main,
+// 43595=arena); the page's WS rewriter maps 43595 -> wss://game.r2hrsc.xyz/arena/.
+const CLIENT_VERSION = 'v403';
+// Realm server port in the hash args: 43594 = main world, 43595 = PVP Arena.
+const realmPort = (realm: string | undefined) => (realm === 'arena' ? '43595' : '43594');
+const GAME_URL = (realm: string | undefined) =>
+  `${CACHE_CDN}?v=${CLIENT_VERSION}#members,127.0.0.1,${realmPort(realm)},${RSA_EXPONENT},${RSA_MODULUS},1`;
 
 interface GameCanvasProps {
   wsUrl?: string;
@@ -27,11 +32,13 @@ interface GameCanvasProps {
   rscPassword?: string;
   onLoginComplete?: () => void;
   showRscBackground?: boolean;
+  /** 'arena' = PVP Arena realm (server port 43595 via iframe hash); default = main world */
+  realm?: 'main' | 'arena';
   /** External iframe ref (restored features: MobileKeyboard types through it). Optional — falls back to a local ref. */
   iframeRef?: React.RefObject<HTMLIFrameElement>;
 }
 
-export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground, iframeRef: externalIframeRef }: GameCanvasProps) {
+export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground, realm, iframeRef: externalIframeRef }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const localIframeRef = useRef<HTMLIFrameElement>(null);
   // External ref (from App via GameContainer) when provided, else local —
@@ -261,7 +268,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
     return (
       <iframe
         ref={iframeRef}
-        src={GAME_URL}
+        src={GAME_URL(realm)}
         scrolling="no"
         style={{
           width: 512,

@@ -9,12 +9,14 @@ interface GameContainerProps {
   rscPassword?: string;
   onLoginComplete?: () => void;
   showRscBackground?: boolean;
+  /** 'arena' = PVP Arena realm; default = main world */
+  realm?: 'main' | 'arena';
   scale?: number;
   /** Forwarded to GameCanvas — App-level overlays (MobileKeyboard) share this iframe ref */
   iframeRef?: React.RefObject<HTMLIFrameElement>;
 }
 
-export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground, scale: passedScale = 1, iframeRef }: GameContainerProps) {
+export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground, realm, scale: passedScale = 1, iframeRef }: GameContainerProps) {
   // Scale is passed from parent (single useGameScale call in App to avoid duplicate state + listeners)
   const scale = passedScale;
 
@@ -47,6 +49,7 @@ export default function GameContainer({ wsUrl, rscUsername, rscPassword, onLogin
           wsUrl={wsUrl}
           rscUsername={rscUsername}
           rscPassword={rscPassword}
+          realm={realm}
           onLoginComplete={onLoginComplete}
           showRscBackground={showRscBackground}
           iframeRef={iframeRef}

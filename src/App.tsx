@@ -146,6 +146,11 @@ function AppContent() {
   // the reconnect login itself fails (RSC_DISCONNECT again while loading
   // with no bot running), fall to 'auth' as before.
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  // ── PVP Arena realm (Phase A): 'main' (default) | 'arena' ──
+  // Same login works in both realms (account-server mirrors credentials into
+  // both DBs). Switching remounts GameCanvas pointed at the other server.
+  const [realm, setRealm] = useState<'main' | 'arena'>('main');
+  const [realmSession, setRealmSession] = useState(0); // remount key on realm switch
   const rscCredentialsRef = useRef(rscCredentials);
   useEffect(() => { rscCredentialsRef.current = rscCredentials; }, [rscCredentials]);
   useEffect(() => {
@@ -342,12 +347,13 @@ function AppContent() {
               world metrics below) — same style as the outside columns */}
           <TopFrameBar />
           <GameContainer
-            key={`game-${reconnectAttempt}`}   /* v358: remount on auto-reconnect → fresh RSC_LOGIN */
+            key={`game-${reconnectAttempt}-${realmSession}`}   /* remount on reconnect AND realm switch → fresh RSC_LOGIN to the right server */
             wsUrl={WS_URL}
             rscUsername={rscCredentials?.username}
             rscPassword={rscCredentials?.password}
             onLoginComplete={handleLoginComplete}
             showRscBackground={isAuthScreen}
+            realm={realm}
             scale={displayScale}
             iframeRef={gameIframeRef}
           />
@@ -360,6 +366,15 @@ function AppContent() {
             onKeyboard={() => mobileKeyboardRef.current?.open()}
             onScripts={() => setScriptPanelOpen(true)}
             onPanels={() => setPanelOpen(o => !o)}
+            onSwitchRealm={rscCredentials ? () => {
+              const next = realm === 'main' ? 'arena' : 'main';
+              console.log('[App] Switching realm:', realm, '->', next);
+              setRealm(next);
+              setRealmSession(s => s + 1);      // remount GameCanvas at the other server
+              setLoadingText(next === 'arena' ? 'Entering PVP Arena...' : 'Entering main world...');
+              setAppState('loading');            // replay RSC_LOGIN with same credentials
+            } : undefined}
+            realmLabel={realm === 'main' ? 'Enter PVP Arena' : 'Back to Main World'}
             panelsOpen={panelOpen}
             isFullscreen={isFullscreen}
             isLandscape={isLandscapeMode}

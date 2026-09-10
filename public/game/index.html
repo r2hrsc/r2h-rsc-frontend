@@ -14,7 +14,10 @@
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function(url, protocols) {
             if (typeof url === "string" && (url.indexOf("127.0.0.1") !== -1 || url.indexOf("localhost") !== -1)) {
-                url = "wss://game.r2hrsc.xyz";
+              // PVP Arena realm: the iframe hash carries port 43595 (server 2).
+              // Route through the /arena/ nginx location -> 127.0.0.1:43495.
+              var m = window.location.hash.match(/,43595,/);
+              url = m ? "wss://game.r2hrsc.xyz/arena/" : "wss://game.r2hrsc.xyz";
             }
             var ws;
             if (protocols) { ws = new NativeWebSocket(url, protocols); }
