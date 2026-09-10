@@ -118,7 +118,12 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
     };
 
     // Retry until the iframe acknowledges receipt with rsc-login-received.
-    // Once acknowledged, stop — never re-send (causes credential re-entry loop).
+    // v403.2 FIX: the OLD code posted RSC_LOGIN once and only retried while
+    // contentWindow was missing. On REALM SWITCH the iframe is created cold —
+    // its page is still booting, the message listener isn't registered yet,
+    // and the single postMessage is silently DROPPED (no ACK, no WS, hang).
+    // The normal login path never hit this because the iframe pre-boots
+    // behind the auth screen. Now: resend every 1s until ACKed.
     const ackHandler = (e: MessageEvent) => {
       if (e.data?.type === 'rsc-login-received' || e.data?.type === 'rsc-login-complete' || e.data?.type === 'rsc-login-error') {
         console.log('[GameCanvas] Iframe acknowledged RSC_LOGIN:', e.data.type);
@@ -132,15 +137,19 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
     };
     window.addEventListener('message', ackHandler);
 
-    if (!trySend()) {
-      sendIntervalRef.current = setInterval(() => {
-        if (trySend()) {
-          // Keep retrying until iframe acknowledges
-        }
-      }, 1000);
-    }
+    trySend();
+    sendIntervalRef.current = setInterval(() => {
+      if (credsSentRef.current) {
+        if (sendIntervalRef.current) clearInterval(sendIntervalRef.current);
+        sendIntervalRef.current = null;
+        return;
+      }
+      trySend(); // keep re-sending until the iframe page is ready and ACKs
+    }, 1000);
 
-    // Stop retrying after 10s
+    // Stop retrying after 30s (cold arena iframe boot can take 10-20s before
+    // its message listener exists; the 25s onLoginComplete fallback still
+    // bounds the overall wait).
     const stopRetry = setTimeout(() => {
       if (sendIntervalRef.current) {
         clearInterval(sendIntervalRef.current);
@@ -148,7 +157,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
       }
       window.removeEventListener('message', ackHandler);
       credsSentRef.current = true;
-    }, 10000);
+    }, 30000);
 
     // Fallback: if the iframe doesn't respond after 25 seconds, proceed anyway.
     // Use a ref so this timer survives effect cleanups.
