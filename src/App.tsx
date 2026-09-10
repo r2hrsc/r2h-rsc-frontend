@@ -151,11 +151,21 @@ function AppContent() {
   // both DBs). Switching remounts GameCanvas pointed at the other server.
   const [realm, setRealm] = useState<'main' | 'arena'>('main');
   const [realmSession, setRealmSession] = useState(0); // remount key on realm switch
+  // Guard: RSC_DISCONNECT is IGNORED for a window after a realm switch — the
+  // old iframe's WS closing on unmount must not trigger the v358 auto-reconnect
+  // (it remounted the fresh arena iframe mid-boot → "Entering PVP Arena..." hang).
+  const realmSwitchAtRef = useRef(0);
   const rscCredentialsRef = useRef(rscCredentials);
   useEffect(() => { rscCredentialsRef.current = rscCredentials; }, [rscCredentials]);
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === 'RSC_DISCONNECT') {
+        // Realm-switch window: the OLD iframe's WS death is expected, not an
+        // error — skip auto-reconnect/auth-reset entirely.
+        if (Date.now() - realmSwitchAtRef.current < 20000) {
+          console.log('[App] RSC_DISCONNECT during realm switch — ignored');
+          return;
+        }
         const creds = rscCredentialsRef.current;
         if (creds && reconnectAttempt < 1) {
           console.log('[App] WS closed mid-session — auto-reconnecting (' + creds.username + ')');
@@ -369,6 +379,7 @@ function AppContent() {
             onSwitchRealm={rscCredentials ? () => {
               const next = realm === 'main' ? 'arena' : 'main';
               console.log('[App] Switching realm:', realm, '->', next);
+              realmSwitchAtRef.current = Date.now(); // arm the disconnect guard
               setRealm(next);
               setRealmSession(s => s + 1);      // remount GameCanvas at the other server
               setLoadingText(next === 'arena' ? 'Entering PVP Arena...' : 'Entering main world...');

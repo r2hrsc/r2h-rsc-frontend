@@ -23,8 +23,13 @@ const RSA_MODULUS = '91150155424381860183270444083139872778897831742398098264910
 const CLIENT_VERSION = 'v403';
 // Realm server port in the hash args: 43594 = main world, 43595 = PVP Arena.
 const realmPort = (realm: string | undefined) => (realm === 'arena' ? '43595' : '43594');
+// NOTE the &r= query param: main and arena URLs must differ BEFORE the '#'.
+// A hash-only difference does not guarantee a fresh document load on iframe
+// remount — the browser may keep the old (main-world) page alive, which left
+// the switch hanging on "Entering PVP Arena...". A distinct query forces an
+// unambiguous reload of the game page per realm.
 const GAME_URL = (realm: string | undefined) =>
-  `${CACHE_CDN}?v=${CLIENT_VERSION}#members,127.0.0.1,${realmPort(realm)},${RSA_EXPONENT},${RSA_MODULUS},1`;
+  `${CACHE_CDN}?v=${CLIENT_VERSION}&r=${realm === 'arena' ? 'arena' : 'main'}#members,127.0.0.1,${realmPort(realm)},${RSA_EXPONENT},${RSA_MODULUS},1`;
 
 interface GameCanvasProps {
   wsUrl?: string;
