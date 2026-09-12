@@ -231,6 +231,43 @@ function AppContent() {
   // hook-count mismatch when Privy transitioned ready=false→true → re-render loop (#310).
   const gameScale = useGameScale();
 
+  // v403.3 FIX: these useCallback hooks MUST sit before the Privy `if (!ready)`
+  // early-return below — hooks after a conditional return caused React #310
+  // ("Rendered more hooks than previous render") on the ready=false→true flip.
+  const performRealmSwitch = useCallback(() => {
+    if (pendingRealmSwitchRef.current) {
+      pendingRealmSwitchRef.current();
+      pendingRealmSwitchRef.current = null;
+    }
+    setArenaConfirmOpen(false);
+  }, []);
+
+  const requestRealmSwitch = useCallback(() => {
+    if (realm === 'main' && !localStorage.getItem('r2h_arena_confirm_seen')) {
+      // first-ever entry to the arena: confirm dialog (onboarding)
+      pendingRealmSwitchRef.current = () => {
+        const next = 'arena';
+        console.log('[App] Switching realm: main ->', next, '(confirmed)');
+        realmSwitchAtRef.current = Date.now();
+        setRealm(next);
+        setRealmSession(s => s + 1);
+        setLoadingText('Entering PVP Arena...');
+        setAppState('loading');
+      };
+      setArenaConfirmOpen(true);
+      return;
+    }
+    // subsequent switches (or returning to main): straight through
+    const next = realm === 'main' ? 'arena' : 'main';
+    console.log('[App] Switching realm:', realm, '->', next);
+    realmSwitchAtRef.current = Date.now(); // arm the disconnect guard
+    setRealm(next);
+    setRealmSession(s => s + 1);
+    setLoadingText(next === 'arena' ? 'Entering PVP Arena...' : 'Entering main world...');
+    setAppState('loading');
+  }, [realm]);
+
+
   // ── Phase 1 letterbox panel (9/6): fills black bars flanking the game ──
   // v386: TOGGLE for near-4:3 viewports (natural letterbox < 150px) + mobile bar.
   const itemNames = useItemNames();
@@ -324,38 +361,6 @@ function AppContent() {
     );
   }
 
-  const performRealmSwitch = useCallback(() => {
-    if (pendingRealmSwitchRef.current) {
-      pendingRealmSwitchRef.current();
-      pendingRealmSwitchRef.current = null;
-    }
-    setArenaConfirmOpen(false);
-  }, []);
-
-  const requestRealmSwitch = useCallback(() => {
-    if (realm === 'main' && !localStorage.getItem('r2h_arena_confirm_seen')) {
-      // first-ever entry to the arena: confirm dialog (onboarding)
-      pendingRealmSwitchRef.current = () => {
-        const next = 'arena';
-        console.log('[App] Switching realm: main ->', next, '(confirmed)');
-        realmSwitchAtRef.current = Date.now();
-        setRealm(next);
-        setRealmSession(s => s + 1);
-        setLoadingText('Entering PVP Arena...');
-        setAppState('loading');
-      };
-      setArenaConfirmOpen(true);
-      return;
-    }
-    // subsequent switches (or returning to main): straight through
-    const next = realm === 'main' ? 'arena' : 'main';
-    console.log('[App] Switching realm:', realm, '->', next);
-    realmSwitchAtRef.current = Date.now(); // arm the disconnect guard
-    setRealm(next);
-    setRealmSession(s => s + 1);
-    setLoadingText(next === 'arena' ? 'Entering PVP Arena...' : 'Entering main world...');
-    setAppState('loading');
-  }, [realm]);
 
   const showGame = appState === 'loading' || appState === 'playing';
   const showLoadingOverlay = appState === 'loading';
