@@ -1560,6 +1560,20 @@
 .gc-menu-item .gc-menu-text { flex: 1; }
 .gc-menu-item.gc-active { border-color: rgba(20, 241, 149, 0.4); background: rgba(20, 241, 149, 0.08); }
 
+/* BETA pill on the realm-switch item — remove at arena launch */
+.gc-beta-pill {
+  flex-shrink: 0;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1.5px 6px;
+  border-radius: 99px;
+  background: #3a2a08;
+  color: #FFB224;
+  border: 1px solid rgba(255, 178, 36, 0.35);
+}
+
 /* ── Frame bars — data strips above/below the game frame ──
    Same metric style as the outside columns (world-strip family).
    Top: WALLET + PLAY-TO-BURN (reserved slots). Bottom: world metrics. */

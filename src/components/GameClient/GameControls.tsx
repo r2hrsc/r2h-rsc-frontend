@@ -13,6 +13,7 @@ interface GameControlsProps {
   hasKeyboard: boolean; // false on desktop → item hidden
   canRotate: boolean;   // mobile-like device (touch + narrow) → Landscape item hidden on desktop
   realmLabel?: string;  // e.g. "PVP Arena" / "Main World" — label for the switch item
+  realmBeta?: boolean;  // true → amber BETA pill on the realm item (arena not launched yet)
 }
 
 /**
@@ -26,7 +27,7 @@ interface GameControlsProps {
  */
 export function GameControls({
   onFullscreen, onRotate, onKeyboard, onScripts, onPanels, onSwitchRealm,
-  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, realmLabel,
+  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, realmLabel, realmBeta,
 }: GameControlsProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -47,11 +48,12 @@ export function GameControls({
     setOpen(false);
   }, []);
 
-  const items: Array<{ key: string; label: string; icon: React.ReactNode; fn: () => void; active?: boolean }> = [
+  const items: Array<{ key: string; label: string; icon: React.ReactNode; fn: () => void; active?: boolean; beta?: boolean }> = [
     ...(onSwitchRealm ? [{
       key: 'realm', label: realmLabel ?? 'Switch Realm',
       icon: <RealmIcon />,
       fn: onSwitchRealm,
+      beta: realmBeta,
     }] : []),
     {
       key: 'panels', label: panelsOpen ? 'Hide Panels' : 'Show Panels',
@@ -93,6 +95,7 @@ export function GameControls({
             >
               <span className="gc-menu-icon">{it.icon}</span>
               <span className="gc-menu-text">{it.label}</span>
+              {it.beta && <span className="gc-beta-pill">Beta</span>}
             </button>
           ))}
         </div>

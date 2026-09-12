@@ -151,6 +151,10 @@ function AppContent() {
   // both DBs). Switching remounts GameCanvas pointed at the other server.
   const [realm, setRealm] = useState<'main' | 'arena'>('main');
   const [realmSession, setRealmSession] = useState(0); // remount key on realm switch
+  // One-time arena confirm dialog (beta onboarding): shown on first switch
+  // click only; localStorage remembers dismissal per browser.
+  const [arenaConfirmOpen, setArenaConfirmOpen] = useState(false);
+  const pendingRealmSwitchRef = useRef<(() => void) | null>(null);
   // Guard: RSC_DISCONNECT is IGNORED for a window after a realm switch — the
   // old iframe's WS closing on unmount must not trigger the v358 auto-reconnect
   // (it remounted the fresh arena iframe mid-boot → "Entering PVP Arena..." hang).
@@ -320,6 +324,39 @@ function AppContent() {
     );
   }
 
+  const performRealmSwitch = useCallback(() => {
+    if (pendingRealmSwitchRef.current) {
+      pendingRealmSwitchRef.current();
+      pendingRealmSwitchRef.current = null;
+    }
+    setArenaConfirmOpen(false);
+  }, []);
+
+  const requestRealmSwitch = useCallback(() => {
+    if (realm === 'main' && !localStorage.getItem('r2h_arena_confirm_seen')) {
+      // first-ever entry to the arena: confirm dialog (onboarding)
+      pendingRealmSwitchRef.current = () => {
+        const next = 'arena';
+        console.log('[App] Switching realm: main ->', next, '(confirmed)');
+        realmSwitchAtRef.current = Date.now();
+        setRealm(next);
+        setRealmSession(s => s + 1);
+        setLoadingText('Entering PVP Arena...');
+        setAppState('loading');
+      };
+      setArenaConfirmOpen(true);
+      return;
+    }
+    // subsequent switches (or returning to main): straight through
+    const next = realm === 'main' ? 'arena' : 'main';
+    console.log('[App] Switching realm:', realm, '->', next);
+    realmSwitchAtRef.current = Date.now(); // arm the disconnect guard
+    setRealm(next);
+    setRealmSession(s => s + 1);
+    setLoadingText(next === 'arena' ? 'Entering PVP Arena...' : 'Entering main world...');
+    setAppState('loading');
+  }, [realm]);
+
   const showGame = appState === 'loading' || appState === 'playing';
   const showLoadingOverlay = appState === 'loading';
   const isAuthScreen = appState === 'auth' || appState === 'username';
@@ -376,16 +413,9 @@ function AppContent() {
             onKeyboard={() => mobileKeyboardRef.current?.open()}
             onScripts={() => setScriptPanelOpen(true)}
             onPanels={() => setPanelOpen(o => !o)}
-            onSwitchRealm={rscCredentials ? () => {
-              const next = realm === 'main' ? 'arena' : 'main';
-              console.log('[App] Switching realm:', realm, '->', next);
-              realmSwitchAtRef.current = Date.now(); // arm the disconnect guard
-              setRealm(next);
-              setRealmSession(s => s + 1);      // remount GameCanvas at the other server
-              setLoadingText(next === 'arena' ? 'Entering PVP Arena...' : 'Entering main world...');
-              setAppState('loading');            // replay RSC_LOGIN with same credentials
-            } : undefined}
+            onSwitchRealm={rscCredentials ? requestRealmSwitch : undefined}
             realmLabel={realm === 'main' ? 'Enter PVP Arena' : 'Back to Main World'}
+            realmBeta={realm === 'main'}
             panelsOpen={panelOpen}
             isFullscreen={isFullscreen}
             isLandscape={isLandscapeMode}
@@ -497,6 +527,69 @@ function AppContent() {
           Desktop + panel open → chat lives in the dock instead. */}
       {(!isMobile ? !panelOpen || appState !== 'playing' : true) && (
         <ChatWidget username={rscCredentials?.username ?? null} />
+      )}
+
+      {/* PVP Arena first-entry confirm (beta onboarding). One-time per browser
+          (localStorage r2h_arena_confirm_seen); matches the app's dark style. */}
+      {arenaConfirmOpen && (
+        <div
+          onClick={() => setArenaConfirmOpen(false)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 10001,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 340, maxWidth: '90vw',
+              background: '#101010', border: '1px solid #2a2a2a', borderRadius: 10,
+              padding: 18, boxShadow: '0 20px 60px rgba(0,0,0,0.8)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 14, color: '#fff', fontWeight: 700 }}>Enter PVP Arena</span>
+              <span className="gc-beta-pill" style={{ display: 'inline-block' }}>Beta</span>
+            </div>
+            <p style={{ fontSize: 12, color: '#999', marginBottom: 6 }}>
+              A separate PvP-only realm. Your main character is untouched.
+            </p>
+            <ul style={{ margin: '8px 0 14px 16px', padding: 0 }}>
+              <li style={{ fontSize: 12, color: '#aaa', marginBottom: 3 }}>
+                Same login — fresh fighter, <b style={{ color: '#14F195' }}>nothing carries over</b>
+              </li>
+              <li style={{ fontSize: 12, color: '#aaa', marginBottom: 3 }}>
+                Pick your levels, fight in the Wilderness
+              </li>
+              <li style={{ fontSize: 12, color: '#aaa' }}>
+                Work in progress — <span style={{ color: '#FFB224' }}>item spawns &amp; polish still coming</span>
+              </li>
+            </ul>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setArenaConfirmOpen(false)}
+                style={{
+                  flex: 1, padding: '9px 0', borderRadius: 7, fontSize: 12.5,
+                  fontWeight: 600, cursor: 'pointer', background: '#1a1a1a',
+                  color: '#aaa', border: '1px solid #333',
+                }}
+              >
+                Not yet
+              </button>
+              <button
+                onClick={() => { localStorage.setItem('r2h_arena_confirm_seen', '1'); performRealmSwitch(); }}
+                style={{
+                  flex: 1, padding: '9px 0', borderRadius: 7, fontSize: 12.5,
+                  fontWeight: 600, cursor: 'pointer', background: '#14F195',
+                  color: '#06251a', border: '1px solid transparent',
+                }}
+              >
+                Enter the Arena
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
