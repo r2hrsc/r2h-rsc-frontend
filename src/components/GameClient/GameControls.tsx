@@ -12,14 +12,16 @@ interface GameControlsProps {
   isLandscape: boolean;
   hasKeyboard: boolean; // false on desktop → item hidden
   canRotate: boolean;   // mobile-like device (touch + narrow) → Landscape item hidden on desktop
+  showPanels?: boolean; // false on mobile → Panels item hidden (side bars are desktop-only; menu stays short so Enter PVP Arena stays visible)
   realmLabel?: string;  // e.g. "PVP Arena" / "Main World" — label for the switch item
   realmBeta?: boolean;  // true → amber BETA pill on the realm item (arena not launched yet)
 }
 
 /**
- * GameControls — single FAB on the middle-right edge of the game frame.
- * Tap → a compact vertical menu slides out to the LEFT of the FAB with all
- * game controls. Tap an action, the FAB, or outside to close.
+ * GameControls — single FAB on the lower-right of the game frame (75% down,
+ * moved from mid-right so it never covers RSC inventory slots).
+ * Tap → a compact vertical menu slides out to the LEFT of the FAB, growing
+ * UPWARD, with all game controls. Tap an action, the FAB, or outside to close.
  *
  * Chat is NOT here: it lives in the letterbox dock (desktop) / floating
  * bubble. Logout is intentionally NOT here: instant logout mid-combat
@@ -27,7 +29,7 @@ interface GameControlsProps {
  */
 export function GameControls({
   onFullscreen, onRotate, onKeyboard, onScripts, onPanels, onSwitchRealm,
-  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, realmLabel, realmBeta,
+  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, showPanels = true, realmLabel, realmBeta,
 }: GameControlsProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -55,12 +57,12 @@ export function GameControls({
       fn: onSwitchRealm,
       beta: realmBeta,
     }] : []),
-    {
+    ...(showPanels ? [{
       key: 'panels', label: panelsOpen ? 'Hide Panels' : 'Show Panels',
       icon: <PanelsIcon />,
       fn: onPanels,
       active: panelsOpen,
-    },
+    }] : []),
     {
       key: 'fs', label: isFullscreen ? 'Exit Fullscreen' : 'Fullscreen',
       icon: <FSIcon exit={isFullscreen} />,
@@ -101,7 +103,7 @@ export function GameControls({
         </div>
       )}
 
-      {/* Hub FAB — middle-right edge of the game frame */}
+      {/* Hub FAB — lower-right of the game frame (75% down) */}
       <button
         className="gc-hub"
         onClick={() => setOpen(o => !o)}

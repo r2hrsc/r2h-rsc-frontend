@@ -426,6 +426,7 @@ function AppContent() {
             isLandscape={isLandscapeMode}
             hasKeyboard={isTouchDevice}
             canRotate={isTouchDevice && isMobile}
+            showPanels={!isMobile}
           />
           {/* v386 panel toggle retired — panels now open from the controls hub */}
           {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
