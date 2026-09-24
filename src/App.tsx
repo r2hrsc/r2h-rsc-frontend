@@ -16,6 +16,7 @@ import { useLandscapeRotation } from './hooks/useLandscapeRotation';
 import MobileKeyboard from './components/GameClient/MobileKeyboard';
 import { GameControls } from './components/GameClient/GameControls';
 import { TopFrameBar, BottomFrameBar } from './components/GameClient/FrameBar';
+import AccountCredentials from './components/AccountCredentials';
 import type { MobileKeyboardHandle } from './components/GameClient/MobileKeyboard';
 import { ActivitySidebar, MobileActivityBar, useItemNames, useLetterbox, computeDefaultPanelOpen } from './components/GameClient/ActivitySidebar';
 import { LetterboxDock } from './components/GameClient/LetterboxDock';
@@ -398,6 +399,12 @@ function AppContent() {
           {/* Data bars above/below the game frame (wallet + burn up top,
               world metrics below) — same style as the outside columns */}
           <TopFrameBar />
+          {/* Game account credentials — lets Gmail/wallet users see + copy their
+              real in-game username/password (works with the classic login screen
+              and external clients). Rendered only when signed in. */}
+          {rscCredentials && !isAuthScreen && (
+            <AccountCredentials username={rscCredentials.username} password={rscCredentials.password} />
+          )}
           <GameContainer
             key={`game-${reconnectAttempt}-${realmSession}`}   /* remount on reconnect AND realm switch → fresh RSC_LOGIN to the right server */
             wsUrl={WS_URL}
