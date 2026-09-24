@@ -304,7 +304,7 @@
       var _loginDone = false;
 
       window.addEventListener('message', function(e) {
-        if (e.origin !== 'https://r2hrsc.xyz' && e.origin !== 'https://www.r2hrsc.xyz') return;
+        if (e.origin !== 'https://r2hrsc.xyz' && e.origin !== 'https://www.r2hrsc.xyz' && e.origin !== 'https://robinscape.xyz' && e.origin !== 'https://www.robinscape.xyz') return;
         if (!e.data || e.data.type !== 'RSC_LOGIN') return;
 
         var username = e.data.username;
@@ -411,6 +411,7 @@
       var shown = false;
 
       function currentOverlayState() {
+        return false; // REVERTED-TO-ORIGINAL-ART 2026-09-24: never show custom overlay (use game's own login art)
         // Hide ONLY when the CLIENT says it's in-game (mc.fv = loggedIn:
         // 0=login screens, 1=game world — classes.js offset ~66698:
         // !fv→drawLoginScreens, fv==1→drawGame). Never hide on _r2h_ws_open:

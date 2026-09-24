@@ -14,13 +14,13 @@ export function MediaKit() {
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 48 }}>
           <h1 style={{ fontSize: 36, fontWeight: 800, margin: '0 0 8px', color: '#fff' }}>
-            Advertise on R2H RSC
+            Advertise on Runescape Classic
           </h1>
           <p style={{ fontSize: 18, color: '#888' }}>
             Reach the most nostalgic audience in RuneScape Classic
           </p>
           <div style={{ marginTop: 16 }}>
-            <a href="/" style={{ color: '#666', textDecoration: 'none', fontSize: 14 }}>← Back to R2H RSC</a>
+            <a href="/" style={{ color: '#666', textDecoration: 'none', fontSize: 14 }}>← Back to Runescape Classic</a>
           </div>
         </div>
 
@@ -116,7 +116,7 @@ export function MediaKit() {
         </Section>
 
         <div style={{ textAlign: 'center', padding: '32px 0', color: '#333', fontSize: 12 }}>
-          R2H RSC — Pure nostalgic classic private server experience
+          Runescape Classic — Pure nostalgic classic private server experience
         </div>
       </div>
     </div>

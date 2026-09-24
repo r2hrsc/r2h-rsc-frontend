@@ -52,7 +52,7 @@ export const FILLER_ADS: FillerAd[] = [
   },
   {
     slot: 'VOTE_GATEWAY',
-    title: 'Vote for R2H RSC',
+    title: 'Vote for Runescape Classic',
     subtitle: 'Help us grow the community',
     linkUrl: 'https://r2hrsc.xyz/vote',
     color: '#14F195',

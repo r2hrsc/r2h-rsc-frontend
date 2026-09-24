@@ -90,7 +90,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, hidden, on
         visibility: hidden ? 'hidden' : 'visible',
         pointerEvents: hidden ? 'none' : 'auto',
       }}
-      title="R2H RSC Game"
+      title="Runescape Classic Game"
       allow="autoplay; gamepad"
     />
   );

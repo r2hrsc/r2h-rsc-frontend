@@ -36,7 +36,8 @@ export default function TopNav({ isAuthenticating, authError }: TopNavProps) {
           gap: 10,
         }}
       >
-        R2H
+        <img src="/icons/sword.svg" alt="" width={22} height={22} style={{ imageRendering: 'pixelated' }} />
+        Runescape Classic
         {isAuthenticating && (
           <span style={{ color: '#14F195', fontSize: 11, fontWeight: 400 }}>Signing in...</span>
         )}

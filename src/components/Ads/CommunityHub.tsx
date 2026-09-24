@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 
 type Zone = 'top' | 'left' | 'right' | 'bottom';
 
-const WELCOME_TEXT = 'Welcome to R2H RSC — play in your browser, no download needed';
+const WELCOME_TEXT = 'Welcome to Runescape Classic — play in your browser, no download needed';
 
 export function CommunityHub({ zone }: { zone: Zone }) {
   const [liveStats, setLiveStats] = useState({ playersOnline: 0, uptime: '99.9%', build: 'v2.4.1', discordMembers: 847 });

@@ -292,7 +292,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
           overflow: 'hidden',
           imageRendering: 'pixelated' as any,
         }}
-        title="R2H RSC Game"
+        title="Runescape Classic Game"
         allow="autoplay; gamepad; fullscreen; pointer-lock; cross-origin-isolated; webgl; accelerated-2d-canvas"
       />
     );

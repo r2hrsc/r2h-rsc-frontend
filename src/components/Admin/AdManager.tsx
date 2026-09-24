@@ -31,7 +31,7 @@ export function AdManagerPage() {
     return (
       <div style={pageStyle}>
         <form onSubmit={handleLogin} style={cardStyle}>
-          <h1 style={headingStyle}>R2H RSC — Ad Admin</h1>
+          <h1 style={headingStyle}>Runescape Classic — Ad Admin</h1>
           <input
             type="password"
             value={pwInput}

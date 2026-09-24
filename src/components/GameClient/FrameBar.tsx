@@ -127,7 +127,7 @@ export function BottomFrameBar() {
       </section>
       <span className="ws-sep">·</span>
       <section data-slot="world" className="fb-section">
-        <span className="fb-value">{stats ? stats.world : 'Robinscape'}</span>
+        <span className="fb-value">{stats ? stats.world : 'Runescape Classic'}</span>
       </section>
       {stats && stats.playersOnline > 0 && (
         <>

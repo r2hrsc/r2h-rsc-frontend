@@ -70,7 +70,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
       const provider = new BrowserProvider(walletProvider as Eip1193Provider);
       const signer = await provider.getSigner();
       const message = [
-        'R2H RSC wallet login',
+        'R2H RSC wallet login', // must match sidecar buildWalletLoginMessage — do NOT rebrand
         `Address: ${walletAddress.toLowerCase()}`,
         `Nonce: ${nonce}`,
         '',
@@ -157,7 +157,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
   return (
     <div style={styles.overlay}>
       <div style={styles.card}>
-        <h1 style={styles.title}>R2H RSC</h1>
+        <h1 style={styles.title}>Runescape Classic</h1>
         <p style={styles.subtitle}>Sign in to play</p>
 
         {error && <p style={styles.error}>{error}</p>}

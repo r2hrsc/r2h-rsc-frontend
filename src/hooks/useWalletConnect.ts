@@ -54,7 +54,7 @@ export function useWalletConnect() {
         methods: ['eth_accounts', 'eth_requestAccounts', 'personal_sign'],
         events: ['connect', 'disconnect', 'accountsChanged', 'chainChanged'],
         metadata: {
-          name: 'R2H RSC',
+          name: 'Runescape Classic',
           description: 'Classic RSC client',
           url: typeof window !== 'undefined' ? window.location.origin : 'https://r2hrsc.xyz',
           icons: ['https://r2hrsc.xyz/logo.png'],

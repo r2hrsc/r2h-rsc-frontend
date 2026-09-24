@@ -8,7 +8,7 @@ export function PrivacyPolicy() {
         <p style={dateStyle}>Last updated: July 1, 2026</p>
 
         <p style={pStyle}>
-          R2H RSC ("we", "us", or "our") operates the website r2hrsc.xyz (the "Site").
+          Runescape Classic ("we", "us", or "our") operates the website robinscape.xyz (the "Site").
           This Privacy Policy explains how we collect, use, and protect your information.
         </p>
 
@@ -58,7 +58,7 @@ export function PrivacyPolicy() {
         </p>
 
         <div style={{ marginTop: 40 }}>
-          <a href="/" style={backLinkStyle}>← Back to R2H RSC</a>
+          <a href="/" style={backLinkStyle}>← Back to Runescape Classic</a>
         </div>
       </div>
     </div>
@@ -73,7 +73,7 @@ export function TermsOfService() {
         <p style={dateStyle}>Last updated: July 1, 2026</p>
 
         <p style={pStyle}>
-          Welcome to R2H RSC. By accessing and using this website, you accept and agree to be
+          Welcome to Runescape Classic. By accessing and using this website, you accept and agree to be
           bound by these Terms of Service. If you do not agree, please do not use our service.
         </p>
 
@@ -94,7 +94,7 @@ export function TermsOfService() {
 
         <h2 style={h2Style}>Intellectual Property</h2>
         <p style={pStyle}>
-          R2H RSC is a private server for a classic game client. All game content belongs to its
+          Runescape Classic is a private server for a classic game client. All game content belongs to its
           respective owners. This site does not claim ownership of any trademarked or copyrighted
           material.
         </p>
@@ -108,7 +108,7 @@ export function TermsOfService() {
 
         <h2 style={h2Style}>Limitation of Liability</h2>
         <p style={pStyle}>
-          R2H RSC is provided "as is" without warranties of any kind. We are not liable for any
+          Runescape Classic is provided "as is" without warranties of any kind. We are not liable for any
           damages arising from your use of the service.
         </p>
 
@@ -119,7 +119,7 @@ export function TermsOfService() {
         </p>
 
         <div style={{ marginTop: 40 }}>
-          <a href="/" style={backLinkStyle}>← Back to R2H RSC</a>
+          <a href="/" style={backLinkStyle}>← Back to Runescape Classic</a>
         </div>
       </div>
     </div>
@@ -130,10 +130,10 @@ export function About() {
   return (
     <div style={pageStyle}>
       <div style={containerStyle}>
-        <h1 style={h1Style}>About R2H RSC</h1>
+        <h1 style={h1Style}>About Runescape Classic</h1>
 
         <p style={pStyle}>
-          R2H RSC is a community-driven classic gaming server dedicated to preserving the authentic
+          Runescape Classic is a community-driven classic gaming server dedicated to preserving the authentic
           experience of early-era MMORPGs. We provide a browser-based client that requires no
           downloads — just sign in and play directly in your web browser.
         </p>
@@ -164,12 +164,12 @@ export function About() {
 
         <h2 style={h2Style}>Support the Project</h2>
         <p style={pStyle}>
-          You can help R2H RSC grow by voting for us on top server lists and spreading the word.
+          You can help Runescape Classic grow by voting for us on top server lists and spreading the word.
           The project is sustained through advertising and community support.
         </p>
 
         <div style={{ marginTop: 40, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-          <a href="/" style={backLinkStyle}>← Back to R2H RSC</a>
+          <a href="/" style={backLinkStyle}>← Back to Runescape Classic</a>
           <a href="https://discord.gg/r2hrsc" style={backLinkStyle}>Join Discord →</a>
           <a href="https://r2hrsc.xyz/vote" style={backLinkStyle}>Vote for Us →</a>
         </div>

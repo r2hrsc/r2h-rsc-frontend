@@ -82,7 +82,7 @@ function WelcomePane() {
     <div className="lc-pane">
       <div className="lc-welcome">
         <span className="lc-welcome-mark">›</span>
-        <span>Welcome to <b>Robinscape</b> — play in your browser, no download needed.</span>
+        <span>Welcome to <b>Runescape Classic</b> — play in your browser, no download needed.</span>
       </div>
 
       <div className="lc-section-title">RSC WIKI</div>

@@ -22,7 +22,7 @@ export function initWalletKit() {
     networks: [mainnet, polygon, base],
     projectId: PROJECT_ID,
     metadata: {
-      name: 'R2H RSC',
+      name: 'Runescape Classic',
       description: 'Classic RSC client',
       url: typeof window !== 'undefined' ? window.location.origin : 'https://r2hrsc.xyz',
       icons: ['https://r2hrsc.xyz/logo.png'],

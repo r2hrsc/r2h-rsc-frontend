@@ -204,7 +204,7 @@ export function WorldStatusStrip() {
   return (
     <div className="world-strip" style={{ position: 'absolute', left: 0, right: 0, bottom: -34, height: 24 }}>
       <span className="ws-dot" />
-      <span className="ws-name">{stats ? stats.world : 'Robinscape'}</span>
+      <span className="ws-name">{stats ? stats.world : 'Runescape Classic'}</span>
       <span className="ws-sep">·</span>
       <span className="ws-players">
         {stats ? `${stats.playersOnline} online` : 'connecting…'}
