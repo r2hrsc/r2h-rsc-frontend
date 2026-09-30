@@ -249,7 +249,13 @@ function AppContent() {
     worldSwitchAtRef.current = Date.now(); // arm the disconnect guard
     setWorld(next);
     setWorldSession(s => s + 1);
-    setLoadingText(worldDef(next).loading);
+    // Cross-world lock (server truth, [CLAUDE] 2026-09-30 16:10): a live claim is
+    // refused, never stolen — but our old iframe's logout runs save-then-release,
+    // and the new login retries (10x500ms) until that release lands. So a
+    // mid-session switch succeeds after a short silent window. Tell the player.
+    setLoadingText(rscCredentialsRef.current
+      ? `${worldDef(next).loading} (up to ~10s while your last session saves and releases)`
+      : worldDef(next).loading);
     setAppState('loading');
   }, [world]);
 
