@@ -14,10 +14,22 @@
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function(url, protocols) {
             if (typeof url === "string" && (url.indexOf("127.0.0.1") !== -1 || url.indexOf("localhost") !== -1)) {
-              // PVP Arena realm: the iframe hash carries port 43595 (server 2).
-              // Route through the /arena/ nginx location -> 127.0.0.1:43495.
-              var m = window.location.hash.match(/,43595,/);
-              url = m ? "wss://game.r2hrsc.xyz/arena/" : "wss://game.r2hrsc.xyz";
+              // Multiworld (v404): the iframe hash carries the world's internal port.
+              // Map it to the public wss endpoint — HARDCODED literals only, never
+              // constructed (nginx catch-all would silently route typos to world 1).
+              // Unknown port -> world 1 (the historical default of this rewriter).
+              var WORLD_WS = {
+                "43594": "wss://game.r2hrsc.xyz",
+                "43595": "wss://game.r2hrsc.xyz/arena/",
+                "43596": "wss://game.r2hrsc.xyz/world3/",
+                "43597": "wss://game.r2hrsc.xyz/world4/",
+                "43598": "wss://game.r2hrsc.xyz/world5/",
+                "43599": "wss://game.r2hrsc.xyz/world6/",
+                "43600": "wss://game.r2hrsc.xyz/world7/"
+              };
+              var m = window.location.hash.match(/,(\d{4,5}),/);
+              var portKey = m ? m[1] : "43594";
+              url = WORLD_WS[portKey] || "wss://game.r2hrsc.xyz";
             }
             var ws;
             if (protocols) { ws = new NativeWebSocket(url, protocols); }

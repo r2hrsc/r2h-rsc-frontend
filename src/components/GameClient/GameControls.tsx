@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { WorldKey, WORLDS } from '../../lib/worlds';
 
 interface GameControlsProps {
   onFullscreen: () => void;
@@ -6,15 +7,14 @@ interface GameControlsProps {
   onKeyboard: () => void;
   onScripts: () => void;
   onPanels: () => void;
-  onSwitchRealm?: () => void;   // PVP Arena <-> Main World (hidden if not provided)
+  onSwitchWorld?: (next: WorldKey) => void; // world picker (hidden if not provided)
+  currentWorld?: WorldKey;                  // marks the active world (not clickable)
   panelsOpen: boolean;
   isFullscreen: boolean;
   isLandscape: boolean;
   hasKeyboard: boolean; // false on desktop → item hidden
   canRotate: boolean;   // mobile-like device (touch + narrow) → Landscape item hidden on desktop
-  showPanels?: boolean; // false on mobile → Panels item hidden (side bars are desktop-only; menu stays short so Enter PVP Arena stays visible)
-  realmLabel?: string;  // e.g. "PVP Arena" / "Main World" — label for the switch item
-  realmBeta?: boolean;  // true → amber BETA pill on the realm item (arena not launched yet)
+  showPanels?: boolean; // false on mobile → Panels item hidden (side bars are desktop-only; menu stays short so the world picker stays visible)
 }
 
 /**
@@ -23,15 +23,20 @@ interface GameControlsProps {
  * Tap → a compact vertical menu slides out to the LEFT of the FAB, growing
  * UPWARD, with all game controls. Tap an action, the FAB, or outside to close.
  *
+ * v404: the former "Enter PVP Arena" toggle is now "Switch World" → a second
+ * level listing World 1 (Main), free worlds 3/4, members worlds 5/6/7 and the
+ * PVP Arena (Beta). The active world is marked and disabled.
+ *
  * Chat is NOT here: it lives in the letterbox dock (desktop) / floating
  * bubble. Logout is intentionally NOT here: instant logout mid-combat
  * leaves the player defenseless — removal requested by user.
  */
 export function GameControls({
-  onFullscreen, onRotate, onKeyboard, onScripts, onPanels, onSwitchRealm,
-  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, showPanels = true, realmLabel, realmBeta,
+  onFullscreen, onRotate, onKeyboard, onScripts, onPanels, onSwitchWorld,
+  currentWorld, panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, showPanels = true,
 }: GameControlsProps) {
   const [open, setOpen] = useState(false);
+  const [worldMenu, setWorldMenu] = useState(false); // second level: world list
   const rootRef = useRef<HTMLDivElement>(null);
 
   // Close when tapping outside the hub + menu
@@ -40,22 +45,27 @@ export function GameControls({
     const onDown = (e: PointerEvent) => {
       if (rootRef.current?.contains(e.target as Node)) return;
       setOpen(false);
+      setWorldMenu(false);
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
   }, [open]);
 
-  const act = useCallback((fn: () => void) => {
-    fn();
+  const close = useCallback(() => {
     setOpen(false);
+    setWorldMenu(false);
   }, []);
 
+  const act = useCallback((fn: () => void) => {
+    fn();
+    close();
+  }, [close]);
+
   const items: Array<{ key: string; label: string; icon: React.ReactNode; fn: () => void; active?: boolean; beta?: boolean }> = [
-    ...(onSwitchRealm ? [{
-      key: 'realm', label: realmLabel ?? 'Switch Realm',
-      icon: <RealmIcon />,
-      fn: onSwitchRealm,
-      beta: realmBeta,
+    ...(onSwitchWorld ? [{
+      key: 'world', label: 'Switch World',
+      icon: <WorldIcon />,
+      fn: () => setWorldMenu(v => !v),
     }] : []),
     ...(showPanels ? [{
       key: 'panels', label: panelsOpen ? 'Hide Panels' : 'Show Panels',
@@ -87,7 +97,36 @@ export function GameControls({
       {/* Slide-out menu — vertical list to the LEFT of the FAB */}
       {open && (
         <div className="gc-menu" role="menu">
-          {items.map(it => (
+          {/* Second level: world list (v404) */}
+          {worldMenu && onSwitchWorld && (
+            <div className="gc-worlds" role="menu">
+              {WORLDS.map(w => {
+                const active = w.key === currentWorld;
+                return (
+                  <button
+                    key={String(w.key)}
+                    className={`gc-menu-item${active ? ' gc-active' : ''}`}
+                    onClick={() => { if (!active) act(() => onSwitchWorld(w.key)); }}
+                    role="menuitem"
+                    aria-label={w.label}
+                    disabled={active}
+                  >
+                    <span className="gc-menu-text">{w.label}</span>
+                    {w.isArena
+                      ? <span className="gc-beta-pill">Beta</span>
+                      : (!w.members && w.key !== 1)
+                        ? <span className="gc-free-pill">Free</span>
+                        : null}
+                    {active && <span className="gc-active-dot" aria-label="current world" />}
+                  </button>
+                );
+              })}
+              <button className="gc-menu-item" onClick={() => setWorldMenu(false)} role="menuitem">
+                <span className="gc-menu-text" style={{ color: '#888' }}>‹ Back</span>
+              </button>
+            </div>
+          )}
+          {!worldMenu && items.map(it => (
             <button
               key={it.key}
               className={`gc-menu-item${it.active ? ' gc-active' : ''}`}
@@ -106,7 +145,7 @@ export function GameControls({
       {/* Hub FAB — lower-right of the game frame (75% down) */}
       <button
         className="gc-hub"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => { const next = !open; setOpen(next); if (!next) setWorldMenu(false); }}
         aria-label={open ? 'Close menu' : 'Open game controls'}
         aria-expanded={open}
         title="Game controls"
@@ -120,12 +159,12 @@ export function GameControls({
 /* ── Icons (inline SVG, stroke style matches existing buttons) ── */
 const S = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
 
-function RealmIcon() {
-  // crossed swords — PvP realm switch
+function WorldIcon() {
+  // globe — world picker
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-      <path d="M2.5 2.5 L10.5 10.5 M13.5 2.5 L5.5 10.5" />
-      <path d="M2.5 10.5 L4.5 13 M13.5 10.5 L11.5 13" />
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M1.8 8h12.4M8 1.8c-2.2 2.4-2.2 10 0 12.4M8 1.8c2.2 2.4 2.2 10 0 12.4" />
     </svg>
   );
 }
