@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { modal as walletModal, useAppKitAccount, useAppKitProvider, useDisconnect } from '@reown/appkit/react';
 import type { Eip1193Provider } from 'ethers';
+import { Landing } from './landing/Landing';
+import { saveAccessToken, clearAccessToken } from '../lib/referral';
 
 interface AuthOverlayProps {
   apiUrl: string;
@@ -53,6 +55,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
   const handleWalletAuth = async (walletAddress: string) => {
     setSigningIn(true);
     setStatusText('Requesting signature...');
+    clearAccessToken();
     try {
       // 1. Get single-use nonce from backend (bound to this address)
       const nonceRes = await fetch(`${apiUrl}/auth/wallet/nonce`, {
@@ -87,6 +90,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || 'Wallet login failed');
+      saveAccessToken(data.accessToken);
       if (data.existing) {
         onExistingUser('wallet', walletAddress.toLowerCase(), data.rscUsername, data.rscPassword);
       } else {
@@ -109,6 +113,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     }
     setSigningIn(true);
     setError('');
+    clearAccessToken();
     try {
       const res = await fetch(`${apiUrl}/auth/google`, {
         method: 'POST',
@@ -117,6 +122,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
       });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || 'Google auth failed');
+      saveAccessToken(data.accessToken);
       if (data.existing && data.rscUsername && data.rscPassword) {
         onExistingUser(data.provider || 'google', data.externalId, data.rscUsername, data.rscPassword);
       } else {
@@ -155,44 +161,20 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
   }
 
   return (
-    <div style={styles.overlay}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>Runescape Classic</h1>
-        <p style={styles.subtitle}>Sign in to play</p>
-
-        {error && <p style={styles.error}>{error}</p>}
-
-        {/* Google — Primary method */}
-        <div style={styles.primarySection}>
-          <div style={styles.recommendedLabel}>Recommended</div>
-          <div style={{ width: '100%', display: 'flex', justifyContent: 'center' }}>
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={() => setError('Google login failed.')}
-              theme="filled_black"
-              size="large"
-              width="280"
-              text="signin_with"
-            />
-          </div>
-          <p style={styles.primaryHint}>Fastest way to sign in</p>
-        </div>
-
-        <div style={styles.divider}>
-          <span style={styles.dividerLine} />
-          <span style={styles.dividerText}>or</span>
-          <span style={styles.dividerLine} />
-        </div>
-
-        {/* Wallet — Secondary / Advanced */}
-        <button style={styles.btnSecondary} onClick={handleConnectWallet}>
-          Connect Wallet
-        </button>
-        <p style={styles.secondaryHint}>
-          MetaMask · Phantom · Trust — mobile &amp; desktop
-        </p>
-      </div>
-    </div>
+    <Landing
+      error={error}
+      onConnectWallet={handleConnectWallet}
+      googleButton={
+        <GoogleLogin
+          onSuccess={handleGoogleSuccess}
+          onError={() => setError('Google login failed.')}
+          theme="outline"
+          size="large"
+          width="300"
+          text="signin_with"
+        />
+      }
+    />
   );
 }
 

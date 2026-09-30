@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { ZoomPanel } from './ZoomPanel';
+import { InvitePanel } from '../referral/InvitePanel';
 
 // ── Left letterbox column ────────────────────────────────────────────────
 // Reference panel: welcome + RSC Wiki links + XP calculator (real RSC
@@ -42,10 +43,11 @@ const SKILL_NAMES = ['Attack', 'Defense', 'Strength', 'Hits', 'Ranged', 'Prayer'
   'Cooking', 'Woodcutting', 'Fletching', 'Fishing', 'Firemaking', 'Crafting', 'Smithing',
   'Mining', 'Herblaw', 'Agility', 'Thieving'];
 
-type Section = 'welcome' | 'calc';
+type Section = 'invite' | 'welcome' | 'calc';
 
-export function LeftColumn({ sideWidth }: { sideWidth: number }) {
-  const [section, setSection] = useState<Section>('welcome');
+export function LeftColumn({ sideWidth, username = null }: { sideWidth: number; username?: string | null }) {
+  // INVITE first (referral link outside the game frame); GUIDE/XP CALC unchanged.
+  const [section, setSection] = useState<Section>('invite');
 
   if (sideWidth < 100) return null;
 
@@ -66,10 +68,16 @@ export function LeftColumn({ sideWidth }: { sideWidth: number }) {
           shrinks under browser zoom-out; ZoomPanel fills it at 100%-zoom scale */}
       <ZoomPanel className="left-col-inner">
       <div className="lc-tabs">
+        <button className={section === 'invite' ? 'lc-tab lc-tab-active' : 'lc-tab'} onClick={() => setSection('invite')}>INVITE</button>
         <button className={section === 'welcome' ? 'lc-tab lc-tab-active' : 'lc-tab'} onClick={() => setSection('welcome')}>GUIDE</button>
         <button className={section === 'calc' ? 'lc-tab lc-tab-active' : 'lc-tab'} onClick={() => setSection('calc')}>XP CALC</button>
       </div>
 
+      {section === 'invite' && (
+        <div className="lc-pane" style={{ padding: 12 }}>
+          <InvitePanel username={username} active variant="column" />
+        </div>
+      )}
       {section === 'welcome' && <WelcomePane />}
       {section === 'calc' && <CalcPane />}
       </ZoomPanel>

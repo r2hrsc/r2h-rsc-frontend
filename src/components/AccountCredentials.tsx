@@ -69,29 +69,41 @@ export default function AccountCredentials({ username, password }: { username: s
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  // v-fit (9/29): OUT of the layout flow. As a normal in-flow button it pushed
+  // the game down 44px inside .game-frame — bottom of the game cut off on
+  // phones (frame overflow:hidden) and ~28px below the screen on desktop.
+  // Now a compact overlay in the frame's top-left corner.
   trigger: {
-    background: 'transparent',
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    zIndex: 20,
+    background: 'rgba(10, 10, 10, 0.78)',
     border: '1px solid #8a7bff',
     color: '#8a7bff',
-    padding: '8px 14px',
+    padding: '4px 10px',
     borderRadius: 6,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
-    minHeight: 44,
+    minHeight: 32,
     touchAction: 'manipulation',
     whiteSpace: 'nowrap',
   },
+  // Fixed + centred so it is never clipped by the (overflow:hidden) phone frame.
   panel: {
-    position: 'absolute',
-    top: 54,
-    right: 12,
+    position: 'fixed',
+    top: '50%',
+    left: '50%',
+    transform: 'translate(-50%, -50%)',
     width: 300,
+    maxWidth: 'calc(100vw - 24px)',
+    boxSizing: 'border-box',
     background: '#0d0d0d',
     border: '1px solid #2a2a2a',
     borderRadius: 10,
     padding: 14,
-    zIndex: 200,
+    zIndex: 10000,
     boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
   },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },

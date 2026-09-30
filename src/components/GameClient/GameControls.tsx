@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, type CSSProperties } from 'react';
 
 interface GameControlsProps {
   onFullscreen: () => void;
@@ -7,6 +7,7 @@ interface GameControlsProps {
   onScripts: () => void;
   onPanels: () => void;
   onSwitchRealm?: () => void;   // PVP Arena <-> Main World (hidden if not provided)
+  onInvite?: () => void;        // opens the Invite friends sheet (hidden if not provided)
   panelsOpen: boolean;
   isFullscreen: boolean;
   isLandscape: boolean;
@@ -14,6 +15,7 @@ interface GameControlsProps {
   canRotate: boolean;   // mobile-like device (touch + narrow) → Landscape item hidden on desktop
   realmLabel?: string;  // e.g. "PVP Arena" / "Main World" — label for the switch item
   realmBeta?: boolean;  // true → amber BETA pill on the realm item (arena not launched yet)
+  edgeInset?: boolean;  // game fills the screen width → pull the hub fully on-screen
 }
 
 /**
@@ -26,8 +28,8 @@ interface GameControlsProps {
  * leaves the player defenseless — removal requested by user.
  */
 export function GameControls({
-  onFullscreen, onRotate, onKeyboard, onScripts, onPanels, onSwitchRealm,
-  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, realmLabel, realmBeta,
+  onFullscreen, onRotate, onKeyboard, onScripts, onPanels, onSwitchRealm, onInvite,
+  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, realmLabel, realmBeta, edgeInset,
 }: GameControlsProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -41,6 +43,37 @@ export function GameControls({
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+
+  // v-fit (9/29): keep the whole menu on screen. It used to be centred on the
+  // hub (which sits at 75% of the frame), so on phones — where the frame is
+  // short and clips its overflow — the bottom items were cut off. On open we
+  // measure and place it position:fixed, clamped inside the visible screen.
+  // (Skipped in CSS-rotated mode, where the old layout still applies.)
+  const menuRef = useRef<HTMLDivElement>(null);
+  // Very short screens (small phones in landscape): slightly tighter rows so
+  // every item fits without scrolling.
+  const compact = open && window.innerHeight < 420;
+  const [menuPos, setMenuPos] = useState<CSSProperties | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!open) { setMenuPos(undefined); return; }
+    const hub = rootRef.current?.querySelector('.gc-hub') as HTMLElement | null;
+    const menu = menuRef.current;
+    if (!hub || !menu || rootRef.current?.closest('.game-frame.rotated')) return;
+    const h = hub.getBoundingClientRect();
+    const vh = window.innerHeight, vw = window.innerWidth, pad = 8;
+    const mh = menu.offsetHeight;
+    const top = Math.max(pad, Math.min(h.top + h.height / 2 - mh / 2, vh - mh - pad));
+    setMenuPos({
+      position: 'fixed', top, right: Math.max(pad, vw - h.left + 8), left: 'auto',
+      transform: 'none', animation: 'none', maxHeight: vh - pad * 2, overflowY: 'auto',
+    });
+  }, [open, isFullscreen, isLandscape, panelsOpen]);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('resize', close);
+    return () => window.removeEventListener('resize', close);
   }, [open]);
 
   const act = useCallback((fn: () => void) => {
@@ -78,17 +111,19 @@ export function GameControls({
       fn: onKeyboard,
     }] : []),
     { key: 'scripts', label: 'Scripts', icon: <BoltIcon />, fn: onScripts },
+    ...(onInvite ? [{ key: 'invite', label: 'Invite friends', icon: <GiftIcon />, fn: onInvite }] : []),
   ];
 
   return (
-    <div className="gc-root" ref={rootRef}>
+    <div className="gc-root" ref={rootRef} style={edgeInset ? { right: 30 } : undefined}>
       {/* Slide-out menu — vertical list to the LEFT of the FAB */}
       {open && (
-        <div className="gc-menu" role="menu">
+        <div className="gc-menu" role="menu" ref={menuRef} style={menuPos}>
           {items.map(it => (
             <button
               key={it.key}
               className={`gc-menu-item${it.active ? ' gc-active' : ''}`}
+              style={compact ? { minHeight: 34, paddingTop: 6, paddingBottom: 6 } : undefined}
               onClick={() => act(it.fn)}
               role="menuitem"
               aria-label={it.label}
@@ -144,6 +179,9 @@ function KeyboardIcon() {
 }
 function BoltIcon() {
   return <svg viewBox="0 0 24 24" {...S}><path d="M13 2 3 14h7l-1 8 11-13h-7l1-7z" /></svg>;
+}
+function GiftIcon() {
+  return <svg viewBox="0 0 24 24" {...S}><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13" /><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5" /></svg>;
 }
 function MenuIcon() {
   return <svg viewBox="0 0 24 24" {...S}><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" /></svg>;

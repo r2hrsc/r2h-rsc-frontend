@@ -1,0 +1,757 @@
+{
+  "meta": {
+    "version": 1,
+    "created": "2026-09-29",
+    "note": "Shared named-area list for the area popup (/game/index.html) and the world map overlay. Coordinates are in the game's own tile space (same as server Point / client bJ+du,bK+dd). IMPORTANT: all y values are FLOOR-LOCAL (raw y minus 944*floor) so one rule matches every floor: x in [x1,x2] AND localY in [y1,y2] AND floor in floors. X increases WEST, Y increases SOUTH (north = low y).",
+    "sources": "Town centers: r2h-wiki world-map-overview.md teleport table. Banks: banks-guide.md banker coords. Dungeon spans: dungeons-guide.md underground spawn ranges. Wilderness rectangle: derived from server Formulae/Point.wildernessLevel() (boundary y=427, x<336), level computed at runtime with the same formula.",
+    "caveat": "Rectangles are v1 approximations around measured centers/spawns, tuned to not overlap. Refine with play-testing."
+  },
+  "areas": [
+    {
+      "id": "varrock_sewers",
+      "name": "Varrock Sewers",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 136,
+      "y1": 398,
+      "x2": 194,
+      "y2": 468,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "edgeville_dungeon",
+      "name": "Edgeville Dungeon",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 195,
+      "y1": 405,
+      "x2": 240,
+      "y2": 510,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "dwarven_mine",
+      "name": "Dwarven Mine",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 280,
+      "y1": 488,
+      "x2": 322,
+      "y2": 520,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "taverley_dungeon",
+      "name": "Taverley Dungeon",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 339,
+      "y1": 428,
+      "x2": 430,
+      "y2": 560,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "karamja_volcano",
+      "name": "Karamja Volcano",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 380,
+      "y1": 560,
+      "x2": 415,
+      "y2": 915,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "lava_maze_dungeon",
+      "name": "Lava Maze Dungeon",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 280,
+      "y1": 593,
+      "x2": 296,
+      "y2": 608,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "kbd_lair",
+      "name": "King Black Dragon Lair",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 558,
+      "y1": 478,
+      "x2": 576,
+      "y2": 493,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "yanille_dungeon",
+      "name": "Yanille Dungeon",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 576,
+      "y1": 718,
+      "x2": 604,
+      "y2": 763,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "underground_pass",
+      "name": "Underground Pass",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 770,
+      "y1": 618,
+      "x2": 808,
+      "y2": 713,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "watchtower_dungeon",
+      "name": "Watchtower Dungeon",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 628,
+      "y1": 768,
+      "x2": 664,
+      "y2": 793,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "mage_arena_dungeon",
+      "name": "Mage Arena Dungeon",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 438,
+      "y1": 530,
+      "x2": 454,
+      "y2": 546,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "tgnome_village_dungeon",
+      "name": "Tree Gnome Village Dungeon",
+      "type": "dungeon",
+      "floors": [
+        3
+      ],
+      "x1": 656,
+      "y1": 793,
+      "x2": 674,
+      "y2": 808,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "wilderness",
+      "name": "Wilderness",
+      "type": "wilderness",
+      "floors": [
+        0,
+        1,
+        2
+      ],
+      "x1": 0,
+      "y1": 0,
+      "x2": 336,
+      "y2": 427,
+      "popup": true,
+      "label": true,
+      "members": false,
+      "levelFormula": true
+    },
+    {
+      "id": "lumbridge",
+      "name": "Lumbridge",
+      "type": "town",
+      "floors": [
+        0,
+        1,
+        2
+      ],
+      "x1": 105,
+      "y1": 635,
+      "x2": 135,
+      "y2": 665,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "draynor",
+      "name": "Draynor Village",
+      "type": "town",
+      "floors": [
+        0,
+        1,
+        2
+      ],
+      "x1": 200,
+      "y1": 620,
+      "x2": 230,
+      "y2": 648,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "alkharid",
+      "name": "Al Kharid",
+      "type": "town",
+      "floors": [
+        0,
+        1,
+        2
+      ],
+      "x1": 70,
+      "y1": 680,
+      "x2": 110,
+      "y2": 710,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "varrock",
+      "name": "Varrock",
+      "type": "town",
+      "floors": [
+        0,
+        1,
+        2
+      ],
+      "x1": 95,
+      "y1": 490,
+      "x2": 155,
+      "y2": 545,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "barbarian_village",
+      "name": "Barbarian Village",
+      "type": "town",
+      "floors": [
+        0,
+        1
+      ],
+      "x1": 222,
+      "y1": 505,
+      "x2": 245,
+      "y2": 525,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "edgeville",
+      "name": "Edgeville",
+      "type": "town",
+      "floors": [
+        0,
+        1
+      ],
+      "x1": 205,
+      "y1": 440,
+      "x2": 235,
+      "y2": 460,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "falador",
+      "name": "Falador",
+      "type": "town",
+      "floors": [
+        0,
+        1,
+        2
+      ],
+      "x1": 285,
+      "y1": 520,
+      "x2": 325,
+      "y2": 555,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "portsarim",
+      "name": "Port Sarim",
+      "type": "town",
+      "floors": [
+        0,
+        1
+      ],
+      "x1": 255,
+      "y1": 630,
+      "x2": 290,
+      "y2": 660,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "rimmington",
+      "name": "Rimmington",
+      "type": "town",
+      "floors": [
+        0,
+        1
+      ],
+      "x1": 310,
+      "y1": 650,
+      "x2": 345,
+      "y2": 680,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "musa_point",
+      "name": "Musa Point",
+      "type": "town",
+      "floors": [
+        0
+      ],
+      "x1": 350,
+      "y1": 668,
+      "x2": 380,
+      "y2": 700,
+      "popup": true,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "taverley",
+      "name": "Taverley",
+      "type": "town",
+      "floors": [
+        0,
+        1
+      ],
+      "x1": 360,
+      "y1": 488,
+      "x2": 390,
+      "y2": 512,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "catherby",
+      "name": "Catherby",
+      "type": "town",
+      "floors": [
+        0,
+        1
+      ],
+      "x1": 425,
+      "y1": 490,
+      "x2": 455,
+      "y2": 515,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "seers",
+      "name": "Seers' Village",
+      "type": "town",
+      "floors": [
+        0,
+        1
+      ],
+      "x1": 488,
+      "y1": 440,
+      "x2": 515,
+      "y2": 465,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "ardougne",
+      "name": "Ardougne",
+      "type": "town",
+      "floors": [
+        0,
+        1,
+        2
+      ],
+      "x1": 520,
+      "y1": 570,
+      "x2": 580,
+      "y2": 615,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "yanille",
+      "name": "Yanille",
+      "type": "town",
+      "floors": [
+        0,
+        1,
+        2
+      ],
+      "x1": 565,
+      "y1": 735,
+      "x2": 600,
+      "y2": 760,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "brimhaven",
+      "name": "Brimhaven",
+      "type": "town",
+      "floors": [
+        0,
+        1
+      ],
+      "x1": 430,
+      "y1": 680,
+      "x2": 465,
+      "y2": 710,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "shilo_village",
+      "name": "Shilo Village",
+      "type": "town",
+      "floors": [
+        0
+      ],
+      "x1": 385,
+      "y1": 840,
+      "x2": 415,
+      "y2": 862,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "gnome_stronghold",
+      "name": "Gnome Stronghold",
+      "type": "town",
+      "floors": [
+        0,
+        1
+      ],
+      "x1": 685,
+      "y1": 512,
+      "x2": 725,
+      "y2": 545,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "entrana",
+      "name": "Entrana",
+      "type": "town",
+      "floors": [
+        0
+      ],
+      "x1": 410,
+      "y1": 552,
+      "x2": 440,
+      "y2": 575,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "shantay_pass",
+      "name": "Shantay Pass",
+      "type": "town",
+      "floors": [
+        0
+      ],
+      "x1": 52,
+      "y1": 720,
+      "x2": 75,
+      "y2": 740,
+      "popup": true,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "k_misthalin",
+      "name": "Misthalin",
+      "type": "kingdom",
+      "floors": [
+        0
+      ],
+      "x1": 100,
+      "y1": 440,
+      "x2": 245,
+      "y2": 700,
+      "popup": false,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "k_asgarnia",
+      "name": "Asgarnia",
+      "type": "kingdom",
+      "floors": [
+        0
+      ],
+      "x1": 245,
+      "y1": 440,
+      "x2": 380,
+      "y2": 680,
+      "popup": false,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "k_desert",
+      "name": "Kharidian Desert",
+      "type": "kingdom",
+      "floors": [
+        0
+      ],
+      "x1": 40,
+      "y1": 660,
+      "x2": 100,
+      "y2": 780,
+      "popup": false,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "k_kandarin",
+      "name": "Kandarin",
+      "type": "kingdom",
+      "floors": [
+        0
+      ],
+      "x1": 380,
+      "y1": 440,
+      "x2": 730,
+      "y2": 780,
+      "popup": false,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "k_karamja",
+      "name": "Karamja",
+      "type": "kingdom",
+      "floors": [
+        0
+      ],
+      "x1": 340,
+      "y1": 660,
+      "x2": 470,
+      "y2": 870,
+      "popup": false,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "b_varrock_west",
+      "name": "Bank",
+      "type": "bank",
+      "floors": [
+        0
+      ],
+      "x1": 147,
+      "y1": 497,
+      "x2": 152,
+      "y2": 506,
+      "popup": false,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "b_falador_east",
+      "name": "Bank",
+      "type": "bank",
+      "floors": [
+        0
+      ],
+      "x1": 328,
+      "y1": 549,
+      "x2": 336,
+      "y2": 557,
+      "popup": false,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "b_edgeville",
+      "name": "Bank",
+      "type": "bank",
+      "floors": [
+        0
+      ],
+      "x1": 212,
+      "y1": 448,
+      "x2": 218,
+      "y2": 453,
+      "popup": false,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "b_portsarim",
+      "name": "Bank",
+      "type": "bank",
+      "floors": [
+        0
+      ],
+      "x1": 278,
+      "y1": 564,
+      "x2": 287,
+      "y2": 574,
+      "popup": false,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "b_alkharid",
+      "name": "Bank",
+      "type": "bank",
+      "floors": [
+        0
+      ],
+      "x1": 85,
+      "y1": 688,
+      "x2": 94,
+      "y2": 701,
+      "popup": false,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "b_draynor",
+      "name": "Bank",
+      "type": "bank",
+      "floors": [
+        0
+      ],
+      "x1": 210,
+      "y1": 628,
+      "x2": 220,
+      "y2": 637,
+      "popup": false,
+      "label": true,
+      "members": false
+    },
+    {
+      "id": "b_catherby",
+      "name": "Bank",
+      "type": "bank",
+      "floors": [
+        0
+      ],
+      "x1": 436,
+      "y1": 489,
+      "x2": 443,
+      "y2": 495,
+      "popup": false,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "b_seers",
+      "name": "Bank",
+      "type": "bank",
+      "floors": [
+        0
+      ],
+      "x1": 497,
+      "y1": 445,
+      "x2": 505,
+      "y2": 453,
+      "popup": false,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "b_yanille",
+      "name": "Bank",
+      "type": "bank",
+      "floors": [
+        0
+      ],
+      "x1": 576,
+      "y1": 570,
+      "x2": 585,
+      "y2": 578,
+      "popup": false,
+      "label": true,
+      "members": true
+    },
+    {
+      "id": "b_fishing_guild",
+      "name": "Bank",
+      "type": "bank",
+      "floors": [
+        0
+      ],
+      "x1": 584,
+      "y1": 500,
+      "x2": 590,
+      "y2": 506,
+      "popup": false,
+      "label": true,
+      "members": true
+    }
+  ]
+}

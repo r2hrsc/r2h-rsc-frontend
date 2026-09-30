@@ -22,6 +22,8 @@ import { ActivitySidebar, MobileActivityBar, useItemNames, useLetterbox, compute
 import { LetterboxDock } from './components/GameClient/LetterboxDock';
 import { VerticalFillTop } from './components/GameClient/VerticalFill';
 import { LeftColumn } from './components/GameClient/LeftColumn';
+import { InviteSheet } from './components/referral/InviteSheet';
+import { InviteFab } from './components/referral/InviteFab';
 import { initWalletKit } from './lib/walletKit';
 import { useDisconnect as useAppKitDisconnect } from '@reown/appkit/react';
 import './index.css';
@@ -131,6 +133,16 @@ function AppContent() {
     initWalletKit();
   }, []);
 
+  // Capture ?ref= from URL before auth overlay shows (fresh < 7 days; newest click wins)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    // ::refcode prints lowercase codes, but veteran names can be mixed case (e.g. ?ref=Shafic)
+    const refCode = params.get('ref')?.trim().toLowerCase();
+    if (refCode && /^[a-z0-9]{1,12}$/.test(refCode)) {
+      localStorage.setItem('r2h_ref', JSON.stringify({ code: refCode, ts: Date.now() }));
+    }
+  }, []);
+
   const [appState, setAppState] = useState<AppState>('auth');
   const [authProvider, setAuthProvider] = useState('');
   const [authExternalId, setAuthExternalId] = useState('');
@@ -196,6 +208,17 @@ function AppContent() {
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, [reconnectAttempt]);
+
+  // v-fit (9/29): the sign-in popup / on-screen keyboard can leave the document
+  // scrolled on phones, which shows the (fixed, centred) game off-centre.
+  useEffect(() => {
+    if (appState !== 'loading' && appState !== 'playing') return;
+    const reset = () => { if (window.scrollX || window.scrollY) window.scrollTo(0, 0); };
+    reset();
+    const t = setTimeout(reset, 400);
+    window.addEventListener('orientationchange', reset);
+    return () => { clearTimeout(t); window.removeEventListener('orientationchange', reset); };
+  }, [appState]);
 
   const handleAuthComplete = useCallback((provider: string, externalId: string, regToken?: string) => {
     console.log('[App] Auth complete (new user):', provider, externalId);
@@ -295,6 +318,9 @@ function AppContent() {
   const gameFrameRef = useRef<HTMLDivElement>(null);
   const mobileKeyboardRef = useRef<MobileKeyboardHandle>(null);
   const [scriptPanelOpen, setScriptPanelOpen] = useState(false);
+  // Invite friends sheet (opened from the controls hub; outside the game frame)
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const closeInvite = useCallback(() => setInviteOpen(false), []);
   // Touch detection — keyboard overlay item only shown on touch devices
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   useEffect(() => {
@@ -370,15 +396,18 @@ function AppContent() {
   return (
     <div
       style={{
-        height: '100vh',
-        width: '100vw',
+        // v-fit (9/29): sized by top/right/bottom/left 0 = the VISIBLE viewport.
+        // 100vh on Android Chrome / iOS Safari = the height with the URL bar
+        // hidden, so the centred game sat lower than the visible middle.
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         background: '#0a0a0a',
-        overflow: 'visible',
+        // Phones/tablets: clip anything poking past the screen edge so the page
+        // can never be panned sideways (desktop unchanged).
+        overflow: (isMobile || isTouchDevice) ? 'hidden' : 'visible',
         position: 'fixed',
-        inset: 0,
+        top: 0, right: 0, bottom: 0, left: 0,
         ['--game-display-h' as string]: `${displayHeight}px`,
         ['--game-display-w' as string]: `${displayWidth}px`,
       }}
@@ -426,6 +455,7 @@ function AppContent() {
             onScripts={() => setScriptPanelOpen(true)}
             onPanels={() => setPanelOpen(o => !o)}
             onSwitchRealm={rscCredentials ? requestRealmSwitch : undefined}
+            onInvite={rscCredentials ? () => setInviteOpen(true) : undefined}
             realmLabel={realm === 'main' ? 'Enter PVP Arena' : 'Back to Main World'}
             realmBeta={realm === 'main'}
             panelsOpen={panelOpen}
@@ -433,6 +463,7 @@ function AppContent() {
             isLandscape={isLandscapeMode}
             hasKeyboard={isTouchDevice}
             canRotate={isTouchDevice && isMobile}
+            edgeInset={!rotated && displayWidth >= viewport.w - 24}
           />
           {/* v386 panel toggle retired — panels now open from the controls hub */}
           {/* RESTORED: mobile keyboard overlay — bridges typed chars into TeaVM via __r2hTypeChar */}
@@ -440,7 +471,7 @@ function AppContent() {
           <BottomFrameBar />
           {/* Left letterbox: GUIDE + XP CALC (wiki links back, welcome text) */}
           {showLetterboxUI && !isMobile && panelOpen && (
-            <LeftColumn sideWidth={sideWidth} />
+            <LeftColumn sideWidth={sideWidth} username={rscCredentials?.username ?? null} />
           )}
           {/* Phase 2: tabbed dock (ACTIVITY | CHAT | TOP) replaces the single
               activity column on desktop; mobile keeps the bottom bar. Floating
@@ -539,6 +570,16 @@ function AppContent() {
           Desktop + panel open → chat lives in the dock instead. */}
       {(!isMobile ? !panelOpen || appState !== 'playing' : true) && (
         <ChatWidget username={rscCredentials?.username ?? null} />
+      )}
+
+      {/* Phones (portrait, playing): Invite pill bottom-left, outside the game frame */}
+      {showLetterboxUI && isMobile && !isLandscapeMode && viewport.h > viewport.w && rscCredentials && !inviteOpen && (
+        <InviteFab onClick={() => setInviteOpen(true)} />
+      )}
+
+      {/* Invite friends sheet — referral link + milestones (read-only) */}
+      {inviteOpen && rscCredentials && !isAuthScreen && (
+        <InviteSheet username={rscCredentials.username} onClose={closeInvite} />
       )}
 
       {/* PVP Arena first-entry confirm (beta onboarding). One-time per browser
