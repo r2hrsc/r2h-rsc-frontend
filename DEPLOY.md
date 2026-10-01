@@ -1,3 +1,31 @@
+> ⚠️ **SUPERSEDED — historical only (marked 2026-10-01).**
+>
+> This document describes the **original September 2026 bootstrap** (Cloudflare
+> Pages building from GitHub `r2hrsc/r2h-rsc-frontend`). That was accurate at the
+> time and is NOT how the site ships today.
+>
+> **Today:** `runescapeclassic.gold` and `robinscape.xyz` are served by nginx on
+> the droplet from `/var/www/runescapeclassic-frontend` and
+> `/var/www/robinscape-frontend`. Deploys are a local `npm run build` followed by
+> `rsync -a --ignore-existing` of `dist/assets/` to BOTH webroots plus an
+> `index.html` swap — **never `--delete`**, because old hashed assets are the
+> rollback path. A `sub_filter` snippet (`/etc/nginx/snippets/gc-root-75.conf`)
+> rewrites `.gc-root { top: 50% }` to `75%` at serve time; do not remove it or
+> overwrite the live CSS in place.
+>
+> The live runbook is the **`r2h-web-deploy`** skill. Use that, not this file.
+>
+> Also stale below: the `hermes-workspace/r2h-frontend` path no longer exists,
+> `VITE_CACHE_CDN_URL` is `game.r2hrsc.xyz/rsc-client/` (not `cache.`), and
+> `game.r2hrsc.xyz` has had its own certificate since the Nov-18 renewal cycle —
+> the `game.fuzzynuts.xyz` cert referenced below only serves the legacy default site.
+>
+> Note: `r2hrsc.xyz` IS still on Cloudflare Pages and still serves a pre-rebrand
+> relic build (title "R2H RSC"). That is a separate live surface from the two
+> nginx webroots.
+
+---
+
 # R2H RSC Frontend — Deployment Guide
 
 ## PHASE 1: LOCAL SETUP (3 commands)

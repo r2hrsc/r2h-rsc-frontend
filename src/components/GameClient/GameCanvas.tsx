@@ -20,16 +20,23 @@ const RSA_MODULUS = '91150155424381860183270444083139872778897831742398098264910
 // _r2h_ws_open, closing the gap that flashed the old client login screen on login.
 // v403: PVP Arena realm support — iframe hash port selects realm (43594=main,
 // 43595=arena); the page's WS rewriter maps 43595 -> wss://game.r2hrsc.xyz/arena/.
-const CLIENT_VERSION = 'v403';
-// Realm server port in the hash args: 43594 = main world, 43595 = PVP Arena.
-const realmPort = (realm: string | undefined) => (realm === 'arena' ? '43595' : '43594');
+// v404: multiworld — hash port selects ANY world (1,3,4,5,6,7 + arena); the
+// live /game/ shim maps each port to its public endpoint (Claude applies it
+// live-only, both webroots). Hash first token 'members'/'free' per world:
+// worlds 3/4 FREE, 1/5/6/7 members (world 1 is a members world).
+import { WorldKey, worldDef } from '../../lib/worlds';
+
+const CLIENT_VERSION = 'v404';
 // NOTE the &r= query param: main and arena URLs must differ BEFORE the '#'.
 // A hash-only difference does not guarantee a fresh document load on iframe
 // remount — the browser may keep the old (main-world) page alive, which left
 // the switch hanging on "Entering PVP Arena...". A distinct query forces an
 // unambiguous reload of the game page per realm.
-const GAME_URL = (realm: string | undefined) =>
-  `${CACHE_CDN}?v=${CLIENT_VERSION}&r=${realm === 'arena' ? 'arena' : 'main'}#members,127.0.0.1,${realmPort(realm)},${RSA_EXPONENT},${RSA_MODULUS},1`;
+const GAME_URL = (world: WorldKey | undefined) => {
+  const d = worldDef(world ?? 1);
+  const r = d.isArena ? 'arena' : `w${d.key}`;
+  return `${CACHE_CDN}?v=${CLIENT_VERSION}&r=${r}#${d.members ? 'members' : 'free'},127.0.0.1,${d.port},${RSA_EXPONENT},${RSA_MODULUS},1`;
+};
 
 interface GameCanvasProps {
   wsUrl?: string;
@@ -38,12 +45,12 @@ interface GameCanvasProps {
   onLoginComplete?: () => void;
   showRscBackground?: boolean;
   /** 'arena' = PVP Arena realm (server port 43595 via iframe hash); default = main world */
-  realm?: 'main' | 'arena';
+  world?: WorldKey;
   /** External iframe ref (restored features: MobileKeyboard types through it). Optional — falls back to a local ref. */
   iframeRef?: React.RefObject<HTMLIFrameElement>;
 }
 
-export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground, realm, iframeRef: externalIframeRef }: GameCanvasProps) {
+export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginComplete, showRscBackground, world, iframeRef: externalIframeRef }: GameCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const localIframeRef = useRef<HTMLIFrameElement>(null);
   // External ref (from App via GameContainer) when provided, else local —
@@ -282,7 +289,7 @@ export default function GameCanvas({ wsUrl, rscUsername, rscPassword, onLoginCom
     return (
       <iframe
         ref={iframeRef}
-        src={GAME_URL(realm)}
+        src={GAME_URL(world)}
         scrolling="no"
         style={{
           width: 512,

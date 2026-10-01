@@ -9,9 +9,11 @@ interface AuthOverlayProps {
   apiUrl: string;
   onAuthComplete: (provider: string, externalId: string, registrationToken: string) => void;
   onExistingUser: (provider: string, externalId: string, rscUsername: string, rscPassword: string) => void;
+  /** v404.2: optional pre-auth world picker, rendered inside the landing hero */
+  worldPicker?: React.ReactNode;
 }
 
-export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: AuthOverlayProps) {
+export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser, worldPicker }: AuthOverlayProps) {
   const [error, setError] = useState('');
   const [signingIn, setSigningIn] = useState(false);
   const [statusText, setStatusText] = useState('Signing in...');
@@ -164,6 +166,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser }: 
     <Landing
       error={error}
       onConnectWallet={handleConnectWallet}
+      worldPicker={worldPicker}
       googleButton={
         <GoogleLogin
           onSuccess={handleGoogleSuccess}

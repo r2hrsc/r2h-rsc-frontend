@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
+Disallow: /admin/
 
-Sitemap: https://r2hrsc.xyz/sitemap.xml
+Sitemap: https://runescapeclassic.gold/sitemap.xml

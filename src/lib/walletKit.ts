@@ -1,6 +1,7 @@
 import { createAppKit } from '@reown/appkit/react';
 import { EthersAdapter } from '@reown/appkit-adapter-ethers';
 import { mainnet, polygon, base } from 'viem/chains';
+import { SITE_ORIGIN, SITE_NAME, SITE_LOGO } from './siteConfig';
 
 const PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '';
 
@@ -22,10 +23,10 @@ export function initWalletKit() {
     networks: [mainnet, polygon, base],
     projectId: PROJECT_ID,
     metadata: {
-      name: 'Runescape Classic',
+      name: SITE_NAME,
       description: 'Classic RSC client',
-      url: typeof window !== 'undefined' ? window.location.origin : 'https://r2hrsc.xyz',
-      icons: ['https://r2hrsc.xyz/logo.png'],
+      url: typeof window !== 'undefined' ? window.location.origin : SITE_ORIGIN,
+      icons: [SITE_LOGO],
     },
     themeMode: 'dark',
     themeVariables: {

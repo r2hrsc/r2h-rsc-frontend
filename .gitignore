@@ -4,3 +4,13 @@ dist/
 .env.local
 *.log
 .DS_Store
+
+# ── Audit 2026-10-01: stop committing/scattering snapshot copies ──
+# Use git branches/tags instead of dated folders. These patterns catch the
+# existing sprawl so `git status` shows real work again.
+*.orig
+*.bak
+*.bak-*
+*.pre-meta-backup
+backup-*/
+dist.bak*/

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, type CSSProperties } from 'react';
+import { WorldKey, WORLDS } from '../../lib/worlds';
 
 interface GameControlsProps {
   onFullscreen: () => void;
@@ -6,15 +7,16 @@ interface GameControlsProps {
   onKeyboard: () => void;
   onScripts: () => void;
   onPanels: () => void;
-  onSwitchRealm?: () => void;   // PVP Arena <-> Main World (hidden if not provided)
+  onSwitchWorld?: (next: WorldKey) => void; // world picker (hidden if not provided)
+  currentWorld?: WorldKey;                  // marks the active world (not clickable)
   onInvite?: () => void;        // opens the Invite friends sheet (hidden if not provided)
+  onAccount?: () => void;       // opens Account details (game username/password)
   panelsOpen: boolean;
   isFullscreen: boolean;
   isLandscape: boolean;
   hasKeyboard: boolean; // false on desktop → item hidden
   canRotate: boolean;   // mobile-like device (touch + narrow) → Landscape item hidden on desktop
-  realmLabel?: string;  // e.g. "PVP Arena" / "Main World" — label for the switch item
-  realmBeta?: boolean;  // true → amber BETA pill on the realm item (arena not launched yet)
+
   edgeInset?: boolean;  // game fills the screen width → pull the hub fully on-screen
 }
 
@@ -28,11 +30,28 @@ interface GameControlsProps {
  * leaves the player defenseless — removal requested by user.
  */
 export function GameControls({
-  onFullscreen, onRotate, onKeyboard, onScripts, onPanels, onSwitchRealm, onInvite,
-  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, realmLabel, realmBeta, edgeInset,
+  onFullscreen, onRotate, onKeyboard, onScripts, onPanels, onSwitchWorld, onInvite, onAccount,
+  panelsOpen, isFullscreen, isLandscape, hasKeyboard, canRotate, currentWorld, edgeInset,
 }: GameControlsProps) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const [worldMenu, setWorldMenu] = useState(false); // v404: second level — world list
+  // v404: world-picker styles are injected at RUNTIME (idempotent <style> tag) so the
+  // emitted CSS file hash NEVER moves — the live deploy pattern depends on that
+  // (live index-DpAqE8Zi.css is hand-managed; NEVER overwrite it).
+  useEffect(() => {
+    const ID = 'r2h-world-picker-css';
+    if (document.getElementById(ID)) return;
+    const st = document.createElement('style');
+    st.id = ID;
+    st.textContent = `
+.gc-worlds { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; margin-bottom: 4px; border-bottom: 1px solid #262626; }
+.gc-worlds .gc-menu-item { padding-left: 10px; }
+.gc-free-pill { flex-shrink: 0; font-size: 8.5px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 1.5px 6px; border-radius: 99px; background: #08301c; color: #14F195; border: 1px solid rgba(20, 241, 149, 0.35); }
+.gc-active-dot { width: 6px; height: 6px; border-radius: 50%; background: #14F195; flex-shrink: 0; }
+`;
+    document.head.appendChild(st);
+  }, []);
 
   // Close when tapping outside the hub + menu
   useEffect(() => {
@@ -40,6 +59,7 @@ export function GameControls({
     const onDown = (e: PointerEvent) => {
       if (rootRef.current?.contains(e.target as Node)) return;
       setOpen(false);
+      setWorldMenu(false);
     };
     document.addEventListener('pointerdown', onDown);
     return () => document.removeEventListener('pointerdown', onDown);
@@ -67,6 +87,7 @@ export function GameControls({
     setMenuPos({
       position: 'fixed', top, right: Math.max(pad, vw - h.left + 8), left: 'auto',
       transform: 'none', animation: 'none', maxHeight: vh - pad * 2, overflowY: 'auto',
+      ...(vh < 420 ? { gap: 3, padding: 4 } : null),
     });
   }, [open, isFullscreen, isLandscape, panelsOpen]);
   useEffect(() => {
@@ -79,14 +100,14 @@ export function GameControls({
   const act = useCallback((fn: () => void) => {
     fn();
     setOpen(false);
+    setWorldMenu(false);
   }, []);
 
   const items: Array<{ key: string; label: string; icon: React.ReactNode; fn: () => void; active?: boolean; beta?: boolean }> = [
-    ...(onSwitchRealm ? [{
-      key: 'realm', label: realmLabel ?? 'Switch Realm',
-      icon: <RealmIcon />,
-      fn: onSwitchRealm,
-      beta: realmBeta,
+    ...(onSwitchWorld ? [{
+      key: 'world', label: 'Switch World',
+      icon: <WorldIcon />,
+      fn: () => setWorldMenu(v => !v),
     }] : []),
     {
       key: 'panels', label: panelsOpen ? 'Hide Panels' : 'Show Panels',
@@ -112,6 +133,7 @@ export function GameControls({
     }] : []),
     { key: 'scripts', label: 'Scripts', icon: <BoltIcon />, fn: onScripts },
     ...(onInvite ? [{ key: 'invite', label: 'Invite friends', icon: <GiftIcon />, fn: onInvite }] : []),
+    ...(onAccount ? [{ key: 'account', label: 'Account details', icon: <KeyIcon />, fn: onAccount }] : []),
   ];
 
   return (
@@ -119,12 +141,48 @@ export function GameControls({
       {/* Slide-out menu — vertical list to the LEFT of the FAB */}
       {open && (
         <div className="gc-menu" role="menu" ref={menuRef} style={menuPos}>
-          {items.map(it => (
+          {/* v404 second level: world list replaces the item list while open */}
+          {worldMenu && onSwitchWorld && (
+            <div className="gc-worlds" role="menu">
+              {WORLDS.map(w => {
+                const active = w.key === currentWorld;
+                return (
+                  <button
+                    key={String(w.key)}
+                    className={`gc-menu-item${active ? ' gc-active' : ''}`}
+                    style={compact ? { minHeight: 30, paddingTop: 4, paddingBottom: 4 } : undefined}
+                    onClick={() => { if (!active) act(() => onSwitchWorld(w.key)); }}
+                    role="menuitem"
+                    aria-label={w.label}
+                    disabled={active}
+                  >
+                    <span className="gc-menu-text">{w.label}</span>
+                    {w.isArena
+                      ? <span className="gc-beta-pill">Beta</span>
+                      : (!w.members && w.key !== 1)
+                        ? <span className="gc-free-pill">F2P Version</span>
+                        : null}
+                    {active && <span className="gc-active-dot" aria-label="current world" />}
+                  </button>
+                );
+              })}
+              <button className="gc-menu-item" onClick={() => setWorldMenu(false)} role="menuitem">
+                <span className="gc-menu-text" style={{ color: '#888' }}>‹ Back</span>
+              </button>
+            </div>
+          )}
+          {!worldMenu && items.map(it => (
             <button
               key={it.key}
               className={`gc-menu-item${it.active ? ' gc-active' : ''}`}
-              style={compact ? { minHeight: 34, paddingTop: 6, paddingBottom: 6 } : undefined}
-              onClick={() => act(it.fn)}
+              style={compact ? { minHeight: 30, paddingTop: 4, paddingBottom: 4 } : undefined}
+              onClick={() => {
+                // v404.1 BUGFIX (founder RCA): submenu-toggle items must NOT go through
+                // act() — act() closes the menu AND resets worldMenu, so the toggle item
+                // opened and closed the world list in the same click (list unreachable).
+                if (it.key === 'world') { it.fn(); return; }
+                act(it.fn);
+              }}
               role="menuitem"
               aria-label={it.label}
             >
@@ -139,7 +197,7 @@ export function GameControls({
       {/* Hub FAB — middle-right edge of the game frame */}
       <button
         className="gc-hub"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => { const n = !open; setOpen(n); if (!n) setWorldMenu(false); }}
         aria-label={open ? 'Close menu' : 'Open game controls'}
         aria-expanded={open}
         title="Game controls"
@@ -153,12 +211,12 @@ export function GameControls({
 /* ── Icons (inline SVG, stroke style matches existing buttons) ── */
 const S = { fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
 
-function RealmIcon() {
-  // crossed swords — PvP realm switch
+function WorldIcon() {
+  // globe — world picker
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-      <path d="M2.5 2.5 L10.5 10.5 M13.5 2.5 L5.5 10.5" />
-      <path d="M2.5 10.5 L4.5 13 M13.5 10.5 L11.5 13" />
+      <circle cx="8" cy="8" r="6.2" />
+      <path d="M1.8 8h12.4M8 1.8c-2.2 2.4-2.2 10 0 12.4M8 1.8c2.2 2.4 2.2 10 0 12.4" />
     </svg>
   );
 }
@@ -179,6 +237,9 @@ function KeyboardIcon() {
 }
 function BoltIcon() {
   return <svg viewBox="0 0 24 24" {...S}><path d="M13 2 3 14h7l-1 8 11-13h-7l1-7z" /></svg>;
+}
+function KeyIcon() {
+  return <svg viewBox="0 0 24 24" {...S}><circle cx="7.5" cy="15.5" r="4.5" /><path d="m10.7 12.3 9.8-9.8" /><path d="m16 7 3 3" /><path d="m19 4 2 2" /></svg>;
 }
 function GiftIcon() {
   return <svg viewBox="0 0 24 24" {...S}><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13" /><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5" /></svg>;

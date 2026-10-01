@@ -14,10 +14,26 @@
         var NativeWebSocket = window.WebSocket;
         window.WebSocket = function(url, protocols) {
             if (typeof url === "string" && (url.indexOf("127.0.0.1") !== -1 || url.indexOf("localhost") !== -1)) {
-              // PVP Arena realm: the iframe hash carries port 43595 (server 2).
-              // Route through the /arena/ nginx location -> 127.0.0.1:43495.
-              var m = window.location.hash.match(/,43595,/);
-              url = m ? "wss://game.r2hrsc.xyz/arena/" : "wss://game.r2hrsc.xyz";
+              // [PHASE 4 / 2026-09-30] Multiworld routing. The iframe hash carries the GAME
+              // port (435xx); each maps to a public nginx route that proxies to the matching
+              // WEBSOCKET port (434xx). The two ranges are 100 apart -- 43596 -> /world3/ ->
+              // :43496 is CORRECT, do not "fix" it.
+              // Hardcoded literals only: nothing from the hash is used to build a path, so
+              // nginx's catch-all (which would silently proxy an unknown path to world 1) is
+              // unreachable from here. An unknown or absent port falls back to world 1,
+              // exactly as the previous arena-only code did.
+              var R2H_WS = {
+                "43594": "wss://game.r2hrsc.xyz",
+                "43595": "wss://game.r2hrsc.xyz/arena/",
+                "43596": "wss://game.r2hrsc.xyz/world3/",
+                "43597": "wss://game.r2hrsc.xyz/world4/",
+                "43598": "wss://game.r2hrsc.xyz/world5/",
+                "43599": "wss://game.r2hrsc.xyz/world6/",
+                "43600": "wss://game.r2hrsc.xyz/world7/"
+              };
+              var m = window.location.hash.match(/,(43[0-9]{3}),/);
+              var portKey = m ? m[1] : "43594";
+              url = R2H_WS[portKey] || "wss://game.r2hrsc.xyz";
             }
             var ws;
             if (protocols) { ws = new NativeWebSocket(url, protocols); }
@@ -286,19 +302,17 @@
     })();
     </script>
 
-    <!-- R2H Area Popup + Position Poller (v1, 2026-09-29 — plan §6).
-         READ-ONLY: polls the game's own coordinate fields and postMessages them to the
-         parent. Never writes to the client, never sends anything to any server.
-         The ONLY local UI is a label above the player's own head (visible only to
-         this player).
+    <!-- R2H Area Popup + Position Poller (v2, 2026-09-30).
+         Decision logic lives in r2h-area-logic.js (pure, offline-tested in
+         tools/test-area-logic.cjs); this block only wires it to the DOM and
+         the 500ms poller. READ-ONLY: polls the game's own coordinate fields,
+         postMessages to the parent, draws one label above the player's own
+         head. Never writes to the client, never contacts any server.
 
-         ⚠️ FIELD NAMES ARE MINIFIED AND VERSION-SPECIFIC: bJ/bK = player local tile,
-         du/dd = region base. These were verified against the live classes.js
-         (r2h-bot-engine.js getX/getY, sealed v423). After ANY client rebuild /
-         classes.js update, re-verify these names before trusting the popup:
-           window.__r2h_mc && [__r2h_mc.bJ, __r2h_mc.du, __r2h_mc.bK, __r2h_mc.dd]
-         If they are missing/non-numeric, the poller self-disables (fails safe:
-         no popup, no wrong position). -->
+         ⚠️ FIELD NAMES (bJ/bK/du/dd) are minified and version-specific — see
+         the header comment in r2h-area-logic.js. After ANY client rebuild /
+         classes.js update, re-verify them before trusting the popup. -->
+    <script src="r2h-area-logic.js?v=2"></script>
     <script>
     (function() {
       'use strict';
@@ -307,56 +321,13 @@
       // The iframe hash carries the realm port (43595 = PVP Arena).
       if (/,43595,/.test(window.location.hash)) { return; }
 
-      // ---- Config ----
-      var POLL_MS = 500;          // position poll cadence
-      var POPUP_MS = 2600;        // how long the area label stays visible
-      var REARM_MS = 12000;       // min time before the SAME area can re-popup
-      var WORLD_MAX_X = 944;      // server Constants: MAX_WIDTH=1008, practical playable < 944
-      var WORLD_MAX_Y = 3776;     // server Constants: MAX_HEIGHT=4032, practical 4 floors * 944
-
-      var FLOOR_LOCAL_MAX = 944;
-
-      var areas = null;           // fetched from areas.json (same directory)
-      var areasReady = false;
-
-      // Popup state
+      var POPUP_MS = 2600;
       var popupEl = null;
-      var popupHideTimer = null;
-      var lastAreaId = null;
-      var lastAreaSince = 0;
-      var popupHistory = {};      // areaId -> timestamp of last popup
-
-      // Position stabilization: the client's coordinate fields can hold
-      // transient garbage in the moments after world entry (e.g. bK=0 while
-      // region data loads) — a single in-range reading is NOT proof. We only
-      // trust a position after STABLE_N consecutive identical readings, and
-      // ignore everything in the first SETTLE_MS after entering the world.
-      var STABLE_N = 2;           // consecutive identical readings required
-      var SETTLE_MS = 2500;        // blind window after world entry
-      var wasInWorld = false;      // tracks fv 0→1 transition
-      var worldEnteredAt = 0;
-      var stablePos = null;        // last raw {x,y} reading
-      var stableCount = 0;
-
-      function fetchAreas() {
-        try {
-          var x = new XMLHttpRequest();
-          x.open('GET', 'areas.json?v=1', true);
-          x.onload = function() {
-            try {
-              var j = JSON.parse(x.responseText);
-              areas = (j && j.areas) ? j.areas : [];
-              areasReady = areas.length > 0;
-            } catch (e) { areas = null; areasReady = false; }
-          };
-          x.send();
-        } catch (e) { /* no areas = no popup, fail safe */ }
-      }
 
       // Classic RSC yellow overhead-text style.
-      // The local player is always at the CENTRE of the viewport, so "above my own
-      // head" = slightly above canvas centre. pointer-events:none so it can NEVER
-      // block a game click/touch.
+      // The local player is always at the CENTRE of the viewport, so "above my
+      // own head" = slightly above canvas centre. pointer-events:none so it can
+      // NEVER block a game click/touch.
       function ensurePopupEl() {
         if (popupEl) return popupEl;
         var d = document.createElement('div');
@@ -371,156 +342,66 @@
           + '-webkit-user-select:none;user-select:none;'
           + 'font-size:clamp(11px, 2.6vmin, 15px);';
         document.body.appendChild(d);
+        popupEl = d;   // FIX: track it — fadeEl/destroyEl depend on this ref
         return d;
       }
 
-      function showPopup(text) {
-        var el = ensurePopupEl();
-        el.textContent = text;
-        el.style.opacity = '1';
-        if (popupHideTimer) clearTimeout(popupHideTimer);
-        // hide after POPUP_MS (fade via transition)
-        popupHideTimer = setTimeout(function() {
-          el.style.opacity = '0';
-        }, POPUP_MS);
-      }
-
-      // Wilderness level — SAME formula as server Point.wildernessLevel():
-      //   wild = 2203 - (rawY + (1776 - 944*floor)); level = wild > 0 ? 1 + wild/6 : 0
-      // (with rawY = localY + 944*floor this algebraically reduces to 427 - localY
-      //  on EVERY floor — keep the server-shaped expression for auditability)
-      function wildernessLevel(x, rawY, floor) {
-        if (x + 2304 >= 2640) return 0; // server: x >= 336 is never wilderness
-        var wild = 2203 - (rawY + (1776 - (944 * floor)));
-        return wild > 0 ? 1 + Math.floor(wild / 6) : 0;
-      }
-
-      // Find the area for (x, localY, floor). Returns the area object or null.
-      // Priority: explicit wilderness rect > bank > town > dungeon > kingdom.
-      function findArea(x, localY, floor) {
-        if (!areasReady) return null;
-        var best = null, bestPri = -1;
-        for (var i = 0; i < areas.length; i++) {
-          var a = areas[i];
-          if (floorsMatch(a, floor) && x >= a.x1 && x <= a.x2 && localY >= a.y1 && localY <= a.y2) {
-            // NOTE: banks are map-labels only (popup:false) — they never win the
-            // popup, so a player at the bank still gets the town popup.
-            var pri = a.type === 'wilderness' ? 5 : a.type === 'dungeon' ? 3 : a.type === 'town' ? 2 : a.type === 'kingdom' ? 1 : 0;
-            if (pri > bestPri) { best = a; bestPri = pri; }
+      // v2 display controller: full lifecycle, element DESTROYED after fade.
+      // Pre-v2 bug: only opacity was reset and the element (with stale text)
+      // stayed in the DOM with a live timer — text lingered above the head.
+      var display = window.R2HAreaLogic.createPopupDisplay({
+        popupMs: POPUP_MS, fadeMs: 250,
+        showEl: function (text) {
+          var el = ensurePopupEl();
+          el.textContent = text;
+          el.style.transition = 'none';
+          el.style.opacity = '1';
+          void el.offsetWidth; // reflow: restart the CSS fade cleanly
+          el.style.transition = 'opacity .25s ease';
+        },
+        fadeEl: function () {
+          if (popupEl) popupEl.style.opacity = '0';
+        },
+        destroyEl: function () {
+          if (popupEl && popupEl.parentNode) {
+            popupEl.parentNode.removeChild(popupEl);
           }
+          popupEl = null;
         }
-        return best;
-      }
-
-      function floorsMatch(a, floor) {
-        for (var i = 0; i < a.floors.length; i++) if (a.floors[i] === floor) return true;
-        return false;
-      }
-
-      function areaDisplayName(a, x, rawY, floor) {
-        if (a.type === 'wilderness') {
-          var lvl = wildernessLevel(x, rawY, floor);
-          return lvl > 0 ? ('Wilderness · Level ' + lvl) : 'Wilderness';
+      });
+      var show = display.show;
+      var hide = display.hide;
+      function post(msg) {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(msg, '*');
         }
-        return a.name;
       }
 
-      // Read + validate the player's position. Returns {x, y, floor, localY} or null.
-      // ANY doubt (missing fields, non-numbers, out-of-range) → null (hide popup).
-      function readPosition(mc) {
-        try {
-          var bJ = mc.bJ, bK = mc.bK, du = mc.du, dd = mc.dd;
-          if (bJ === undefined || bK === undefined || du === undefined || dd === undefined) return null;
-          // TeaVM numerics can surface as strings — coerce, then verify.
-          var x = Number(bJ) + Number(du);
-          var y = Number(bK) + Number(dd);
-          if (!isFinite(x) || !isFinite(y)) return null;
-          x = Math.trunc(x); y = Math.trunc(y);
-          var floor = Math.floor(y / 944);
-          var localY = y - 944 * floor;
-          if (x < 0 || x > WORLD_MAX_X) return null;
-          if (floor < 0 || floor > 3) return null;
-          if (localY < 0 || localY > FLOOR_LOCAL_MAX) return null;
-          return { x: x, y: y, floor: floor, localY: localY };
-        } catch (e) { return null; }
+      var logic = null;
+
+      function start(areas) {
+        logic = window.R2HAreaLogic.create({
+          areas: areas, show: show, hide: hide, post: post
+        });
+        setTimeout(function loop() {
+          try { logic.tick(window.__r2h_mc); } catch (e) { /* never break game */ }
+          setTimeout(loop, logic.POLL_MS);
+        }, 5000);
       }
 
-      function tick() {
-        try {
-          var mc = window.__r2h_mc;
-          var inWorld = !!(mc && mc.fv === 1);
-          if (inWorld && !wasInWorld) {
-            // world-entry transition: open the settle window and drop all state
-            worldEnteredAt = Date.now();
-            stablePos = null; stableCount = 0;
-          }
-          wasInWorld = inWorld;
-          if (!inWorld) { maybeLeaving(); return; } // not in world → clear state
-          if (Date.now() - worldEnteredAt < SETTLE_MS) return; // settle window
-          var pos = readPosition(mc);
-          if (!pos || (stablePos && (stablePos.x !== pos.x || stablePos.y !== pos.y))) {
-            // moved (normal) OR invalid → restart the stability counter
-            stablePos = pos ? { x: pos.x, y: pos.y } : null;
-            stableCount = pos ? 1 : 0;
-            if (!pos) maybeLeaving(); // FAIL SAFE: bad field → hide, post nothing
-            return;
-          }
-          stableCount++;
-          if (stableCount < STABLE_N) return; // not stable yet → show nothing
-          var a = findArea(pos.x, pos.localY, pos.floor);
-          handleArea(a, pos);
-          // feed the parent (future map overlay); parent ignores if unseen
-          if (window.parent && window.parent !== window) {
-            window.parent.postMessage({ type: 'R2H_POSITION', x: pos.x, y: pos.y, floor: pos.floor }, '*');
-          }
-        } catch (e) { /* never break the game page */ }
-      }
-
-      function handleArea(a, pos) {
-        var now = Date.now();
-        var id = a ? a.id : null;
-        if (id !== lastAreaId) {
-          // area CHANGED
-          if (lastAreaId) {
-            // Leaving a named area → "Leaving X" (unless we've re-armed quickly: anti-flicker)
-            var prevDef = areaById(lastAreaId);
-            if (prevDef && prevDef.popup) {
-              if (now - lastAreaSince >= 1500) {
-                showPopup('Leaving ' + prevDef.name);
-              }
-            }
-          }
-          if (a && a.popup) {
-            var lastShown = popupHistory[id] || 0;
-            if (now - lastShown >= REARM_MS) {
-              showPopup('Entering ' + areaDisplayName(a, pos.x, pos.y, pos.floor));
-              popupHistory[id] = now;
-            }
-          }
-          lastAreaId = id; lastAreaSince = now;
-        }
-        // same area: nothing (re-arm timer handled by popupHistory)
-      }
-
-      function maybeLeaving() {
-        // clear popup state when leaving the world (logout), keep the DOM clean
-        if (lastAreaId !== null) {
-          lastAreaId = null; lastAreaSince = 0;
-        }
-        stablePos = null; stableCount = 0;
-        if (popupEl) popupEl.style.opacity = '0';
-      }
-
-      function areaById(id) {
-        for (var i = 0; i < areas.length; i++) if (areas[i].id === id) return areas[i];
-        return null;
-      }
-
-      fetchAreas();
-      setTimeout(function loop() {
-        tick();
-        setTimeout(loop, POLL_MS);
-      }, 5000);
+      // fetch the shared area list, then start polling
+      try {
+        var x = new XMLHttpRequest();
+        x.open('GET', 'areas.json?v=1', true);
+        x.onload = function() {
+          try {
+            var j = JSON.parse(x.responseText);
+            start((j && j.areas) ? j.areas : []);
+          } catch (e) { /* no areas = no popup, fail safe */ }
+        };
+        x.onerror = function() { /* no areas = no popup */ };
+        x.send();
+      } catch (e) { /* fail safe */ }
     })();
     </script>
 
@@ -542,7 +423,7 @@
       var _loginDone = false;
 
       window.addEventListener('message', function(e) {
-        if (e.origin !== 'https://r2hrsc.xyz' && e.origin !== 'https://www.r2hrsc.xyz' && e.origin !== 'https://robinscape.xyz' && e.origin !== 'https://www.robinscape.xyz') return;
+        if (e.origin !== 'https://r2hrsc.xyz' && e.origin !== 'https://www.r2hrsc.xyz' && e.origin !== 'https://robinscape.xyz' && e.origin !== 'https://www.robinscape.xyz' && e.origin !== 'https://runescapeclassic.gold' && e.origin !== 'https://www.runescapeclassic.gold') return;
         if (!e.data || e.data.type !== 'RSC_LOGIN') return;
 
         var username = e.data.username;

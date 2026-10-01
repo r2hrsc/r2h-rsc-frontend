@@ -1,5 +1,7 @@
 // ── Ad Manager — direct ad sales system (localStorage for now) ──
 
+import { DISCORD_URL, hasDiscord, siteUrl } from './siteConfig';
+
 export type AdSlotType = 'LEFT_SIDEBAR' | 'RIGHT_SIDEBAR' | 'VOTE_GATEWAY';
 
 export interface Ad {
@@ -33,12 +35,12 @@ export interface FillerAd {
   bgGradient: string;
 }
 
-export const FILLER_ADS: FillerAd[] = [
+const ALL_FILLER_ADS: FillerAd[] = [
   {
     slot: 'LEFT_SIDEBAR',
     title: 'Join Our',
     subtitle: 'Discord Community',
-    linkUrl: 'https://discord.gg/r2hrsc',
+    linkUrl: DISCORD_URL,
     color: '#5865F2',
     bgGradient: 'linear-gradient(180deg, #1a1b2e 0%, #0d0d0d 100%)',
   },
@@ -54,11 +56,16 @@ export const FILLER_ADS: FillerAd[] = [
     slot: 'VOTE_GATEWAY',
     title: 'Vote for Runescape Classic',
     subtitle: 'Help us grow the community',
-    linkUrl: 'https://r2hrsc.xyz/vote',
+    linkUrl: siteUrl('/vote'),
     color: '#14F195',
     bgGradient: 'linear-gradient(90deg, #0d1f14 0%, #0d0d0d 100%)',
   },
 ];
+
+// 2026-10-01 AUDIT: drop any filler ad whose destination is not configured.
+// The Discord slot had a dead invite; it stays hidden until a live one is set
+// in siteConfig, rather than rendering a button that goes nowhere.
+export const FILLER_ADS: FillerAd[] = ALL_FILLER_ADS.filter((ad) => ad.linkUrl !== '');
 
 // ── Storage helpers ──
 

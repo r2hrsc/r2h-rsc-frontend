@@ -8,8 +8,9 @@ import { useState } from 'react';
  *
  * Purely additive display component — no changes to the auth flow.
  */
-export default function AccountCredentials({ username, password }: { username: string; password: string }) {
-  const [open, setOpen] = useState(false);
+export default function AccountCredentials({ username, password, onClose }: { username: string; password: string; onClose: () => void }) {
+  // v-acct (9/30): no on-screen trigger any more — opened from the gear menu
+  // ("Account details"), closed with × (the owner found the tag in the way).
   const [copied, setCopied] = useState<'user' | 'pass' | null>(null);
 
   const copy = async (what: 'user' | 'pass') => {
@@ -28,19 +29,11 @@ export default function AccountCredentials({ username, password }: { username: s
     setTimeout(() => setCopied(null), 1200);
   };
 
-  if (!open) {
-    return (
-      <button onClick={() => setOpen(true)} style={styles.trigger} title="Show your game account credentials">
-        🔑 Game Login
-      </button>
-    );
-  }
-
   return (
     <div style={styles.panel}>
       <div style={styles.header}>
         <span style={styles.title}>🔑 Game Account</span>
-        <button onClick={() => setOpen(false)} style={styles.close} aria-label="Close">×</button>
+        <button onClick={onClose} style={styles.close} aria-label="Close">×</button>
       </div>
       <p style={styles.hint}>
         Sign in anywhere with these — the classic login screen (“Existing user”), the PC client, or any RSC launcher.

@@ -3,6 +3,8 @@ import { Routes, Route, BrowserRouter } from 'react-router-dom';
 import { usePrivy } from '@privy-io/react-auth';
 import { PrivyProvider } from './lib/privy/PrivyProvider';
 import GameContainer from './components/GameClient/GameContainer';
+import { WorldKey, worldDef } from './lib/worlds';
+import PreAuthWorldPicker from './components/PreAuthWorldPicker';
 import AuthOverlay from './components/AuthOverlay';
 import UsernamePicker from './components/UsernamePicker';
 import { AdSlot } from './components/Ads/AdSlot';
@@ -162,16 +164,24 @@ function AppContent() {
   // ── PVP Arena realm (Phase A): 'main' (default) | 'arena' ──
   // Same login works in both realms (account-server mirrors credentials into
   // both DBs). Switching remounts GameCanvas pointed at the other server.
-  const [realm, setRealm] = useState<'main' | 'arena'>('main');
-  const [realmSession, setRealmSession] = useState(0); // remount key on realm switch
+  // v404.2: world choice is pre-auth (founder request). Restore last numbered-world
+  // choice; 'arena' is never persisted (explicit action each time); unknown -> World 1.
+  const [world, setWorld] = useState<WorldKey>(() => {
+    try {
+      const v = localStorage.getItem('r2h_world');
+      const n = v === null ? NaN : Number(v);
+      return [1, 3, 4, 5, 6, 7].includes(n) ? (n as WorldKey) : 1;
+    } catch { return 1; }
+  });
+  const [worldSession, setWorldSession] = useState(0); // remount key on world switch
   // One-time arena confirm dialog (beta onboarding): shown on first switch
   // click only; localStorage remembers dismissal per browser.
   const [arenaConfirmOpen, setArenaConfirmOpen] = useState(false);
-  const pendingRealmSwitchRef = useRef<(() => void) | null>(null);
+  const pendingWorldSwitchRef = useRef<(() => void) | null>(null);
   // Guard: RSC_DISCONNECT is IGNORED for a window after a realm switch — the
   // old iframe's WS closing on unmount must not trigger the v358 auto-reconnect
   // (it remounted the fresh arena iframe mid-boot → "Entering PVP Arena..." hang).
-  const realmSwitchAtRef = useRef(0);
+  const worldSwitchAtRef = useRef(0);
   const rscCredentialsRef = useRef(rscCredentials);
   useEffect(() => { rscCredentialsRef.current = rscCredentials; }, [rscCredentials]);
   useEffect(() => {
@@ -179,7 +189,7 @@ function AppContent() {
       if (event.data?.type === 'RSC_DISCONNECT') {
         // Realm-switch window: the OLD iframe's WS death is expected, not an
         // error — skip auto-reconnect/auth-reset entirely.
-        if (Date.now() - realmSwitchAtRef.current < 20000) {
+        if (Date.now() - worldSwitchAtRef.current < 20000) {
           console.log('[App] RSC_DISCONNECT during realm switch — ignored');
           return;
         }
@@ -258,38 +268,57 @@ function AppContent() {
   // v403.3 FIX: these useCallback hooks MUST sit before the Privy `if (!ready)`
   // early-return below — hooks after a conditional return caused React #310
   // ("Rendered more hooks than previous render") on the ready=false→true flip.
-  const performRealmSwitch = useCallback(() => {
-    if (pendingRealmSwitchRef.current) {
-      pendingRealmSwitchRef.current();
-      pendingRealmSwitchRef.current = null;
+  const performWorldSwitch = useCallback(() => {
+    if (pendingWorldSwitchRef.current) {
+      pendingWorldSwitchRef.current();
+      pendingWorldSwitchRef.current = null;
     }
     setArenaConfirmOpen(false);
   }, []);
 
-  const requestRealmSwitch = useCallback(() => {
-    if (realm === 'main' && !localStorage.getItem('r2h_arena_confirm_seen')) {
+  const doWorldSwitch = useCallback((next: WorldKey) => {
+    console.log('[App] Switching world:', world, '->', next);
+    worldSwitchAtRef.current = Date.now(); // arm the disconnect guard
+    setWorld(next);
+    try { if (next !== 'arena') localStorage.setItem('r2h_world', String(next)); } catch {}
+    setWorldSession(s => s + 1);
+    // Cross-world lock (server truth, [CLAUDE] 2026-09-30 16:10): a live claim is
+    // refused, never stolen — but our old iframe's logout runs save-then-release,
+    // and the new login retries (10x500ms) until that release lands. Tell the player.
+    setLoadingText(rscCredentialsRef.current
+      ? `${worldDef(next).loading} (up to ~10s while your last session saves and releases)`
+      : worldDef(next).loading);
+    setAppState('loading');
+  }, [world]);
+
+  const requestWorldSwitch = useCallback((next: WorldKey) => {
+    if (next === 'arena' && world !== 'arena' && !localStorage.getItem('r2h_arena_confirm_seen')) {
       // first-ever entry to the arena: confirm dialog (onboarding)
-      pendingRealmSwitchRef.current = () => {
-        const next = 'arena';
-        console.log('[App] Switching realm: main ->', next, '(confirmed)');
-        realmSwitchAtRef.current = Date.now();
-        setRealm(next);
-        setRealmSession(s => s + 1);
-        setLoadingText('Entering PVP Arena...');
-        setAppState('loading');
-      };
+      pendingWorldSwitchRef.current = () => doWorldSwitch(next);
       setArenaConfirmOpen(true);
       return;
     }
-    // subsequent switches (or returning to main): straight through
-    const next = realm === 'main' ? 'arena' : 'main';
-    console.log('[App] Switching realm:', realm, '->', next);
-    realmSwitchAtRef.current = Date.now(); // arm the disconnect guard
-    setRealm(next);
-    setRealmSession(s => s + 1);
-    setLoadingText(next === 'arena' ? 'Entering PVP Arena...' : 'Entering main world...');
-    setAppState('loading');
-  }, [realm]);
+    // subsequent switches (or any non-arena target): straight through
+    doWorldSwitch(next);
+  }, [world, doWorldSwitch]);
+
+  // v404.2: PRE-AUTH selection (no credentials yet): just set + persist; the game
+  // mounts on this world after sign-in. Arena pre-auth routes through the same
+  // first-entry confirm dialog; confirming performs a real switch (harmless pre-
+  // auth — no session to guard; appState stays 'auth' until credentials exist).
+  const preAuthSelectWorld = useCallback((next: WorldKey) => {
+    console.log('[App] Pre-auth world selected:', next);
+    setWorld(next);
+    try { localStorage.setItem('r2h_world', String(next)); } catch {}
+  }, []);
+  const preAuthRequestArena = useCallback(() => {
+    if (!localStorage.getItem('r2h_arena_confirm_seen')) {
+      pendingWorldSwitchRef.current = () => preAuthSelectWorld('arena' as WorldKey);
+      setArenaConfirmOpen(true);
+      return;
+    }
+    preAuthSelectWorld('arena');
+  }, [preAuthSelectWorld]);
 
 
   // ── Phase 1 letterbox panel (9/6): fills black bars flanking the game ──
@@ -321,6 +350,9 @@ function AppContent() {
   // Invite friends sheet (opened from the controls hub; outside the game frame)
   const [inviteOpen, setInviteOpen] = useState(false);
   const closeInvite = useCallback(() => setInviteOpen(false), []);
+  // Account details (game username/password) — opened from the gear menu only
+  const [accountOpen, setAccountOpen] = useState(false);
+  const closeAccount = useCallback(() => setAccountOpen(false), []);
   // Touch detection — keyboard overlay item only shown on touch devices
   const [isTouchDevice, setIsTouchDevice] = useState(false);
   useEffect(() => {
@@ -431,17 +463,17 @@ function AppContent() {
           {/* Game account credentials — lets Gmail/wallet users see + copy their
               real in-game username/password (works with the classic login screen
               and external clients). Rendered only when signed in. */}
-          {rscCredentials && !isAuthScreen && (
-            <AccountCredentials username={rscCredentials.username} password={rscCredentials.password} />
+          {rscCredentials && !isAuthScreen && accountOpen && (
+            <AccountCredentials username={rscCredentials.username} password={rscCredentials.password} onClose={closeAccount} />
           )}
           <GameContainer
-            key={`game-${reconnectAttempt}-${realmSession}`}   /* remount on reconnect AND realm switch → fresh RSC_LOGIN to the right server */
+            key={`game-${reconnectAttempt}-${worldSession}`}   /* remount on reconnect AND realm switch → fresh RSC_LOGIN to the right server */
             wsUrl={WS_URL}
             rscUsername={rscCredentials?.username}
             rscPassword={rscCredentials?.password}
             onLoginComplete={handleLoginComplete}
             showRscBackground={isAuthScreen}
-            realm={realm}
+            world={world}
             scale={displayScale}
             iframeRef={gameIframeRef}
           />
@@ -454,10 +486,14 @@ function AppContent() {
             onKeyboard={() => mobileKeyboardRef.current?.open()}
             onScripts={() => setScriptPanelOpen(true)}
             onPanels={() => setPanelOpen(o => !o)}
-            onSwitchRealm={rscCredentials ? requestRealmSwitch : undefined}
-            onInvite={rscCredentials ? () => setInviteOpen(true) : undefined}
-            realmLabel={realm === 'main' ? 'Enter PVP Arena' : 'Back to Main World'}
-            realmBeta={realm === 'main'}
+            onSwitchWorld={rscCredentials ? requestWorldSwitch : undefined}
+            onInvite={rscCredentials ? () => {
+              // the sheet lives outside the game frame → leave native fullscreen first
+              if (document.fullscreenElement || (document as any).webkitFullscreenElement) toggleFullscreen();
+              setInviteOpen(true);
+            } : undefined}
+            onAccount={rscCredentials ? () => setAccountOpen(true) : undefined}
+            currentWorld={world}
             panelsOpen={panelOpen}
             isFullscreen={isFullscreen}
             isLandscape={isLandscapeMode}
@@ -547,11 +583,14 @@ function AppContent() {
       {/* RESTORED (9/6, July-13 fix): AuthOverlay OUTSIDE the game frame at top level —
           position:fixed full-viewport (card 340px no longer clipped by the small game
           frame on mobile; Gmail button reachable in Chrome/Firefox mobile). */}
-      {isAuthScreen && (
+      {appState === 'auth' && (
         <AuthOverlay
           apiUrl={API_URL}
           onAuthComplete={handleAuthComplete}
           onExistingUser={handleExistingUser}
+          worldPicker={
+            <PreAuthWorldPicker world={world} onSelect={preAuthSelectWorld} onRequestArena={preAuthRequestArena} />
+          }
         />
       )}
 
@@ -631,7 +670,7 @@ function AppContent() {
                 Not yet
               </button>
               <button
-                onClick={() => { localStorage.setItem('r2h_arena_confirm_seen', '1'); performRealmSwitch(); }}
+                onClick={() => { localStorage.setItem('r2h_arena_confirm_seen', '1'); performWorldSwitch(); }}
                 style={{
                   flex: 1, padding: '9px 0', borderRadius: 7, fontSize: 12.5,
                   fontWeight: 600, cursor: 'pointer', background: '#14F195',

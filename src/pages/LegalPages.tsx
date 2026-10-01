@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { DISCORD_URL, hasDiscord, CONTACT_URL, CONTACT_LABEL, siteUrl } from '../lib/siteConfig';
 
 export function PrivacyPolicy() {
   return (
@@ -8,7 +9,7 @@ export function PrivacyPolicy() {
         <p style={dateStyle}>Last updated: July 1, 2026</p>
 
         <p style={pStyle}>
-          Runescape Classic ("we", "us", or "our") operates the website robinscape.xyz (the "Site").
+          Runescape Classic ("we", "us", or "our") operates the website runescapeclassic.gold (the "Site").
           This Privacy Policy explains how we collect, use, and protect your information.
         </p>
 
@@ -54,7 +55,7 @@ export function PrivacyPolicy() {
         <h2 style={h2Style}>Contact Us</h2>
         <p style={pStyle}>
           If you have questions about this Privacy Policy, please reach out via our
-          <a href="https://discord.gg/r2hrsc" style={linkStyle}> Discord community</a>.
+          <a href={CONTACT_URL} style={linkStyle}> {CONTACT_LABEL}</a>.
         </p>
 
         <div style={{ marginTop: 40 }}>
@@ -149,7 +150,7 @@ export function About() {
 
         <h2 style={h2Style}>How to Play</h2>
         <ol style={listStyle}>
-          <li>Visit <a href="/" style={linkStyle}>r2hrsc.xyz</a></li>
+          <li>Visit <a href="/" style={linkStyle}>runescapeclassic.gold</a></li>
           <li>Sign in with your Google account or crypto wallet</li>
           <li>Pick your in-game username</li>
           <li>Start playing immediately in your browser</li>
@@ -158,7 +159,7 @@ export function About() {
         <h2 style={h2Style}>Community</h2>
         <p style={pStyle}>
           Join our growing community on
-          <a href="https://discord.gg/r2hrsc" style={linkStyle}> Discord</a> to connect with other
+          <a href={CONTACT_URL} style={linkStyle}> {CONTACT_LABEL}</a> to connect with other
           players, get help, and stay updated on events and changes.
         </p>
 
@@ -170,8 +171,8 @@ export function About() {
 
         <div style={{ marginTop: 40, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
           <a href="/" style={backLinkStyle}>← Back to Runescape Classic</a>
-          <a href="https://discord.gg/r2hrsc" style={backLinkStyle}>Join Discord →</a>
-          <a href="https://r2hrsc.xyz/vote" style={backLinkStyle}>Vote for Us →</a>
+          {hasDiscord && <a href={DISCORD_URL} style={backLinkStyle}>Join Discord →</a>}
+          <a href={siteUrl('/vote')} style={backLinkStyle}>Vote for Us →</a>
         </div>
       </div>
     </div>

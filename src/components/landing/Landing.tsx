@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { injectFontsOnce, injectStyleOnce, readInviter } from '../../lib/referral';
+import { displayForWorldNumber } from '../../lib/worlds';
 
 // ── Front page (signed-out screen) ───────────────────────────────────────
 // Pure presentation. AuthOverlay owns every sign-in handler and passes the
@@ -15,6 +16,19 @@ const HERO_IMAGE: string | null = null;
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
 
+// --- $RUNE token identity -----------------------------------------------------
+// The contract address is the one string on this site where a single wrong
+// character costs a visitor real money. It is written here EXACTLY ONCE; the
+// truncated label and both outbound links are all derived from this constant,
+// so there is no second copy that can drift out of sync with it.
+const TOKEN_MINT = 'B4cqDdBWDf6hgy1rma8u4JpoTnoycDQyg33aR48mfFvE';
+const TOKEN_TICKER = 'RUNE';
+// Token-level DexScreener URL: resolves to whichever pool holds the real
+// liquidity, so it keeps working if the market ever migrates.
+const DEXSCREENER_URL = `https://dexscreener.com/solana/${TOKEN_MINT}`;
+const GRANDEXCHANGE_URL = `https://grandexchange.gold/item/${TOKEN_MINT}`;
+const TOKEN_MINT_SHORT = `${TOKEN_MINT.slice(0, 4)}…${TOKEN_MINT.slice(-4)}`;
+
 const CSS = `
 .lp{position:fixed;inset:0;z-index:1039;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;background:#0A0C0B;color:#ECEFEC;font-family:Manrope,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;-webkit-font-smoothing:antialiased}
 .lp *{box-sizing:border-box}
@@ -24,7 +38,7 @@ const CSS = `
 .lp-nav .lp-wrap{height:68px;display:flex;align-items:center;gap:36px}
 .lp-logo{display:flex;align-items:center;gap:11px;font-family:Cinzel,Georgia,serif;font-weight:700;font-size:17px;letter-spacing:2.4px;color:#F4F1E8;white-space:nowrap;background:none;border:none;cursor:pointer;padding:0}
 .lp-links{display:flex;gap:28px;font-size:14px;font-weight:500}
-.lp-links button,.lp-links a{background:none;border:none;padding:0;font:inherit;color:#A2ABA5;cursor:pointer;display:flex;align-items:center;gap:4px}
+.lp-links button,.lp-links a{background:none;border:none;padding:0;font:inherit;color:#A2ABA5;cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap}
 .lp-links button:hover,.lp-links a:hover{color:#F4F1E8}
 .lp-online{margin-left:auto;display:flex;align-items:center;gap:8px;height:32px;padding:0 14px;border:1px solid #1C2320;border-radius:999px;background:#0F1311;font-size:13px;color:#A2ABA5;white-space:nowrap}
 .lp-online b{color:#ECEFEC;font-weight:600}
@@ -83,7 +97,6 @@ const CSS = `
   .lp-nav .lp-wrap{height:58px}
   .lp-logo{font-size:14px;letter-spacing:1.8px}
   .lp-online{height:28px;padding:0 10px;font-size:12px}
-  .lp-online .lp-world{display:none}
   .lp-hero{padding-top:48px;padding-bottom:48px;align-items:stretch;text-align:left}
   .lp-h1{font-size:38px;line-height:1.1}
   .lp-lead{font-size:16px}
@@ -100,6 +113,35 @@ const CSS = `
   .lp-foot{margin-top:48px}
   .lp-foot nav{margin-left:0;flex-wrap:wrap;gap:18px}
 }
+.lp-ca{margin-left:auto;display:flex;align-items:center;gap:1px;height:32px;padding:0 3px;border:1px solid #1C2320;border-radius:999px;background:#0F1311;white-space:nowrap}
+/* .lp-ca takes over the auto margin that used to push .lp-online to the right */
+.lp-ca ~ .lp-online{margin-left:0}
+.lp-ca-link{display:flex;align-items:center;gap:7px;height:26px;padding:0 9px;border-radius:999px;font-size:12.5px}
+.lp-ca-link:hover{background:#171D1A}
+.lp-ca-tick{font-weight:700;color:#E3B55A;letter-spacing:.5px}
+.lp-ca-mint{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px;color:#A2ABA5}
+.lp-ca-link:hover .lp-ca-mint{color:#ECEFEC}
+.lp-ca-copy{display:flex;align-items:center;justify-content:center;width:26px;height:26px;padding:0;border:none;border-radius:50%;background:none;color:#7E8781;cursor:pointer}
+.lp-ca-copy:hover{background:#171D1A;color:#ECEFEC}
+.lp-ca-copy[data-copied="true"]{color:#14F195}
+.lp-ca-rank{display:flex;align-items:center;height:26px;padding:0 10px 0 9px;font-size:12.5px;font-weight:600;color:#ECEFEC;border-left:1px solid #1C2320;border-radius:0 999px 999px 0}
+.lp-ca-rank:hover{color:#E3B55A;background:#171D1A}
+.lp-ca-rank-of{font-weight:400;color:#7E8781}
+@media (min-width:901px) and (max-width:1100px){
+  /* Links are still visible here and the bar is tight: drop the address text
+     but keep the ticker, the copy button and the rank. */
+  .lp-ca-mint{display:none}
+}
+@media (max-width:600px){
+  /* The 58px bar has no spare width at 375px, so the token chip wraps onto its
+     own full-width row under the logo rather than squeezing the nav. */
+  /* 36px between logo and pill is a desktop figure; at 375px it is what pushed
+     the online pill onto its own row once the count reached two digits. */
+  .lp-nav .lp-wrap{height:auto;flex-wrap:wrap;row-gap:0;column-gap:12px;padding-top:9px;padding-bottom:9px}
+  .lp-ca{order:3;width:100%;margin-left:0;margin-top:9px;height:30px;justify-content:center}
+  .lp-ca ~ .lp-online{margin-left:auto}
+  .lp-ca-mint{font-size:11.5px}
+}
 `;
 
 const PACKS = [
@@ -113,24 +155,73 @@ const PACKS = [
     text: 'Rune armour, rune 2-hander, diamond amulet, 12 sharks and 80,000 coins.' },
 ];
 
-function useOnlineCount(): number | null {
-  const [n, setN] = useState<number | null>(null);
+type WorldRow = { worldNumber: number; playersOnline: number };
+
+// Everyone online across every world, not just world 1. The PVP Arena is a
+// separate realm on its own database, so its players are not included here.
+function useOnlineCount(): { total: number; breakdown: string } | null {
+  const [v, setV] = useState<{ total: number; breakdown: string } | null>(null);
   useEffect(() => {
     let alive = true;
     const load = async () => {
       try {
-        const res = await fetch(`${API_URL}/v1/world/stats`);
+        const res = await fetch(`${API_URL}/v1/worlds`);
         if (!res.ok) return;
         const d = await res.json();
-        if (alive && typeof d?.playersOnline === 'number') setN(d.playersOnline);
+        if (!alive || !Array.isArray(d)) return;
+        const rows = (d as WorldRow[]).filter((w) => typeof w?.playersOnline === 'number');
+        if (!rows.length) return;
+        const total = rows.reduce((n, w) => n + w.playersOnline, 0);
+        const busy = rows
+          .filter((w) => w.playersOnline > 0)
+          .map((w) => `${displayForWorldNumber(w.worldNumber)}: ${w.playersOnline}`);
+        setV({ total, breakdown: busy.length ? busy.join(' · ') : 'Nobody online right now' });
       } catch { /* offline — hide the pill */ }
     };
     load();
     const t = setInterval(load, 30_000);
     return () => { alive = false; clearInterval(t); };
   }, []);
-  return n;
+  return v;
 }
+
+type GeRank = { rank: number; total: number };
+
+// Market-cap rank on grandexchange.gold. Their API sends no CORS header, so a
+// browser cannot read it directly; the sidecar proxies and caches it. Same
+// shape as useOnlineCount: on any failure we return null and render nothing,
+// never a zero or a dash.
+function useGeRank(): GeRank | null {
+  const [r, setR] = useState<GeRank | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await fetch(`${API_URL}/v1/token/ge`);
+        if (!res.ok) return;
+        const d = await res.json();
+        if (alive && typeof d?.rank === 'number' && typeof d?.total === 'number') {
+          setR({ rank: d.rank, total: d.total });
+        }
+      } catch { /* unreachable — hide the rank */ }
+    };
+    load();
+    const t = setInterval(load, 120_000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+  return r;
+}
+
+const CopyGlyph = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" />
+  </svg>
+);
+const CheckGlyph = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
 
 const Sword = ({ size = 20 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#E3B55A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -139,10 +230,11 @@ const Sword = ({ size = 20 }: { size?: number }) => (
 );
 const IconProps = { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: '#E3B55A', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true };
 
-export function Landing({ googleButton, onConnectWallet, error }: {
+export function Landing({ googleButton, onConnectWallet, error, worldPicker }: {
   googleButton: ReactNode;
   onConnectWallet: () => void;
   error: string;
+  worldPicker?: ReactNode;
 }) {
   useEffect(() => { injectStyleOnce('r2h-landing-css', CSS); injectFontsOnce(); }, []);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -150,6 +242,29 @@ export function Landing({ googleButton, onConnectWallet, error }: {
   const referRef = useRef<HTMLDivElement>(null);
   const [inviter] = useState(readInviter);
   const online = useOnlineCount();
+  const geRank = useGeRank();
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
+
+  const copyMint = async () => {
+    try {
+      await navigator.clipboard.writeText(TOKEN_MINT);
+    } catch {
+      // Older browsers and non-secure contexts have no clipboard API.
+      const ta = document.createElement('textarea');
+      ta.value = TOKEN_MINT;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); } catch { /* nothing more we can do */ }
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopied(false), 1800);
+  };
 
   const scrollTo = (el: HTMLElement | null) => {
     const root = rootRef.current;
@@ -172,10 +287,43 @@ export function Landing({ googleButton, onConnectWallet, error }: {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M7 17 17 7" /><path d="M7 7h10v10" /></svg>
             </a>
           </nav>
+          <div className="lp-ca">
+            <a
+              className="lp-ca-link"
+              href={DEXSCREENER_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`${TOKEN_TICKER} on DexScreener — ${TOKEN_MINT}`}
+            >
+              <span className="lp-ca-tick">${TOKEN_TICKER}</span>
+              <span className="lp-ca-mint">{TOKEN_MINT_SHORT}</span>
+            </a>
+            <button
+              type="button"
+              className="lp-ca-copy"
+              onClick={copyMint}
+              data-copied={copied ? 'true' : 'false'}
+              aria-label={copied ? 'Contract address copied' : 'Copy contract address'}
+            >
+              {copied ? <CheckGlyph /> : <CopyGlyph />}
+            </button>
+            {geRank && (
+              <a
+                className="lp-ca-rank"
+                href={GRANDEXCHANGE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Market-cap rank on grandexchange.gold"
+              >
+                #{geRank.rank}<span className="lp-ca-rank-of">&nbsp;of {geRank.total}</span>
+              </a>
+            )}
+          </div>
+
           {online !== null && (
-            <div className="lp-online">
+            <div className="lp-online" title={online.breakdown}>
               <span className="lp-dot" />
-              <span><b>{online}</b> online<span className="lp-world"> · World 1</span></span>
+              <span><b>{online.total}</b> online</span>
             </div>
           )}
         </div>
@@ -201,6 +349,7 @@ export function Landing({ googleButton, onConnectWallet, error }: {
           </button>
         </div>
         {error && <p className="lp-error" role="alert">{error}</p>}
+        {worldPicker}
         <p className="lp-hint">New here? Signing in creates your character. Wallets: MetaMask · Phantom · Trust</p>
 
         {HERO_IMAGE && (

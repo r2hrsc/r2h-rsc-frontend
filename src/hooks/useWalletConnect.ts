@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import QRCode from 'qrcode';
+import { SITE_ORIGIN, SITE_NAME, SITE_LOGO } from '../lib/siteConfig';
 
 const WC_PROJECT_ID = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || '';
 
@@ -54,10 +55,10 @@ export function useWalletConnect() {
         methods: ['eth_accounts', 'eth_requestAccounts', 'personal_sign'],
         events: ['connect', 'disconnect', 'accountsChanged', 'chainChanged'],
         metadata: {
-          name: 'Runescape Classic',
+          name: SITE_NAME,
           description: 'Classic RSC client',
-          url: typeof window !== 'undefined' ? window.location.origin : 'https://r2hrsc.xyz',
-          icons: ['https://r2hrsc.xyz/logo.png'],
+          url: typeof window !== 'undefined' ? window.location.origin : SITE_ORIGIN,
+          icons: [SITE_LOGO],
         },
       });
 
