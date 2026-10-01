@@ -1487,14 +1487,11 @@
   z-index: 2000;
 }
 
-/* ── Game controls hub (single FAB, lower-right of the game frame) ──
-   75% down the right edge (moved from 50%): mid-right sat exactly over
-   RSC inventory slots; the lower-right corner area is minimap/walkable
-   space, clear of the inventory grid. */
+/* ── Game controls hub (single FAB, middle-right of the game frame) ── */
 .gc-root {
   position: absolute;
   right: 8px;
-  top: 75%;
+  top: 50%;
   width: 0;
   height: 0;
   z-index: 9999;
@@ -1519,14 +1516,13 @@
 .gc-hub:active { background: rgba(20, 241, 149, 0.15); }
 .gc-hub svg { width: 100%; height: 100%; }
 
-/* Slide-out menu — vertical list anchored to the LEFT of the hub FAB and
-   growing UPWARD from it (the FAB sits low on the right edge now; a
-   downward-centered list would overflow the frame bottom). Every row is a
-   40px touch target. */
+/* Slide-out menu — vertical list anchored to the LEFT of the hub FAB.
+   A vertical list never overlaps itself and every row is a 40px touch target. */
 .gc-menu {
   position: absolute;
   right: 28px;            /* gap between menu and the 40px hub */
-  bottom: -20px;          /* align menu bottom with the FAB center */
+  top: -20px;
+  transform: translateY(-50%);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1539,8 +1535,8 @@
   min-width: 148px;
 }
 @keyframes gc-slide-in {
-  from { opacity: 0; transform: translateX(8px); }
-  to   { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; transform: translateY(-50%) translateX(8px); }
+  to   { opacity: 1; transform: translateY(-50%) translateX(0); }
 }
 .gc-menu-item {
   display: flex;
@@ -1576,35 +1572,6 @@
   background: #3a2a08;
   color: #FFB224;
   border: 1px solid rgba(255, 178, 36, 0.35);
-}
-
-/* v404 world picker: second-level world list inside the controls menu */
-.gc-worlds {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid #262626;
-}
-.gc-free-pill {
-  flex-shrink: 0;
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 1.5px 6px;
-  border-radius: 99px;
-  background: #08301c;
-  color: #14F195;
-  border: 1px solid rgba(20, 241, 149, 0.35);
-}
-.gc-active-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #14F195;
-  flex-shrink: 0;
 }
 
 /* ── Frame bars — data strips above/below the game frame ──
