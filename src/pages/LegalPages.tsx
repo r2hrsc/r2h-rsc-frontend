@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { DISCORD_URL, hasDiscord, CONTACT_URL, CONTACT_LABEL, siteUrl } from '../lib/siteConfig';
+import { useState } from "react";
+import { DISCORD_URL, hasDiscord, CONTACT_URL, CONTACT_LABEL } from "../lib/siteConfig";
 
 export function PrivacyPolicy() {
   return (
@@ -9,20 +9,22 @@ export function PrivacyPolicy() {
         <p style={dateStyle}>Last updated: July 1, 2026</p>
 
         <p style={pStyle}>
-          Runescape Classic ("we", "us", or "our") operates the website runescapeclassic.gold (the "Site").
-          This Privacy Policy explains how we collect, use, and protect your information.
+          Runescape Classic ("we", "us", or "our") operates the website
+          runescapeclassic.gold (the "Site"). This Privacy Policy explains how
+          we collect, use, and protect your information.
         </p>
 
         <h2 style={h2Style}>Information We Collect</h2>
         <p style={pStyle}>
-          When you sign in using Google OAuth, we receive your Google account ID and email address
-          for authentication purposes. When you connect a cryptocurrency wallet, we receive your
-          wallet address. We do not store passwords or private keys.
+          When you sign in using Google OAuth, we receive your Google account ID
+          and email address for authentication purposes. When you connect a
+          cryptocurrency wallet, we receive your wallet address. We do not store
+          passwords or private keys.
         </p>
         <p style={pStyle}>
-          We use Google AdSense to display advertisements. Google and its partners may use cookies
-          and similar technologies to serve ads based on your prior visits to our website or other
-          websites.
+          We use Google AdSense to display advertisements. Google and its
+          partners may use cookies and similar technologies to serve ads based
+          on your prior visits to our website or other websites.
         </p>
 
         <h2 style={h2Style}>How We Use Your Information</h2>
@@ -35,31 +37,51 @@ export function PrivacyPolicy() {
 
         <h2 style={h2Style}>Google AdSense and Cookies</h2>
         <p style={pStyle}>
-          Third-party vendors, including Google, use cookies to serve ads based on a user's prior
-          visits to this website. Google's use of advertising cookies enables it and its partners
-          to serve ads to you based on your visit to this site and/or other sites on the Internet.
+          Third-party vendors, including Google, use cookies to serve ads based
+          on a user's prior visits to this website. Google's use of advertising
+          cookies enables it and its partners to serve ads to you based on your
+          visit to this site and/or other sites on the Internet.
         </p>
         <p style={pStyle}>
           You may opt out of personalized advertising by visiting
-          <a href="https://www.google.com/settings/ads" style={linkStyle}> Google Ads Settings</a>.
-          For more information about how Google uses data when you use our site, please read the
-          <a href="https://policies.google.com/technologies/partner-sites" style={linkStyle}> Google Privacy Policy</a>.
+          <a href="https://www.google.com/settings/ads" style={linkStyle}>
+            {" "}
+            Google Ads Settings
+          </a>
+          . For more information about how Google uses data when you use our
+          site, please read the
+          <a
+            href="https://policies.google.com/technologies/partner-sites"
+            style={linkStyle}
+          >
+            {" "}
+            Google Privacy Policy
+          </a>
+          .
         </p>
 
         <h2 style={h2Style}>Data Retention</h2>
         <p style={pStyle}>
-          We retain authentication data only as long as necessary to provide our services.
-          You may request deletion of your account data at any time by contacting us.
+          We retain authentication data only as long as necessary to provide our
+          services. You may request deletion of your account data at any time by
+          contacting us.
         </p>
 
         <h2 style={h2Style}>Contact Us</h2>
         <p style={pStyle}>
-          If you have questions about this Privacy Policy, please reach out via our
-          <a href={CONTACT_URL} style={linkStyle}> {CONTACT_LABEL}</a>.
+          If you have questions about this Privacy Policy, please reach out via
+          our
+          <a href={CONTACT_URL} style={linkStyle}>
+            {" "}
+            {CONTACT_LABEL}
+          </a>
+          .
         </p>
 
         <div style={{ marginTop: 40 }}>
-          <a href="/" style={backLinkStyle}>← Back to Runescape Classic</a>
+          <a href="/" style={backLinkStyle}>
+            ← Back to Runescape Classic
+          </a>
         </div>
       </div>
     </div>
@@ -74,53 +96,61 @@ export function TermsOfService() {
         <p style={dateStyle}>Last updated: July 1, 2026</p>
 
         <p style={pStyle}>
-          Welcome to Runescape Classic. By accessing and using this website, you accept and agree to be
-          bound by these Terms of Service. If you do not agree, please do not use our service.
+          Welcome to Runescape Classic. By accessing and using this website, you
+          accept and agree to be bound by these Terms of Service. If you do not
+          agree, please do not use our service.
         </p>
 
         <h2 style={h2Style}>Eligibility</h2>
         <p style={pStyle}>
-          You must be at least 13 years old to use this service. By signing in, you confirm that
-          you meet this age requirement.
+          You must be at least 13 years old to use this service. By signing in,
+          you confirm that you meet this age requirement.
         </p>
 
         <h2 style={h2Style}>Account Conduct</h2>
         <ul style={listStyle}>
           <li>You are responsible for all activity under your account</li>
           <li>You may not share, sell, or transfer your account</li>
-          <li>You may not use cheats, bots, macros, or third-party automation tools</li>
+          <li>
+            You may not use cheats, bots, macros, or third-party automation
+            tools
+          </li>
           <li>You may not exploit bugs or glitches for personal gain</li>
           <li>Harassment, hate speech, and toxic behavior are prohibited</li>
         </ul>
 
         <h2 style={h2Style}>Intellectual Property</h2>
         <p style={pStyle}>
-          Runescape Classic is a private server for a classic game client. All game content belongs to its
-          respective owners. This site does not claim ownership of any trademarked or copyrighted
-          material.
+          Runescape Classic is a private server for a classic game client. All
+          game content belongs to its respective owners. This site does not
+          claim ownership of any trademarked or copyrighted material.
         </p>
 
         <h2 style={h2Style}>Advertisements</h2>
         <p style={pStyle}>
-          This website displays advertisements served by Google AdSense and other ad networks.
-          We are not responsible for the content of third-party advertisements. Sponsored content
-          does not constitute an endorsement.
+          This website displays advertisements served by Google AdSense and
+          other ad networks. We are not responsible for the content of
+          third-party advertisements. Sponsored content does not constitute an
+          endorsement.
         </p>
 
         <h2 style={h2Style}>Limitation of Liability</h2>
         <p style={pStyle}>
-          Runescape Classic is provided "as is" without warranties of any kind. We are not liable for any
-          damages arising from your use of the service.
+          Runescape Classic is provided "as is" without warranties of any kind.
+          We are not liable for any damages arising from your use of the
+          service.
         </p>
 
         <h2 style={h2Style}>Changes to Terms</h2>
         <p style={pStyle}>
-          We reserve the right to update these terms at any time. Continued use of the service
-          after changes constitutes acceptance of the new terms.
+          We reserve the right to update these terms at any time. Continued use
+          of the service after changes constitutes acceptance of the new terms.
         </p>
 
         <div style={{ marginTop: 40 }}>
-          <a href="/" style={backLinkStyle}>← Back to Runescape Classic</a>
+          <a href="/" style={backLinkStyle}>
+            ← Back to Runescape Classic
+          </a>
         </div>
       </div>
     </div>
@@ -134,9 +164,10 @@ export function About() {
         <h1 style={h1Style}>About Runescape Classic</h1>
 
         <p style={pStyle}>
-          Runescape Classic is a community-driven classic gaming server dedicated to preserving the authentic
-          experience of early-era MMORPGs. We provide a browser-based client that requires no
-          downloads — just sign in and play directly in your web browser.
+          Runescape Classic is a community-driven classic gaming server
+          dedicated to preserving the authentic experience of early-era MMORPGs.
+          We provide a browser-based client that requires no downloads — just
+          sign in and play directly in your web browser.
         </p>
 
         <h2 style={h2Style}>What We Offer</h2>
@@ -150,7 +181,12 @@ export function About() {
 
         <h2 style={h2Style}>How to Play</h2>
         <ol style={listStyle}>
-          <li>Visit <a href="/" style={linkStyle}>runescapeclassic.gold</a></li>
+          <li>
+            Visit{" "}
+            <a href="/" style={linkStyle}>
+              runescapeclassic.gold
+            </a>
+          </li>
           <li>Sign in with your Google account or crypto wallet</li>
           <li>Pick your in-game username</li>
           <li>Start playing immediately in your browser</li>
@@ -159,20 +195,32 @@ export function About() {
         <h2 style={h2Style}>Community</h2>
         <p style={pStyle}>
           Join our growing community on
-          <a href={CONTACT_URL} style={linkStyle}> {CONTACT_LABEL}</a> to connect with other
-          players, get help, and stay updated on events and changes.
+          <a href={CONTACT_URL} style={linkStyle}>
+            {" "}
+            {CONTACT_LABEL}
+          </a>{" "}
+          to connect with other players, get help, and stay updated on events
+          and changes.
         </p>
 
         <h2 style={h2Style}>Support the Project</h2>
         <p style={pStyle}>
-          You can help Runescape Classic grow by voting for us on top server lists and spreading the word.
-          The project is sustained through advertising and community support.
+          You can help Runescape Classic grow by voting for us on top server
+          lists and spreading the word. The project is sustained through
+          advertising and community support.
         </p>
 
-        <div style={{ marginTop: 40, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-          <a href="/" style={backLinkStyle}>← Back to Runescape Classic</a>
-          {hasDiscord && <a href={DISCORD_URL} style={backLinkStyle}>Join Discord →</a>}
-          <a href={siteUrl('/vote')} style={backLinkStyle}>Vote for Us →</a>
+        <div
+          style={{ marginTop: 40, display: "flex", gap: 20, flexWrap: "wrap" }}
+        >
+          <a href="/" style={backLinkStyle}>
+            ← Back to Runescape Classic
+          </a>
+          {hasDiscord && (
+            <a href={DISCORD_URL} style={backLinkStyle}>
+              Join Discord →
+            </a>
+          )}
         </div>
       </div>
     </div>
@@ -180,28 +228,29 @@ export function About() {
 }
 
 const pageStyle: React.CSSProperties = {
-  minHeight: '100vh',
-  background: '#0a0a0a',
-  padding: '40px 20px',
+  minHeight: "100vh",
+  background: "#0a0a0a",
+  padding: "40px 20px",
 };
 
 const containerStyle: React.CSSProperties = {
   maxWidth: 760,
-  margin: '0 auto',
-  color: '#ccc',
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  margin: "0 auto",
+  color: "#ccc",
+  fontFamily:
+    '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
   lineHeight: 1.7,
 };
 
 const h1Style: React.CSSProperties = {
-  color: '#fff',
+  color: "#fff",
   fontSize: 32,
   fontWeight: 700,
   marginBottom: 8,
 };
 
 const h2Style: React.CSSProperties = {
-  color: '#e0e0e0',
+  color: "#e0e0e0",
   fontSize: 20,
   fontWeight: 600,
   marginTop: 32,
@@ -222,19 +271,19 @@ const listStyle: React.CSSProperties = {
 };
 
 const dateStyle: React.CSSProperties = {
-  color: '#666',
+  color: "#666",
   fontSize: 13,
   marginBottom: 24,
 };
 
 const linkStyle: React.CSSProperties = {
-  color: '#14F195',
-  textDecoration: 'none',
+  color: "#14F195",
+  textDecoration: "none",
 };
 
 const backLinkStyle: React.CSSProperties = {
-  color: '#14F195',
-  textDecoration: 'none',
+  color: "#14F195",
+  textDecoration: "none",
   fontSize: 14,
   fontWeight: 500,
 };

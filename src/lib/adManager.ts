@@ -1,8 +1,13 @@
 // ── Ad Manager — direct ad sales system (localStorage for now) ──
 
-import { DISCORD_URL, hasDiscord, siteUrl } from './siteConfig';
+import { DISCORD_URL } from './siteConfig';
 
-export type AdSlotType = 'LEFT_SIDEBAR' | 'RIGHT_SIDEBAR' | 'VOTE_GATEWAY';
+// 2026-10-01: VOTE_GATEWAY removed. It was a sellable slot (banner on the
+// toplist-voting page) advertised on the public media kit, but no /vote route
+// and no toplist accounts ever existed, so the inventory could not be
+// delivered. Restore this, SLOT_PRICING.VOTE_GATEWAY and the filler ad
+// together if voting is ever actually set up.
+export type AdSlotType = 'LEFT_SIDEBAR' | 'RIGHT_SIDEBAR';
 
 export interface Ad {
   id: string;
@@ -22,7 +27,6 @@ const STORAGE_KEY = 'r2h_ads';
 export const SLOT_PRICING: Record<AdSlotType, { price: number; label: string; dimensions: string }> = {
   LEFT_SIDEBAR:  { price: 75,  label: 'Left Sidebar',  dimensions: '160×600' },
   RIGHT_SIDEBAR: { price: 75,  label: 'Right Sidebar', dimensions: '160×600' },
-  VOTE_GATEWAY:  { price: 100, label: 'Vote Gateway',  dimensions: '728×90' },
 };
 
 // ── Filler ads shown when no paid ad is active ──
@@ -51,14 +55,6 @@ const ALL_FILLER_ADS: FillerAd[] = [
     linkUrl: '/',
     color: '#14F195',
     bgGradient: 'linear-gradient(180deg, #0d1f14 0%, #0d0d0d 100%)',
-  },
-  {
-    slot: 'VOTE_GATEWAY',
-    title: 'Vote for Runescape Classic',
-    subtitle: 'Help us grow the community',
-    linkUrl: siteUrl('/vote'),
-    color: '#14F195',
-    bgGradient: 'linear-gradient(90deg, #0d1f14 0%, #0d0d0d 100%)',
   },
 ];
 
