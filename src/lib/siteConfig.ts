@@ -42,10 +42,11 @@ export const LEGACY_ORIGINS = [
 //   for veterans and first responders. Never link players there.
 //   Ours is the guild "RuneScape Classic Gold" (below).
 //
-//   ⚠️ EXPIRY: this invite is dated and expires **2026-10-24 20:43 UTC**. When it
-//   lapses every "Join Discord" link on the site dies, exactly as the last one
-//   did. Replace it with a permanent invite: Server Settings → Invites →
-//   "Expire after: Never", then update this constant.
+//   PERMANENT: verified against the Discord API 2026-10-01 — guild
+//   1552782576450674858 ("RuneScape Classic Gold"), expires_at: null. An earlier
+//   invite for this same guild was dated and would have died on 2026-10-24,
+//   which is how the previous link broke. If this constant is ever changed,
+//   re-check expires_at is null before shipping it.
 //
 // TELEGRAM: no Telegram has ever existed. A July session mistakenly pasted the
 //   Discord URL into a Telegram field. Ship this EMPTY rather than wrong —
@@ -55,7 +56,7 @@ export const LEGACY_ORIGINS = [
 // Explicitly typed `string`, not the inferred literal, so `hasDiscord` below stays
 // a real runtime guard — TS otherwise narrows this to its literal type and flags
 // the `!== ""` check as impossible, which breaks the moment it is emptied again.
-export const DISCORD_URL: string = "https://discord.gg/Nu6Df6emP"; // EXPIRES 2026-10-24
+export const DISCORD_URL: string = "https://discord.gg/nDD4gh5ehP"; // permanent
 export const TELEGRAM_URL = ""; // none exists
 export const X_URL = "https://x.com/runeclassicgp";
 
