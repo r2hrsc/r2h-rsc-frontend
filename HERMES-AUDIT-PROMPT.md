@@ -13,6 +13,7 @@ anything wrong, and (b) answer the numbered questions, which are blocking fixes.
 ## VERIFIED FINDINGS
 
 ### Public surface
+
 - `runescapeclassic.gold` resolves to `67.205.132.6` directly. Bare nginx/1.24.0,
   HTTP/1.1, no Cloudflare, no HSTS / X-Content-Type-Options / Referrer-Policy.
   `http://67.205.132.6/` returns 200 — origin IP directly reachable.
@@ -20,7 +21,7 @@ anything wrong, and (b) answer the numbered questions, which are blocking fixes.
   `robinscape.xyz` resolves to 67.205.132.6. All three serve 200 right now.
 - Live `/sitemap.xml` and `/robots.txt` on the .gold domain pointed only at
   `https://r2hrsc.xyz/`. (FIXED locally, not yet deployed.)
-- `index.html` had no description / og:* / twitter:card / canonical, so every
+- `index.html` had no description / og:\* / twitter:card / canonical, so every
   link posted to X, Discord or Telegram rendered as a bare URL with no preview
   card. (FIXED locally, not yet deployed.)
 - No X / Discord / Telegram links anywhere on the landing page.
@@ -35,8 +36,9 @@ anything wrong, and (b) answer the numbered questions, which are blocking fixes.
 - Main JS chunk is 4.0 MB raw / 1.17 MB gzipped.
 
 ### Account model (sidecar `src/utils/username.ts`)
-- `emailToRscUsername`  = `"g_" + sha256(email)[0:10]`   — **no secret**
-- `walletToRscUsername` = `"s_" + sha256(wallet)[0:10]`  — **no secret**
+
+- `emailToRscUsername` = `"g_" + sha256(email)[0:10]` — **no secret**
+- `walletToRscUsername` = `"s_" + sha256(wallet)[0:10]` — **no secret**
 - `generateDeterministicPassword` = `HMAC-SHA256(PASSWORD_SECRET, externalId)`,
   hex, stripped, first 12 chars. **No per-user salt.**
 - Therefore: anyone can compute any player's in-game username from their email or
@@ -46,7 +48,9 @@ anything wrong, and (b) answer the numbered questions, which are blocking fixes.
   password with Copy buttons and the text "Your password never changes."
 
 ### Admin gate
-- `src/components/Admin/AdManager.tsx` hardcodes `ADMIN_PASSWORD = 'r2h-admin-2026'`.
+
+- `src/components/Admin/AdManager.tsx` hardcoded an `ADMIN_PASSWORD` literal (value
+  redacted here; it has since been rotated out of source into gitignored `.env`).
   Confirmed present in the LIVE production bundle; `/admin/ads` is publicly
   reachable and returns 200. Severity is limited because `adManager` is
   localStorage-only (a bypass edits only the attacker's own browser), but the
@@ -54,6 +58,7 @@ anything wrong, and (b) answer the numbered questions, which are blocking fixes.
   server-side — which the code comment says is the plan.
 
 ### Repo / workspace
+
 - `robinscape-build` git: ~10 modified files and 13 untracked paths before this
   audit. `src/lib/worlds.ts` and `src/components/PreAuthWorldPicker.tsx` are real
   source and are not in git at all.
@@ -61,7 +66,7 @@ anything wrong, and (b) answer the numbered questions, which are blocking fixes.
 - Four near-identical OpenRSC server trees under `multiworld/`:
   `w1-pristine-build`, `w1-c4-build`, `phase2-build/server`, `phase2-build/server.orig`.
 - `DEPLOY.md` describes Cloudflare Pages auto-building from GitHub
-  `r2hrsc/r2h-rsc-frontend` on `main` with VITE_* vars in the Pages dashboard.
+  `r2hrsc/r2h-rsc-frontend` on `main` with VITE\_\* vars in the Pages dashboard.
   This does NOT match a bare-nginx .gold origin. It also references a path that
   no longer exists (`hermes-workspace/r2h-frontend`), gives `VITE_CACHE_CDN_URL`
   as `cache.r2hrsc.xyz` while `.env` says `game.r2hrsc.xyz/rsc-client/`, and
@@ -72,6 +77,7 @@ anything wrong, and (b) answer the numbered questions, which are blocking fixes.
   never block a deploy.
 
 ## RETRACTED (do not act on)
+
 An earlier draft claimed `dist` accumulates stale bundles across builds (267
 files, 17 `index-*.js`). That was WRONG. A controlled rebuild showed Vite empties
 `dist` every time: 201 filenames replaced, 66 shared, total unchanged at 267. The
