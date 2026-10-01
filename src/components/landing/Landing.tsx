@@ -1,6 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { injectFontsOnce, injectStyleOnce, readInviter } from '../../lib/referral';
-import { displayForWorldNumber } from '../../lib/worlds';
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { DISCORD_URL, hasDiscord, X_URL } from "../../lib/siteConfig";
+import {
+  injectFontsOnce,
+  injectStyleOnce,
+  readInviter,
+} from "../../lib/referral";
+import { displayForWorldNumber } from "../../lib/worlds";
 
 // ── Front page (signed-out screen) ───────────────────────────────────────
 // Pure presentation. AuthOverlay owns every sign-in handler and passes the
@@ -14,15 +19,15 @@ import { displayForWorldNumber } from '../../lib/worlds';
 /** Drop a screenshot in /public and set its path here, e.g. '/img/hero.jpg'. */
 const HERO_IMAGE: string | null = null;
 
-const API_URL = import.meta.env.VITE_API_URL || 'https://api.r2hrsc.xyz';
+const API_URL = import.meta.env.VITE_API_URL || "https://api.r2hrsc.xyz";
 
 // --- $RUNE token identity -----------------------------------------------------
 // The contract address is the one string on this site where a single wrong
 // character costs a visitor real money. It is written here EXACTLY ONCE; the
 // truncated label and both outbound links are all derived from this constant,
 // so there is no second copy that can drift out of sync with it.
-const TOKEN_MINT = 'B4cqDdBWDf6hgy1rma8u4JpoTnoycDQyg33aR48mfFvE';
-const TOKEN_TICKER = 'RUNE';
+const TOKEN_MINT = "B4cqDdBWDf6hgy1rma8u4JpoTnoycDQyg33aR48mfFvE";
+const TOKEN_TICKER = "RUNE";
 // Token-level DexScreener URL: resolves to whichever pool holds the real
 // liquidity, so it keeps working if the market ever migrates.
 const DEXSCREENER_URL = `https://dexscreener.com/solana/${TOKEN_MINT}`;
@@ -83,6 +88,11 @@ const CSS = `
 .lp-foot{margin-top:96px;border-top:1px solid #1C2320}
 .lp-foot .lp-wrap{min-height:88px;display:flex;align-items:center;gap:28px;font-size:13px;color:#7E8781;flex-wrap:wrap;padding-top:20px;padding-bottom:20px}
 .lp-foot nav{margin-left:auto;display:flex;gap:24px}
+/* Social nav takes the auto-margin and pushes right; the legal nav then sits
+   beside it on the footer's own gap, instead of both claiming the free space. */
+.lp-foot .lp-social{gap:18px}
+.lp-foot .lp-social a{color:#A2ABA5;font-weight:600}
+.lp-foot .lp-social~nav{margin-left:0}
 .lp-foot a:hover{color:#ECEFEC}
 @media (max-width:900px){
   .lp-links{display:none}
@@ -145,14 +155,34 @@ const CSS = `
 `;
 
 const PACKS = [
-  { friend: true, req: 'FOR YOUR FRIEND', name: 'Starter pack', cmd: '::starterpack',
-    text: 'Iron armour, iron and steel 2-handers, strength amulet, 12 tuna and 10,000 coins.' },
-  { friend: false, req: 'YOU · 3 FRIENDS', name: 'Noob pack', cmd: '::noobpack',
-    text: 'Steel and black armour, black and mithril 2-handers, 12 lobsters and 20,000 coins.' },
-  { friend: false, req: 'YOU · 5 FRIENDS', name: 'Pro pack', cmd: '::propack',
-    text: 'Mithril or adamant armour, adamant 2-hander, 12 swordfish and 40,000 coins.' },
-  { friend: false, req: 'YOU · 10 FRIENDS', name: 'King pack', cmd: '::kingpack',
-    text: 'Rune armour, rune 2-hander, diamond amulet, 12 sharks and 80,000 coins.' },
+  {
+    friend: true,
+    req: "FOR YOUR FRIEND",
+    name: "Starter pack",
+    cmd: "::starterpack",
+    text: "Iron armour, iron and steel 2-handers, strength amulet, 12 tuna and 10,000 coins.",
+  },
+  {
+    friend: false,
+    req: "YOU · 3 FRIENDS",
+    name: "Noob pack",
+    cmd: "::noobpack",
+    text: "Steel and black armour, black and mithril 2-handers, 12 lobsters and 20,000 coins.",
+  },
+  {
+    friend: false,
+    req: "YOU · 5 FRIENDS",
+    name: "Pro pack",
+    cmd: "::propack",
+    text: "Mithril or adamant armour, adamant 2-hander, 12 swordfish and 40,000 coins.",
+  },
+  {
+    friend: false,
+    req: "YOU · 10 FRIENDS",
+    name: "King pack",
+    cmd: "::kingpack",
+    text: "Rune armour, rune 2-hander, diamond amulet, 12 sharks and 80,000 coins.",
+  },
 ];
 
 type WorldRow = { worldNumber: number; playersOnline: number };
@@ -169,18 +199,31 @@ function useOnlineCount(): { total: number; breakdown: string } | null {
         if (!res.ok) return;
         const d = await res.json();
         if (!alive || !Array.isArray(d)) return;
-        const rows = (d as WorldRow[]).filter((w) => typeof w?.playersOnline === 'number');
+        const rows = (d as WorldRow[]).filter(
+          (w) => typeof w?.playersOnline === "number",
+        );
         if (!rows.length) return;
         const total = rows.reduce((n, w) => n + w.playersOnline, 0);
         const busy = rows
           .filter((w) => w.playersOnline > 0)
-          .map((w) => `${displayForWorldNumber(w.worldNumber)}: ${w.playersOnline}`);
-        setV({ total, breakdown: busy.length ? busy.join(' · ') : 'Nobody online right now' });
-      } catch { /* offline — hide the pill */ }
+          .map(
+            (w) =>
+              `${displayForWorldNumber(w.worldNumber)}: ${w.playersOnline}`,
+          );
+        setV({
+          total,
+          breakdown: busy.length ? busy.join(" · ") : "Nobody online right now",
+        });
+      } catch {
+        /* offline — hide the pill */
+      }
     };
     load();
     const t = setInterval(load, 30_000);
-    return () => { alive = false; clearInterval(t); };
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
   }, []);
   return v;
 }
@@ -200,43 +243,104 @@ function useGeRank(): GeRank | null {
         const res = await fetch(`${API_URL}/v1/token/ge`);
         if (!res.ok) return;
         const d = await res.json();
-        if (alive && typeof d?.rank === 'number' && typeof d?.total === 'number') {
+        if (
+          alive &&
+          typeof d?.rank === "number" &&
+          typeof d?.total === "number"
+        ) {
           setR({ rank: d.rank, total: d.total });
         }
-      } catch { /* unreachable — hide the rank */ }
+      } catch {
+        /* unreachable — hide the rank */
+      }
     };
     load();
     const t = setInterval(load, 120_000);
-    return () => { alive = false; clearInterval(t); };
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
   }, []);
   return r;
 }
 
 const CopyGlyph = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" />
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="9" y="9" width="12" height="12" rx="2" />
+    <path d="M5 15V5a2 2 0 0 1 2-2h10" />
   </svg>
 );
 const CheckGlyph = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.4"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
     <path d="M20 6 9 17l-5-5" />
   </svg>
 );
 
 const Sword = ({ size = 20 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#E3B55A" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M14.5 17.5 3 6V3h3l11.5 11.5" /><path d="m13 19 6-6" /><path d="m16 16 4 4" /><path d="m19 21 2-2" />
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="#E3B55A"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
+    <path d="m13 19 6-6" />
+    <path d="m16 16 4 4" />
+    <path d="m19 21 2-2" />
   </svg>
 );
-const IconProps = { width: 24, height: 24, viewBox: '0 0 24 24', fill: 'none', stroke: '#E3B55A', strokeWidth: 1.6, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const, 'aria-hidden': true };
+const IconProps = {
+  width: 24,
+  height: 24,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "#E3B55A",
+  strokeWidth: 1.6,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  "aria-hidden": true,
+};
 
-export function Landing({ googleButton, onConnectWallet, error, worldPicker }: {
+export function Landing({
+  googleButton,
+  onConnectWallet,
+  error,
+  worldPicker,
+}: {
   googleButton: ReactNode;
   onConnectWallet: () => void;
   error: string;
   worldPicker?: ReactNode;
 }) {
-  useEffect(() => { injectStyleOnce('r2h-landing-css', CSS); injectFontsOnce(); }, []);
+  useEffect(() => {
+    injectStyleOnce("r2h-landing-css", CSS);
+    injectFontsOnce();
+  }, []);
   const rootRef = useRef<HTMLDivElement>(null);
   const featuresRef = useRef<HTMLDivElement>(null);
   const referRef = useRef<HTMLDivElement>(null);
@@ -245,20 +349,29 @@ export function Landing({ googleButton, onConnectWallet, error, worldPicker }: {
   const geRank = useGeRank();
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current); }, []);
+  useEffect(
+    () => () => {
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+    },
+    [],
+  );
 
   const copyMint = async () => {
     try {
       await navigator.clipboard.writeText(TOKEN_MINT);
     } catch {
       // Older browsers and non-secure contexts have no clipboard API.
-      const ta = document.createElement('textarea');
+      const ta = document.createElement("textarea");
       ta.value = TOKEN_MINT;
-      ta.setAttribute('readonly', '');
-      ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+      ta.setAttribute("readonly", "");
+      ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
       document.body.appendChild(ta);
       ta.select();
-      try { document.execCommand('copy'); } catch { /* nothing more we can do */ }
+      try {
+        document.execCommand("copy");
+      } catch {
+        /* nothing more we can do */
+      }
       document.body.removeChild(ta);
     }
     setCopied(true);
@@ -269,22 +382,50 @@ export function Landing({ googleButton, onConnectWallet, error, worldPicker }: {
   const scrollTo = (el: HTMLElement | null) => {
     const root = rootRef.current;
     if (!root) return;
-    root.scrollTo({ top: el ? Math.max(0, el.offsetTop - 80) : 0, behavior: 'smooth' });
+    root.scrollTo({
+      top: el ? Math.max(0, el.offsetTop - 80) : 0,
+      behavior: "smooth",
+    });
   };
 
   return (
     <div className="lp" ref={rootRef}>
       <header className="lp-nav">
         <div className="lp-wrap">
-          <button type="button" className="lp-logo" onClick={() => scrollTo(null)} aria-label="Runescape Classic, back to top">
+          <button
+            type="button"
+            className="lp-logo"
+            onClick={() => scrollTo(null)}
+            aria-label="Runescape Classic, back to top"
+          >
             <Sword /> RUNESCAPE CLASSIC
           </button>
           <nav className="lp-links">
-            <button type="button" onClick={() => scrollTo(featuresRef.current)}>Features</button>
-            <button type="button" onClick={() => scrollTo(referRef.current)}>Refer a friend</button>
-            <a href="https://classic.runescape.wiki" target="_blank" rel="noopener noreferrer">
+            <button type="button" onClick={() => scrollTo(featuresRef.current)}>
+              Features
+            </button>
+            <button type="button" onClick={() => scrollTo(referRef.current)}>
+              Refer a friend
+            </button>
+            <a
+              href="https://classic.runescape.wiki"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
               Wiki
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M7 17 17 7" /><path d="M7 7h10v10" /></svg>
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                aria-hidden="true"
+              >
+                <path d="M7 17 17 7" />
+                <path d="M7 7h10v10" />
+              </svg>
             </a>
           </nav>
           <div className="lp-ca">
@@ -302,8 +443,10 @@ export function Landing({ googleButton, onConnectWallet, error, worldPicker }: {
               type="button"
               className="lp-ca-copy"
               onClick={copyMint}
-              data-copied={copied ? 'true' : 'false'}
-              aria-label={copied ? 'Contract address copied' : 'Copy contract address'}
+              data-copied={copied ? "true" : "false"}
+              aria-label={
+                copied ? "Contract address copied" : "Copy contract address"
+              }
             >
               {copied ? <CheckGlyph /> : <CopyGlyph />}
             </button>
@@ -315,7 +458,8 @@ export function Landing({ googleButton, onConnectWallet, error, worldPicker }: {
                 rel="noopener noreferrer"
                 title="Market-cap rank on grandexchange.gold"
               >
-                #{geRank.rank}<span className="lp-ca-rank-of">&nbsp;of {geRank.total}</span>
+                #{geRank.rank}
+                <span className="lp-ca-rank-of">&nbsp;of {geRank.total}</span>
               </a>
             )}
           </div>
@@ -323,7 +467,9 @@ export function Landing({ googleButton, onConnectWallet, error, worldPicker }: {
           {online !== null && (
             <div className="lp-online" title={online.breakdown}>
               <span className="lp-dot" />
-              <span><b>{online.total}</b> online</span>
+              <span>
+                <b>{online.total}</b> online
+              </span>
             </div>
           )}
         </div>
@@ -332,46 +478,108 @@ export function Landing({ googleButton, onConnectWallet, error, worldPicker }: {
       <section className="lp-wrap lp-hero">
         <div className="lp-eyebrow">FREE TO PLAY · IN YOUR BROWSER</div>
         <h1 className="lp-h1">Classic RuneScape, live again.</h1>
-        <p className="lp-lead">No download, no install. Sign in with Google or a crypto wallet and you're in Lumbridge in seconds.</p>
+        <p className="lp-lead">
+          No download, no install. Sign in with Google or a crypto wallet and
+          you're in Lumbridge in seconds.
+        </p>
 
         {inviter && (
           <div className="lp-invited">
-            <svg {...IconProps} width={20} height={20} strokeWidth={1.8}><rect x="3" y="8" width="18" height="4" rx="1" /><path d="M12 8v13" /><path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" /><path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5" /></svg>
-            <span>Invited by <b>{inviter}</b>. Create your character, then type <span className="lp-mono">::starterpack</span> in game for a free Starter pack.</span>
+            <svg {...IconProps} width={20} height={20} strokeWidth={1.8}>
+              <rect x="3" y="8" width="18" height="4" rx="1" />
+              <path d="M12 8v13" />
+              <path d="M19 12v7a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2v-7" />
+              <path d="M7.5 8a2.5 2.5 0 0 1 0-5C10 3 12 8 12 8s2-5 4.5-5a2.5 2.5 0 0 1 0 5" />
+            </svg>
+            <span>
+              Invited by <b>{inviter}</b>. Create your character, then type{" "}
+              <span className="lp-mono">::starterpack</span> in game for a free
+              Starter pack.
+            </span>
           </div>
         )}
 
         <div className="lp-cta">
           <div className="lp-google">{googleButton}</div>
           <button type="button" className="lp-wallet" onClick={onConnectWallet}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1" /><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" /></svg>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M19 7V4a1 1 0 0 0-1-1H5a2 2 0 0 0 0 4h15a1 1 0 0 1 1 1v4h-3a2 2 0 0 0 0 4h3a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1" />
+              <path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1v-4" />
+            </svg>
             Connect wallet
           </button>
         </div>
-        {error && <p className="lp-error" role="alert">{error}</p>}
+        {error && (
+          <p className="lp-error" role="alert">
+            {error}
+          </p>
+        )}
         {worldPicker}
-        <p className="lp-hint">New here? Signing in creates your character. Wallets: MetaMask · Phantom · Trust</p>
+        <p className="lp-hint">
+          New here? Signing in creates your character. Wallets: MetaMask ·
+          Phantom · Trust
+        </p>
 
         {HERO_IMAGE && (
-          <div className="lp-shot"><img src={HERO_IMAGE} alt="Runescape Classic gameplay" /></div>
+          <div className="lp-shot">
+            <img src={HERO_IMAGE} alt="Runescape Classic gameplay" />
+          </div>
         )}
       </section>
 
       <section className="lp-wrap lp-features" ref={featuresRef}>
         <div className="lp-card">
-          <svg {...IconProps}><circle cx="12" cy="12" r="10" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
+          <svg {...IconProps}>
+            <circle cx="12" cy="12" r="10" />
+            <path d="M2 12h20" />
+            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+          </svg>
           <h3>Play in any browser</h3>
-          <p>Desktop, phone, or your wallet's built-in browser. Nothing to install, and your character is waiting wherever you sign in.</p>
+          <p>
+            Desktop, phone, or your wallet's built-in browser. Nothing to
+            install, and your character is waiting wherever you sign in.
+          </p>
         </div>
         <div className="lp-card">
-          <svg {...IconProps}><path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3z" /><path d="M9 3v15" /><path d="M15 6v15" /></svg>
+          <svg {...IconProps}>
+            <path d="M9 3 3 6v15l6-3 6 3 6-3V3l-6 3-6-3z" />
+            <path d="M9 3v15" />
+            <path d="M15 6v15" />
+          </svg>
           <h3>The world you remember</h3>
-          <p>18 skills, the classic quests and the original map, on a live server with other players.</p>
+          <p>
+            18 skills, the classic quests and the original map, on a live server
+            with other players.
+          </p>
         </div>
         <div className="lp-card">
-          <svg {...IconProps}><path d="M14.5 17.5 3 6V3h3l11.5 11.5" /><path d="m13 19 6-6" /><path d="m16 16 4 4" /><path d="m19 21 2-2" /><path d="M14.5 6.5 18 3h3v3l-3.5 3.5" /><path d="m5 14 4 4" /><path d="m7 17-3 3" /><path d="m3 19 2 2" /></svg>
-          <h3>PvP Arena <span className="lp-beta">BETA</span></h3>
-          <p>A separate PvP realm with the same login. Pick your levels and fight in the Wilderness. Your main character is untouched.</p>
+          <svg {...IconProps}>
+            <path d="M14.5 17.5 3 6V3h3l11.5 11.5" />
+            <path d="m13 19 6-6" />
+            <path d="m16 16 4 4" />
+            <path d="m19 21 2-2" />
+            <path d="M14.5 6.5 18 3h3v3l-3.5 3.5" />
+            <path d="m5 14 4 4" />
+            <path d="m7 17-3 3" />
+            <path d="m3 19 2 2" />
+          </svg>
+          <h3>
+            PvP Arena <span className="lp-beta">BETA</span>
+          </h3>
+          <p>
+            A separate PvP realm with the same login. Pick your levels and fight
+            in the Wilderness. Your main character is untouched.
+          </p>
         </div>
       </section>
 
@@ -381,13 +589,26 @@ export function Landing({ googleButton, onConnectWallet, error, worldPicker }: {
             <div>
               <div className="lp-eyebrow">REFER A FRIEND</div>
               <h2 className="lp-h2">Bring friends. Earn packs.</h2>
-              <p>Share your link. Friends who join get a Starter pack right away. Every friend who reaches combat level 10 counts toward your rewards, and each pack is yours to claim once.</p>
+              <p>
+                Share your link. Friends who join get a Starter pack right away.
+                Every friend who reaches combat level 10 counts toward your
+                rewards, and each pack is yours to claim once.
+              </p>
             </div>
-            <button type="button" className="lp-gold" onClick={() => scrollTo(null)}>Sign in to get your link</button>
+            <button
+              type="button"
+              className="lp-gold"
+              onClick={() => scrollTo(null)}
+            >
+              Sign in to get your link
+            </button>
           </div>
           <div className="lp-packs">
-            {PACKS.map(p => (
-              <div key={p.cmd} className={p.friend ? 'lp-pack friend' : 'lp-pack'}>
+            {PACKS.map((p) => (
+              <div
+                key={p.cmd}
+                className={p.friend ? "lp-pack friend" : "lp-pack"}
+              >
                 <div className="lp-req">{p.req}</div>
                 <h3>{p.name}</h3>
                 <p>{p.text}</p>
@@ -396,15 +617,43 @@ export function Landing({ googleButton, onConnectWallet, error, worldPicker }: {
             ))}
           </div>
           <div className="lp-small">
-            Every pack also includes runes and big bones, and goes straight to your bank. Once you're in, your link is in the Invite panel, or type <span className="lp-mono">::refcode</span> in game.
+            Every pack also includes runes and big bones, and goes straight to
+            your bank. Once you're in, your link is in the Invite panel, or type{" "}
+            <span className="lp-mono">::refcode</span> in game.
           </div>
         </div>
       </section>
 
       <footer className="lp-foot">
         <div className="lp-wrap">
-          <span style={{ fontFamily: 'Cinzel, Georgia, serif', fontWeight: 700, letterSpacing: 2, color: '#A2ABA5' }}>RUNESCAPE CLASSIC</span>
+          <span
+            style={{
+              fontFamily: "Cinzel, Georgia, serif",
+              fontWeight: 700,
+              letterSpacing: 2,
+              color: "#A2ABA5",
+            }}
+          >
+            RUNESCAPE CLASSIC
+          </span>
           <span>runescapeclassic.gold</span>
+          {/* 2026-10-01: the landing page previously had NO link to Discord or X.
+              Its only outbound link was the RuneScape wiki, so every visitor who
+              wanted the community had nowhere to go and traffic leaked off-site.
+              Both are guarded: a link renders only when its URL is configured, so
+              an unset or retired handle shows nothing rather than a dead link. */}
+          <nav className="lp-social">
+            {hasDiscord && (
+              <a href={DISCORD_URL} target="_blank" rel="noopener noreferrer">
+                Discord
+              </a>
+            )}
+            {X_URL && (
+              <a href={X_URL} target="_blank" rel="noopener noreferrer">
+                X
+              </a>
+            )}
+          </nav>
           <nav>
             <a href="/about">About</a>
             <a href="/privacy-policy">Privacy</a>
