@@ -405,18 +405,17 @@
     })();
     </script>
 
-    <!-- R2H Arena Bot Pointer (v1, 2026-10-03).
-         Arena-only (world 2) mirror of the area popup: a compass arrow at the
-         very top-centre pointing at the NEAREST arena bot, visible only while
-         inside the Wilderness. Logic lives in r2h-bot-pointer.js (pure,
-         offline-tested in tools/test-bot-pointer.cjs); this block only wires
-         it to the DOM. Bot positions come from the sidecar
-         (GET /v1/arena/bots, roster-filtered read-only) because the client
-         cannot see players outside its viewport. READ-ONLY for the client:
-         one GET poll; never writes, never touches the game socket.
+    <!-- R2H Arena Bot Pointer (v2 "Edge Rail", 2026-10-03).
+         Arena-only (world 2). A 68x24 chip rides the viewport EDGE nearest
+         the target bot's screen bearing: chevron (rotates, colour = distance
+         heat) + bracketed combat level. Camera-relative bearing via
+         mc.ey/p2 (verified against the served classes.js minimap math).
+         Behaviour (hysteresis, engage-lock, rail clamp) lives in
+         r2h-bot-pointer.js (pure, 27-case offline harness). READ-ONLY for
+         the client: one GET poll to /v1/arena/bots; never writes.
          Guard is the INVERSE of the area popup: runs ONLY on the arena realm
          (iframe hash carries ,43595,). Main worlds never execute this. -->
-    <script src="r2h-bot-pointer.js?v=1"></script>
+    <script src="r2h-bot-pointer.js?v=2"></script>
     <script>
     (function() {
       'use strict';
@@ -424,110 +423,88 @@
       // ---- Arena-only guard (inverse of the area popup's guard) ----
       if (!/,43595,/.test(window.location.hash)) { return; }
 
-      var el = null;
-      var needleEl = null;
-      var labelEl = null;
+      var el = null;      // the chip (position:absolute; left/top move it)
+      var chevWrap = null;// rotation wrapper
+      var chev = null;    // the svg chevron (fill = heat)
+      var numEl = null;   // "(29)" numeral
+      var parkedEl = null;// "parked" caption when clamped off-rail
+      var rotAcc = 0;     // unwrapped rotation accumulator (no 358->2 spin)
 
       function ensureEl() {
         if (el) return el;
         var d = document.createElement('div');
         d.id = 'r2h-bot-pointer';
         d.setAttribute('aria-hidden', 'true');
-        // Compact compass, top-centre BELOW the client's own top icon strip
-        // (settings/friends sit along the very top edge). Stacked column:
-        // dial on top, one-line tag under it. Total footprint ~72x64px.
+        // Fixed 68x24 so a 2<->3 digit level never resizes the chip.
         // pointer-events:none so it can NEVER block a game click/touch.
-        d.style.cssText = 'position:absolute;top:10px;left:10px;'
-          + 'display:flex;flex-direction:column;align-items:center;gap:8px;'
+        d.style.cssText = 'position:absolute;top:22px;left:22px;'
+          + 'width:68px;height:24px;'
+          + 'display:flex;align-items:center;gap:4px;'
+          + 'background:rgba(4,4,2,0.82);'
+          + 'border:1px solid #8a7a2a;'
+          + 'padding:0 5px;box-sizing:border-box;'
           + 'font-family:monospace;font-weight:bold;'
-          + 'color:#ffff00;text-shadow:1px 1px 0 #000;'
           + 'pointer-events:none;z-index:6;'
-          + 'white-space:nowrap;opacity:0;transition:opacity .25s ease;'
-          + '-webkit-user-select:none;user-select:none;'
-          + 'font-size:clamp(10px, 2.2vmin, 13px);';
-
-        // ── Dial ── a fixed reference ring (N E S W cardinal ticks) with a
-        // rotating needle. The ring gives the eye a frame so "which way is
-        // it pointing" is answered instantly, unlike a bare triangle.
-        var dial = document.createElement('div');
-        dial.style.cssText = 'position:relative;width:68px;height:68px;'
-          + 'background:rgba(10,8,2,0.78);'
-          + 'border:2px solid #b09c3e;border-radius:50%;'
-          + 'box-shadow:0 0 6px rgba(0,0,0,0.9), inset 0 0 0 2px rgba(176,156,62,0.35), inset 0 0 8px rgba(0,0,0,0.9);';
-        // cardinal letters, absolutely positioned; N highlighted red-ish
-        var cardinals = [
-          ['N', '50%', '7px', '#ff5555'],
-          ['E', 'calc(100% - 7px)', '50%', '#cfc98f'],
-          ['S', '50%', 'calc(100% - 8px)', '#cfc98f'],
-          ['W', '7px', '50%', '#cfc98f']
-        ];
-        for (var c = 0; c < cardinals.length; c++) {
-          var l = document.createElement('span');
-          l.textContent = cardinals[c][0];
-          l.style.cssText = 'position:absolute;font-size:13px;line-height:1;font-weight:bold;text-shadow:1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;'
-            + 'transform:translate(-50%,-50%);'
-            + 'left:' + cardinals[c][1] + ';top:' + cardinals[c][2] + ';'
-            + 'color:' + cardinals[c][3] + ';';
-          dial.appendChild(l);
-        }
-        // needle: two joined triangles (red head up at 0deg, grey tail)
-        needleEl = document.createElement('div');
-        needleEl.style.cssText = 'position:absolute;left:50%;top:50%;'
-          + 'width:24px;height:62px;'
-          + 'transform:translate(-50%,-50%);'
-          + 'transform-origin:center center;'
-          + 'transition:transform .3s ease;';
-        var head = document.createElement('div');
-        head.style.cssText = 'position:absolute;left:50%;top:0;'
-          + 'transform:translateX(-50%);'
-          + 'width:0;height:0;'
-          + 'border-left:7px solid transparent;'
-          + 'border-right:7px solid transparent;'
-          + 'border-bottom:35px solid #ff4444;';
-        var tail = document.createElement('div');
-        tail.style.cssText = 'position:absolute;left:50%;bottom:0;'
-          + 'transform:translateX(-50%);'
-          + 'width:0;height:0;'
-          + 'border-left:5px solid transparent;'
-          + 'border-right:5px solid transparent;'
-          + 'border-top:25px solid #d8d8d8;';
-        var pivot = document.createElement('div');
-        pivot.style.cssText = 'position:absolute;left:50%;top:50%;'
-          + 'transform:translate(-50%,-50%);'
-          + 'width:9px;height:9px;border-radius:50%;'
-          + 'background:#e8d44d;border:2px solid #000;';
-        needleEl.appendChild(head);
-        needleEl.appendChild(tail);
-        needleEl.appendChild(pivot);
-        dial.appendChild(needleEl);
-        d.appendChild(dial);
-
-        // ── Tag ── one line under the dial, subtle dark backing
-        var tag = document.createElement('div');
-        tag.style.cssText = 'background:rgba(0,0,0,0.55);'
-          + 'border:1px solid #8a7a2a;border-radius:3px;'
-          + 'padding:1px 6px;';
-        labelEl = document.createElement('span');
-        tag.appendChild(labelEl);
-        d.appendChild(tag);
-
+          + 'opacity:0;transition:opacity .25s ease, left .25s linear, top .25s linear;'
+          + '-webkit-user-select:none;user-select:none;';
+        // chevron: inline svg, rotates inside the (non-rotating) chip
+        chevWrap = document.createElement('span');
+        chevWrap.style.cssText = 'display:inline-flex;width:16px;height:18px;'
+          + 'transition:transform .25s linear;flex:0 0 auto;';
+        chev = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        chev.setAttribute('width', '14');
+        chev.setAttribute('height', '16');
+        chev.setAttribute('viewBox', '0 0 14 16');
+        var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M7 1 L13 12.5 L7 9 L1 12.5 Z');
+        path.setAttribute('stroke', '#000');
+        path.setAttribute('stroke-width', '2');
+        path.setAttribute('stroke-linejoin', 'miter');
+        path.setAttribute('fill', '#cfc98f');
+        chev.appendChild(path);
+        chevWrap.appendChild(chev);
+        // numeral: bracketed combat level, right-aligned, fixed width
+        numEl = document.createElement('span');
+        numEl.style.cssText = 'flex-grow:1;text-align:right;'
+          + 'color:#ffff00;font-size:13px;'
+          + 'text-shadow:1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;'
+          + 'white-space:nowrap;overflow:hidden;';
+        d.appendChild(chevWrap);
+        d.appendChild(numEl);
+        // parked caption (shown only when clamped off-rail)
+        parkedEl = document.createElement('div');
+        parkedEl.textContent = 'edge';
+        parkedEl.style.cssText = 'position:absolute;top:100%;left:0;'
+          + 'font-size:9px;color:#ff8a8a;'
+          + 'text-shadow:1px 1px 0 #000;-webkit-user-select:none;'
+          + 'padding-top:1px;display:none;';
+        d.appendChild(parkedEl);
         document.body.appendChild(d);
         el = d;
         return d;
       }
 
-      var visible = false;
+      // shortest signed delta so the chevron never spins the long way round
+      function unwrapTo(target) {
+        var d = ((((target - rotAcc) % 360) + 540) % 360) - 180;
+        rotAcc += d;
+        return rotAcc;
+      }
+
       function show(o) {
         var d = ensureEl();
-        needleEl.style.transform = 'translate(-50%,-50%) rotate(' + Math.round(o.deg) + 'deg)';
-        labelEl.textContent = o.name + (o.combat !== null ? ' \u00b7 cb ' + o.combat : '') + ' \u00b7 ' + o.dist + ' tiles';
+        // position the chip centre at (o.x, o.y)
+        d.style.left = (o.x - 34) + 'px';
+        d.style.top = (o.y - 12) + 'px';
+        chevWrap.style.transform = 'rotate(' + Math.round(unwrapTo(o.deg)) + 'deg)';
+        chev.firstChild.setAttribute('fill', o.heat);
+        numEl.textContent = '(' + (o.combat !== null ? o.combat : '?') + ')';
+        parkedEl.style.display = o.parked ? 'block' : 'none';
         d.style.opacity = '1';
-        visible = true;
       }
       function hide() {
         if (!el) return;
         el.style.opacity = '0';
-        visible = false;
       }
 
       var pointer = window.R2HBotPointer.create({
@@ -537,7 +514,11 @@
           }).then(function(r) { return r.json(); });
         },
         show: show,
-        hide: hide
+        hide: hide,
+        getViewport: function() {
+          var c = document.querySelector('canvas');
+          return c ? { w: c.clientWidth, h: c.clientHeight } : { w: 1280, h: 633 };
+        }
       });
 
       setTimeout(function loop() {
