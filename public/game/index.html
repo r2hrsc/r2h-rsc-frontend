@@ -41,8 +41,16 @@
             ws.addEventListener("open", function() {
                 window._r2h_ws_open = true;
             });
-            ws.addEventListener("close", function() {
-                try { window.parent.postMessage({ type: "RSC_DISCONNECT" }, "*"); } catch(e) {}
+            ws.addEventListener("close", function(e) {
+                // Pass the close reason up. Without it the parent cannot tell a
+                // DELIBERATE logout (clean close, code 1000) from a dropped
+                // connection (abnormal, code 1006) — and it was auto-reconnecting
+                // players straight back into the game they had just left.
+                try { window.parent.postMessage({
+                    type: "RSC_DISCONNECT",
+                    code: e && e.code,
+                    wasClean: !!(e && e.wasClean)
+                }, "*"); } catch(err) {}
             });
             window._r2h_ws = ws;
             return ws;
@@ -402,6 +410,143 @@
         x.onerror = function() { /* no areas = no popup */ };
         x.send();
       } catch (e) { /* fail safe */ }
+    })();
+    </script>
+
+    <!-- R2H Arena Bot Pointer (v3 "Target Rim", 2026-10-03).
+         Arena-only (world 2). Up to 5 markers ride the viewport rim at each
+         nearby bot's SCREEN bearing: the leader (hysteresis/engage-lock
+         winner) is 96x22, bright, chevroned, heat-coloured; up to 4
+         alternates are 68x22 at 0.62 opacity. Content "(level) tiles",
+         banded. Right edge is OPEN between the measured icon-strip and skull
+         blocks (see module header for the verified geometry). Camera-relative
+         bearing via mc.ey/p2. Behaviour lives in r2h-bot-pointer.js (pure,
+         32-case offline harness). READ-ONLY for the client: one GET poll to
+         /v1/arena/bots; never writes. Guard is the INVERSE of the area
+         popup: runs ONLY on the arena realm (hash carries ,43595,). -->
+    <script src="r2h-bot-pointer.js?v=3"></script>
+    <script>
+    (function() {
+      'use strict';
+
+      // ---- Arena-only guard (inverse of the area popup's guard) ----
+      if (!/,43595,/.test(window.location.hash)) { return; }
+
+      var layer = null;    // rim layer holding all markers
+      var pool = [];       // recycled marker elements
+      var rotAcc = 0;      // leader chevron unwrapped rotation
+
+      function ensureLayer() {
+        if (layer) return layer;
+        layer = document.createElement('div');
+        layer.id = 'r2h-bot-rim';
+        layer.setAttribute('aria-hidden', 'true');
+        layer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;'
+          + 'pointer-events:none;z-index:6;overflow:hidden;';
+        document.body.appendChild(layer);
+        return layer;
+      }
+
+      // Build (or reuse) marker i. Leader: 96x22 bright + chevron.
+      // Alternates: 68x22, dim. Fixed widths so digits never resize them.
+      function ensureMarker(i, leader) {
+        var want = leader ? 96 : 68;
+        var m = pool[i];
+        if (m && Number(m.getAttribute('data-w')) === want) return m;
+        if (m && m.parentNode) m.parentNode.removeChild(m);
+        m = document.createElement('div');
+        m.setAttribute('data-w', String(want));
+        m.style.cssText = 'position:absolute;'
+          + 'width:' + want + 'px;height:22px;'
+          + 'display:flex;align-items:center;' + (leader ? 'gap:4px;' : 'gap:3px;')
+          + 'background:rgba(4,4,2,0.82);'
+          + 'border:1px solid ' + (leader ? '#8a7a2a' : '#5f5424') + ';'
+          + 'padding:0 5px;box-sizing:border-box;'
+          + 'font-family:monospace;font-weight:bold;'
+          + 'pointer-events:none;'
+          + 'opacity:0;transition:opacity .25s ease, left .25s linear, top .25s linear;'
+          + '-webkit-user-select:none;user-select:none;'
+          + (leader ? '' : 'opacity:0.62;');
+        m._opacityTarget = leader ? '1' : '0.62';
+        var txt = document.createElement('span');
+        txt.style.cssText = 'flex-grow:1;text-align:center;'
+          + 'color:' + (leader ? '#ffff00' : '#cfc98f') + ';font-size:12px;'
+          + 'white-space:nowrap;overflow:hidden;'
+          + 'text-shadow:1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;';
+        m._txt = txt;
+        if (leader) {
+          var cw = document.createElement('span');
+          cw.style.cssText = 'display:inline-flex;width:14px;height:16px;flex:0 0 auto;';
+          var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          svg.setAttribute('width', '12'); svg.setAttribute('height', '14');
+          svg.setAttribute('viewBox', '0 0 14 16');
+          var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          p.setAttribute('d', 'M7 1 L13 12.5 L7 9 L1 12.5 Z');
+          p.setAttribute('stroke', '#000'); p.setAttribute('stroke-width', '2');
+          p.setAttribute('stroke-linejoin', 'miter');
+          p.setAttribute('fill', '#cfc98f');
+          svg.appendChild(p);
+          cw.appendChild(svg);
+          m._chev = svg;
+          m.insertBefore(txt, null);
+          m.appendChild(cw);
+        } else {
+          m.appendChild(txt);
+        }
+        pool[i] = m;
+        ensureLayer().appendChild(m);
+        return m;
+      }
+
+      function show(o) {
+        var L = ensureLayer();
+        var markers = o.markers || [];
+        var i, m, mk;
+        for (i = 0; i < markers.length; i++) {
+          mk = markers[i];
+          m = ensureMarker(i, mk.leader);
+          m.style.left = (mk.x - Number(m.getAttribute('data-w')) / 2) + 'px';
+          m.style.top = (mk.y - 11) + 'px';
+          m._txt.textContent = '(' + (mk.combat !== null ? mk.combat : '?') + ') ' + mk.tiles;
+          if (mk.leader && m._chev) {
+            var d = ((((mk.deg - rotAcc) % 360) + 540) % 360) - 180;
+            rotAcc += d;
+            m._chev.parentNode.style.transform = 'rotate(' + Math.round(rotAcc) + 'deg)';
+            m._chev.firstChild.setAttribute('fill', mk.heat);
+          }
+          m.style.opacity = m._opacityTarget;
+        }
+        // hide surplus pool entries
+        for (i = markers.length; i < pool.length; i++) {
+          if (pool[i]) pool[i].style.opacity = '0';
+        }
+      }
+
+      function hide() {
+        if (!layer) return;
+        for (var i = 0; i < pool.length; i++) {
+          if (pool[i]) pool[i].style.opacity = '0';
+        }
+      }
+
+      var pointer = window.R2HBotPointer.create({
+        fetchBots: function() {
+          return fetch('https://api.r2hrsc.xyz/v1/arena/bots', {
+            credentials: 'omit'
+          }).then(function(r) { return r.json(); });
+        },
+        show: show,
+        hide: hide,
+        getViewport: function() {
+          var c = document.querySelector('canvas');
+          return c ? { w: c.clientWidth, h: c.clientHeight } : { w: 1280, h: 633 };
+        }
+      });
+
+      setTimeout(function loop() {
+        try { pointer.tick(window.__r2h_mc); } catch (e) { /* never break game */ }
+        setTimeout(loop, pointer.TICK_MS);
+      }, 5000);
     })();
     </script>
 

@@ -13,6 +13,7 @@
     "@react-oauth/google": "^0.12.1",
     "@reown/appkit": "^1.8.21",
     "@reown/appkit-adapter-ethers": "^1.8.21",
+    "@reown/appkit-adapter-solana": "^1.8.21",
     "@solana-program/system": "^0.12.2",
     "@solana-program/token": "^0.13.0",
     "@solana/kit": "^6.10.0",

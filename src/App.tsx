@@ -45,6 +45,7 @@ import { initWalletKit } from "./lib/walletKit";
 import { useDisconnect as useAppKitDisconnect } from "@reown/appkit/react";
 import "./index.css";
 import "./layout.css";
+import LinkPayoutWallet from "./components/LinkPayoutWallet";
 
 const API_URL = import.meta.env.VITE_API_URL || "https://api.r2hrsc.xyz";
 const WS_URL = import.meta.env.VITE_WS_URL || "wss://game.r2hrsc.xyz";
@@ -276,6 +277,31 @@ function AppContent() {
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === "RSC_DISCONNECT") {
+        // A DELIBERATE LOGOUT IS NOT A DISCONNECT. Both arrive here, because
+        // both are just the websocket closing. Auto-reconnect then "rescued"
+        // the player from their own logout and put them straight back in the
+        // game — founder report: "when i log out of a game session it just
+        // takes me back in".
+        //
+        // A clean close (code 1000, wasClean) means something intended it;
+        // a drop is abnormal (1006, wasClean false). `wasClean` is undefined
+        // when the game page predates this change, in which case we keep the
+        // old behaviour rather than refusing to reconnect anyone.
+        if (event.data.wasClean === true) {
+          console.log(
+            "[App] clean socket close (code " +
+              event.data.code +
+              ") — treating as a deliberate logout, not reconnecting",
+          );
+          setAppState("auth");
+          setRscCredentials(null);
+          setAuthProvider("");
+          setAuthExternalId("");
+          setRegistrationToken("");
+          logoutRef.current?.();
+          disconnectWalletRef.current?.();
+          return;
+        }
         // Realm-switch window: the OLD iframe's WS death is expected, not an
         // error — skip auto-reconnect/auth-reset entirely.
         if (Date.now() - worldSwitchAtRef.current < 20000) {
@@ -321,12 +347,12 @@ function AppContent() {
   // client_activity_timeout, and a backgrounded browser tab is throttled hard —
   // rAF stops entirely and timers fall to roughly one call a minute — so the
   // game client goes quiet within seconds of losing focus. Come back from a
-  // long tab-away and the session is very likely already gone, but the iframe
-  // can take a while to notice: the game just sits there looking frozen until
-  // its socket finally errors.
+  // long tab-away CAN leave the session dead while the iframe sits there
+  // looking frozen until its socket finally errors.
   //
-  // Rather than wait for that, remount as soon as we return from a hide long
-  // enough to have been dropped.
+  // But "hidden for a while" does not mean "dropped" — see the in-world check
+  // below. Remount only when the client itself no longer believes it is in the
+  // game world.
   useEffect(() => {
     const TAB_AWAY_RECONNECT_MS = 110000; // just under the server's 120s
     let hiddenAt = 0;
@@ -341,6 +367,37 @@ function AppContent() {
       if (away < TAB_AWAY_RECONNECT_MS) return;
       if (!rscCredentialsRef.current) return;
       if (appStateRef.current !== "playing") return;
+
+      // ASK THE CLIENT INSTEAD OF ASSUMING. The original version of this
+      // handler remounted unconditionally after a long hide, on the reasoning
+      // that the session "is very likely already gone". That reasoning was
+      // wrong in the one case players care about most: someone running a
+      // script. The script loop keeps ticking while hidden (throttled by the
+      // browser, but alive), the server's activity timeout is now 120s rather
+      // than 30s, and so the session is frequently still healthy — and we
+      // killed it, losing their script, every single time they tabbed away for
+      // two minutes and came back.
+      //
+      // The iframe is same-origin, so the client's own state is readable.
+      // mc.fv is its loggedIn flag: 1 = drawing the game world. If it still
+      // believes it is in the world, leave it alone. If the socket really did
+      // die, the client's own error path fires and the existing reconnect
+      // logic picks it up — slower than remounting blind, but it no longer
+      // destroys working sessions to save a broken one.
+      try {
+        const frame = gameIframeRef.current;
+        const mc = (frame?.contentWindow as any)?.__r2h_mc;
+        if (mc && mc.fv === 1) {
+          console.log(
+            "[App] back after " +
+              Math.round(away / 1000) +
+              "s hidden — client still in-world, leaving the session alone",
+          );
+          return;
+        }
+      } catch {
+        // Cross-origin or the frame is gone: fall through and remount.
+      }
       // Do not fight a realm switch that is already in flight.
       if (Date.now() - worldSwitchAtRef.current < 20000) return;
       console.log(
@@ -671,6 +728,14 @@ function AppContent() {
         {/* Game account credentials — lets Gmail/wallet users see + copy their
               real in-game username/password (works with the classic login screen
               and external clients). Rendered only when signed in. */}
+        {/* Rewards nudge. The Game Account panel also carries this, but that
+            panel opens from the gear menu only — a player with $RUNE waiting
+            would never find a button they do not know exists. In 'banner' mode
+            this renders NOTHING unless rewards are actually pending, so it only
+            ever interrupts someone who is owed money. */}
+        {rscCredentials && !isAuthScreen && (
+          <LinkPayoutWallet username={rscCredentials.username} variant="banner" />
+        )}
         {rscCredentials && !isAuthScreen && accountOpen && (
           <AccountCredentials
             username={rscCredentials.username}

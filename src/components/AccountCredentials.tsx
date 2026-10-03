@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import LinkPayoutWallet from './LinkPayoutWallet';
 
 /**
  * AccountCredentials — shows the player's REAL in-game username + password
@@ -57,6 +58,14 @@ export default function AccountCredentials({ username, password, onClose }: { us
           {copied === 'pass' ? '✓' : 'Copy'}
         </button>
       </div>
+      {/* $RUNE payouts need a SOLANA address. Accounts created before Solana
+          support have an EVM (0x) identity, which cannot receive an SPL token,
+          so those players' kills sit unpaid. This links a Solana wallet to the
+          account they are already signed into — signing in with Solana instead
+          would create a SECOND account and strand what they already earned. */}
+      <div style={styles.payout}>
+        <LinkPayoutWallet username={username} />
+      </div>
     </div>
   );
 }
@@ -101,6 +110,7 @@ const styles: Record<string, React.CSSProperties> = {
   },
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   title: { color: '#e5e5e5', fontSize: 14, fontWeight: 700 },
+  payout: { marginTop: 14, paddingTop: 12, borderTop: '1px solid #222' },
   close: {
     background: 'none', border: 'none', color: '#888', fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: '0 4px',
   },
