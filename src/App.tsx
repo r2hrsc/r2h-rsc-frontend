@@ -45,6 +45,7 @@ import { initWalletKit } from "./lib/walletKit";
 import { useDisconnect as useAppKitDisconnect } from "@reown/appkit/react";
 import "./index.css";
 import "./layout.css";
+import LinkPayoutWallet from "./components/LinkPayoutWallet";
 
 const API_URL = import.meta.env.VITE_API_URL || "https://api.r2hrsc.xyz";
 const WS_URL = import.meta.env.VITE_WS_URL || "wss://game.r2hrsc.xyz";
@@ -671,6 +672,14 @@ function AppContent() {
         {/* Game account credentials — lets Gmail/wallet users see + copy their
               real in-game username/password (works with the classic login screen
               and external clients). Rendered only when signed in. */}
+        {/* Rewards nudge. The Game Account panel also carries this, but that
+            panel opens from the gear menu only — a player with $RUNE waiting
+            would never find a button they do not know exists. In 'banner' mode
+            this renders NOTHING unless rewards are actually pending, so it only
+            ever interrupts someone who is owed money. */}
+        {rscCredentials && !isAuthScreen && (
+          <LinkPayoutWallet username={rscCredentials.username} variant="banner" />
+        )}
         {rscCredentials && !isAuthScreen && accountOpen && (
           <AccountCredentials
             username={rscCredentials.username}
