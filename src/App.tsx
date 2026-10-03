@@ -322,12 +322,12 @@ function AppContent() {
   // client_activity_timeout, and a backgrounded browser tab is throttled hard —
   // rAF stops entirely and timers fall to roughly one call a minute — so the
   // game client goes quiet within seconds of losing focus. Come back from a
-  // long tab-away and the session is very likely already gone, but the iframe
-  // can take a while to notice: the game just sits there looking frozen until
-  // its socket finally errors.
+  // long tab-away CAN leave the session dead while the iframe sits there
+  // looking frozen until its socket finally errors.
   //
-  // Rather than wait for that, remount as soon as we return from a hide long
-  // enough to have been dropped.
+  // But "hidden for a while" does not mean "dropped" — see the in-world check
+  // below. Remount only when the client itself no longer believes it is in the
+  // game world.
   useEffect(() => {
     const TAB_AWAY_RECONNECT_MS = 110000; // just under the server's 120s
     let hiddenAt = 0;
@@ -342,6 +342,37 @@ function AppContent() {
       if (away < TAB_AWAY_RECONNECT_MS) return;
       if (!rscCredentialsRef.current) return;
       if (appStateRef.current !== "playing") return;
+
+      // ASK THE CLIENT INSTEAD OF ASSUMING. The original version of this
+      // handler remounted unconditionally after a long hide, on the reasoning
+      // that the session "is very likely already gone". That reasoning was
+      // wrong in the one case players care about most: someone running a
+      // script. The script loop keeps ticking while hidden (throttled by the
+      // browser, but alive), the server's activity timeout is now 120s rather
+      // than 30s, and so the session is frequently still healthy — and we
+      // killed it, losing their script, every single time they tabbed away for
+      // two minutes and came back.
+      //
+      // The iframe is same-origin, so the client's own state is readable.
+      // mc.fv is its loggedIn flag: 1 = drawing the game world. If it still
+      // believes it is in the world, leave it alone. If the socket really did
+      // die, the client's own error path fires and the existing reconnect
+      // logic picks it up — slower than remounting blind, but it no longer
+      // destroys working sessions to save a broken one.
+      try {
+        const frame = gameIframeRef.current;
+        const mc = (frame?.contentWindow as any)?.__r2h_mc;
+        if (mc && mc.fv === 1) {
+          console.log(
+            "[App] back after " +
+              Math.round(away / 1000) +
+              "s hidden — client still in-world, leaving the session alone",
+          );
+          return;
+        }
+      } catch {
+        // Cross-origin or the frame is gone: fall through and remount.
+      }
       // Do not fight a realm switch that is already in flight.
       if (Date.now() - worldSwitchAtRef.current < 20000) return;
       console.log(
