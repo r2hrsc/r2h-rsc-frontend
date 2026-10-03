@@ -1,4 +1,4 @@
-// Offline harness for r2h-bot-pointer.js v2 (Edge Rail).
+// Offline harness for r2h-bot-pointer.js v3 (Target Rim).
 // Run: node tools/test-bot-pointer.cjs
 'use strict';
 const path = require('path');
@@ -17,83 +17,123 @@ function t(name, cond, extra) {
 }
 
 let clock = 1000;
+const vp = { w: 1280, h: 633 };
 
-// ── unit: wilderness / bearing / position (carried from v1) ──
 const p0 = create({ now: () => clock, fetchBots: () => Promise.resolve({ bots: [] }), show: () => {}, hide: () => {} });
 t('wild y=427 level 0', p0._wildernessLevel(427) === 0);
 t('wild y=426 level 1', p0._wildernessLevel(426) === 1);
-t('bearing N=0 E=90 S=180 W=270',
+t('bearing N E S W',
   p0._bearingDeg({x:200,y:300},{x:200,y:250}) === 0 &&
   p0._bearingDeg({x:200,y:300},{x:150,y:300}) === 90 &&
   p0._bearingDeg({x:200,y:300},{x:200,y:350}) === 180 &&
   p0._bearingDeg({x:200,y:300},{x:250,y:300}) === 270);
 t('readPosition safety', p0._readPosition(null) === null && p0._readPosition({bJ:1}) === null && p0._readPosition({bJ:'x',bK:0,du:0,dd:0}) === null);
-
-// ── camera ──
-t('cameraDeg: ey=0,p2=0 -> 0', p0._cameraDeg({ ey: 0, p2: 0 }) === 0);
-t('cameraDeg: ey=64 -> 90 (east)', p0._cameraDeg({ ey: 64, p2: 0 }) === 90);
-t('cameraDeg: ey=128 -> 180', p0._cameraDeg({ ey: 128, p2: 0 }) === 180);
-t('cameraDeg: ey=250,p2=10 -> wraps ((250+10)&255=4) -> 5.625', p0._cameraDeg({ ey: 250, p2: 10 }) === 5.625);
+t('cameraDeg: ey=64 -> 90', p0._cameraDeg({ ey: 64, p2: 0 }) === 90);
+t('cameraDeg: ey=250,p2=10 -> 5.625', p0._cameraDeg({ ey: 250, p2: 10 }) === 5.625);
 t('cameraDeg: null when ey absent', p0._cameraDeg({}) === null);
-t('cameraDeg: p2 included (32+32 -> 90)', p0._cameraDeg({ ey: 32, p2: 32 }) === 90);
 
-// ── rail projection ──
-const vp = { w: 1280, h: 633 };
-let r = p0._railPoint(0, vp.w, vp.h);
-t('rail 0deg: top edge, x=centre, not parked', r.edge === 'top' && Math.abs(r.x - 640) < 40 && r.y === 22 && !r.parked, r);
-r = p0._railPoint(180, vp.w, vp.h);
-t('rail 180deg: bottom edge, x=centre', r.edge === 'bottom' && Math.abs(r.x - 640) < 40 && r.y === 633 - 22, r);
+// Claude test class 1: parked marker never lands on the far side from the bot
+let parkedCount = 0, wrongSide = 0, offFrame = 0, inNogo = 0;
+const STRIP = { x0: 0.609 * vp.w, y1: 0.101 * vp.h };
+const SKULL = { x0: 0.850 * vp.w, y0: 0.805 * vp.h, y1: 0.948 * vp.h };
+for (let b = 0; b < 360; b++) {
+  const rr = p0._railPoint(b, vp.w, vp.h);
+  const dx = Math.sin(b * Math.PI / 180);
+  if (rr.parked) parkedCount++;
+  if (dx > 0.1 && rr.x <= 640) { wrongSide++; console.log('  wrong-side at', b, JSON.stringify(rr)); }
+  if (dx < -0.1 && rr.x >= 640) { wrongSide++; console.log('  wrong-side at', b, JSON.stringify(rr)); }
+  if (rr.x - 48 < 0 || rr.x + 48 > vp.w || rr.y - 11 < 0 || rr.y + 11 > vp.h) offFrame++;
+  const inStrip = (rr.x + 48 > STRIP.x0 + 2) && (rr.y - 11 < STRIP.y1 + 4);
+  const inSkull = (rr.x + 48 > SKULL.x0 + 2) && (rr.y + 11 > SKULL.y0 - 2) && (rr.y - 11 < SKULL.y1 + 2);
+  if (inStrip || inSkull) { inNogo++; console.log('  nogo at', b, JSON.stringify(rr)); }
+}
+t('C1: 0/360 wrong side (v2 had 129)', wrongSide === 0, { wrongSide });
+t('C1: 0/360 off-frame at own width', offFrame === 0, { offFrame });
+t('C1: 0/360 inside strip/skull no-go', inNogo === 0, { inNogo });
+t('C1: parked fraction < 25%', parkedCount / 360 < 0.25, { parkedCount });
+
+let r = p0._railPoint(90, vp.w, vp.h);
+t('rail 90 east: right edge exact', r.edge === 'right' && !r.parked && r.x === vp.w - 50, r);
 r = p0._railPoint(270, vp.w, vp.h);
-t('rail 270deg: left edge', r.edge === 'left' && r.x === 22 && !r.parked, r);
-r = p0._railPoint(90, vp.w, vp.h);
-t('rail 90deg (right): parked at left corner', r.parked === true && r.x === 22 && (r.y === 22 || r.y === 633-22), r);
-r = p0._railPoint(45, vp.w, vp.h);
-t('rail 45deg (up-right): parked beyond 61% limit', r.parked === true, r);
-r = p0._railPoint(315, vp.w, vp.h);
-t('rail 315deg (up-left): top edge legal', r.edge === 'top' && !r.parked && r.x < 1280*0.61 + 1, r);
+t('rail 270 west: left edge', r.edge === 'left' && r.x === 50 && !r.parked, r);
+r = p0._railPoint(0, vp.w, vp.h);
+t('rail 0 north: top centre exact', r.edge === 'top' && !r.parked && Math.abs(r.x - 640) < 40, r);
+r = p0._railPoint(180, vp.w, vp.h);
+t('rail 180 south: bottom exact', r.edge === 'bottom' && !r.parked, r);
+r = p0._railPoint(60, vp.w, vp.h);
+t('rail 60: parks TOP at TOP_MAX (toward bot)', r.parked && r.edge === 'top' && r.x > 640, r);
+r = p0._railPoint(120, vp.w, vp.h);
+t('rail 120: parks BOTTOM at BOT_MAX (toward bot)', r.parked && r.edge === 'bottom' && r.x > 640, r);
 
-// ── heat ramp ──
-t('heat bands', p0._heat(3) === '#ff4444' && p0._heat(10) === '#ff8c1a' && p0._heat(25) === '#e8d44d' && p0._heat(90) === '#cfc98f');
+// C4: spread enforces 28px along the edge axis
+{
+  const markers = [
+    { x: 600, y: 22, edge: 'top', leader: true },
+    { x: 610, y: 22, edge: 'top', leader: false }
+  ];
+  p0._spreadByEdge(markers, vp.w, vp.h);
+  t('C4: 10px apart -> spread to >=28px', markers[1].x - markers[0].x >= 28, markers);
+}
 
-// ── pick: hysteresis + engage lock (behavioural) ──
-const me = { x: 200, y: 300 };
-const mk = (n, x, y) => ({ n, x, y, cb: 10 });
-const px = create({ now: () => clock, fetchBots: () => Promise.resolve({bots:[]}), show: () => {}, hide: () => {} });
-let pr = px._pick(me, [mk('A', 230, 300), mk('B', 200, 331)]);
-t('pick: nearest first', pr.bot.n === 'A');
-pr = px._pick(me, [mk('A', 230, 300), mk('B', 200, 329)]); // B=29 vs sticky A=30: 29 >= 30*0.88 -> stay
-t('hysteresis: stays sticky within 12%', pr.bot.n === 'A');
-pr = px._pick(me, [mk('A', 230, 300), mk('B', 205, 300)]); // B=5: clearly better -> switch
-t('hysteresis: switches when clearly better', pr.bot.n === 'B');
-pr = px._pick(me, [mk('B', 201, 300)]); // 1 tile: engage lock on B
-pr = px._pick(me, [mk('B', 205, 300), mk('C', 203, 300)]); // B=5 locked vs C=3
-t('engage lock holds to 6 tiles vs closer rival', pr.bot.n === 'B', pr);
-pr = px._pick(me, [mk('B', 210, 300), mk('C', 203, 300)]); // B=10 > 6 -> release; C=3
-t('engage lock releases past 6 tiles', pr.bot.n === 'C', pr);
+// C5: leader is the hysteresis/lock winner, not feed[0]
+{
+  const px2 = create({ now: () => clock, fetchBots: () => Promise.resolve({bots:[]}), show: () => {}, hide: () => {} });
+  const me = { x: 200, y: 300 };
+  const mk = (n, x, y) => ({ n: n, x: x, y: y, cb: 10 });
+  let pr = px2._pickLeader(me, [mk('A', 230, 300), mk('B', 200, 331)]);
+  t('C5a: nearest first', pr.bot.n === 'A');
+  pr = px2._pickLeader(me, [mk('A', 230, 300), mk('B', 200, 329)]);
+  t('C5b: sticky within 12%', pr.bot.n === 'A');
+  pr = px2._pickLeader(me, [mk('A', 230, 300), mk('B', 205, 300)]);
+  t('C5c: switches when clearly better', pr.bot.n === 'B');
+  px2._pickLeader(me, [mk('B', 201, 300)]);
+  pr = px2._pickLeader(me, [mk('B', 205, 300), mk('C', 203, 300)]);
+  t('C5d: engage lock holds vs closer rival', pr.bot.n === 'B');
+  pr = px2._pickLeader(me, [mk('B', 210, 300), mk('C', 196, 300)]);
+  t('C5e: lock releases past 6 tiles', pr.bot.n === 'C');
+}
 
-// ── tick integration: fv gate + camera-relative + payload shape ──
+// rim integration through tick()
 let shown = null, hidden = 0;
+const bots5 = [
+  { n: 'northbot', x: 200, y: 250, cb: 20 },
+  { n: 'eastbot', x: 150, y: 300, cb: 30 },
+  { n: 'westbot', x: 250, y: 300, cb: 40 },
+  { n: 'southbot', x: 200, y: 350, cb: 50 },
+  { n: 'farbot', x: 260, y: 360, cb: 60 },
+  { n: 'superfar', x: 350, y: 500, cb: 70 }
+];
 const pt = create({
   now: () => clock,
-  fetchBots: () => Promise.resolve({ bots: [{ n: 'plagueknight', x: 132, y: 150, cb: 65 }] }),
+  fetchBots: () => Promise.resolve({ bots: bots5 }),
   show: (o) => { shown = o; },
   hide: () => { hidden++; },
-  getViewport: () => ({ w: 1280, h: 633 })
+  getViewport: () => vp
 });
 const mcWild = { fv: 1, bJ: 0, bK: 0, du: 200, dd: 300 };
 const mcTitle = { fv: 0, bJ: 0, bK: 0, du: 200, dd: 300 };
-const mcWildCam = { fv: 1, bJ: 0, bK: 0, du: 200, dd: 300, ey: 64, p2: 0 };
 pt.tick(mcTitle);
-t('tick: hidden on title screen (fv=0)', shown === null && hidden >= 1);
+t('tick: hidden on title screen', shown === null && hidden >= 1);
 pt.tick(mcWild);
 setImmediate(() => {
   pt.tick(mcWild);
-  const expectWorld = p0._bearingDeg({x:200,y:300},{x:132,y:150});
-  t('tick: shows in wild, cameraRelative=false without ey', shown !== null && shown.cameraRelative === false, shown);
-  t('tick: world bearing matches unit math', shown && Math.abs(shown.deg - expectWorld) < 0.01, { deg: shown && shown.deg, expectWorld });
-  pt.tick(mcWildCam);
-  t('tick: camera east subtracts 90deg', shown && Math.abs(((shown.deg - (expectWorld - 90)) % 360 + 360) % 360) < 0.01 && shown.cameraRelative === true, shown);
-  t('tick: chip coords + heat + combat + parked flag', shown && typeof shown.x === 'number' && typeof shown.y === 'number' && shown.heat === '#cfc98f' && shown.combat === 65 && shown.parked === false, shown);
+  t('tick: rim shows 4 markers (60-tile cull)', shown && shown.markers.length === 4, shown && shown.markers.map(function(m){return m.name;}));
+  const leader = shown && shown.markers.find(function(m){return m.leader;});
+  const alts = shown && shown.markers.filter(function(m){return !m.leader;});
+  t('tick: exactly one leader', !!(leader && alts && shown.markers.length - alts.length === 1));
+  t('tick: leader is nearest (northbot, banded 50+)', !!(leader && leader.name === 'northbot' && leader.tiles === '50+'), leader);
+  t('tick: markers on >=3 distinct edges', !!(shown && new Set(shown.markers.map(function(m){return m.edge;})).size >= 3), shown && shown.markers.map(function(m){return m.edge;}));
+  t('tick: all on-frame', !!(shown && shown.markers.every(function(m){return m.x - 48 >= 0 && m.x + 48 <= vp.w && m.y - 11 >= 0 && m.y + 11 <= vp.h;})));
+  t('tick: cameraRelative=false without ey', !!(shown && shown.cameraRelative === false));
+  let nogo = 0;
+  shown.markers.forEach(function(m) {
+    const inStrip = (m.x + 48 > STRIP.x0) && (m.y - 11 < STRIP.y1 + 4);
+    const inSkull = (m.x + 48 > SKULL.x0) && (m.y + 11 > SKULL.y0 - 2) && (m.y - 11 < SKULL.y1 + 2);
+    if (inStrip || inSkull) nogo++;
+  });
+  t('tick: no marker intersects furniture', nogo === 0, { nogo: nogo });
+  pt.tick({ fv: 1, bJ: 0, bK: 0, du: 200, dd: 300, ey: 64, p2: 0 });
+  t('tick: camera east rotates rim (northbot -> left edge)', !!(shown && shown.markers.find(function(m){return m.name === 'northbot';}).edge === 'left'), shown && shown.markers);
   done();
 });
 function done() {
