@@ -41,8 +41,16 @@
             ws.addEventListener("open", function() {
                 window._r2h_ws_open = true;
             });
-            ws.addEventListener("close", function() {
-                try { window.parent.postMessage({ type: "RSC_DISCONNECT" }, "*"); } catch(e) {}
+            ws.addEventListener("close", function(e) {
+                // Pass the close reason up. Without it the parent cannot tell a
+                // DELIBERATE logout (clean close, code 1000) from a dropped
+                // connection (abnormal, code 1006) — and it was auto-reconnecting
+                // players straight back into the game they had just left.
+                try { window.parent.postMessage({
+                    type: "RSC_DISCONNECT",
+                    code: e && e.code,
+                    wasClean: !!(e && e.wasClean)
+                }, "*"); } catch(err) {}
             });
             window._r2h_ws = ws;
             return ws;

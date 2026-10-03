@@ -277,6 +277,31 @@ function AppContent() {
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === "RSC_DISCONNECT") {
+        // A DELIBERATE LOGOUT IS NOT A DISCONNECT. Both arrive here, because
+        // both are just the websocket closing. Auto-reconnect then "rescued"
+        // the player from their own logout and put them straight back in the
+        // game — founder report: "when i log out of a game session it just
+        // takes me back in".
+        //
+        // A clean close (code 1000, wasClean) means something intended it;
+        // a drop is abnormal (1006, wasClean false). `wasClean` is undefined
+        // when the game page predates this change, in which case we keep the
+        // old behaviour rather than refusing to reconnect anyone.
+        if (event.data.wasClean === true) {
+          console.log(
+            "[App] clean socket close (code " +
+              event.data.code +
+              ") — treating as a deliberate logout, not reconnecting",
+          );
+          setAppState("auth");
+          setRscCredentials(null);
+          setAuthProvider("");
+          setAuthExternalId("");
+          setRegistrationToken("");
+          logoutRef.current?.();
+          disconnectWalletRef.current?.();
+          return;
+        }
         // Realm-switch window: the OLD iframe's WS death is expected, not an
         // error — skip auto-reconnect/auth-reset entirely.
         if (Date.now() - worldSwitchAtRef.current < 20000) {
