@@ -468,7 +468,7 @@
       function show(o) {
         var d = ensureEl();
         arrowEl.style.transform = 'rotate(' + Math.round(o.deg) + 'deg)';
-        labelEl.textContent = o.name + (o.combat !== null ? ' · cb ' + o.combat : '') + ' · ' + o.dist + ' tiles';
+        labelEl.textContent = o.name + (o.combat !== null ? ' \u00b7 cb ' + o.combat : '') + ' \u00b7 ' + o.dist + ' tiles';
         d.style.opacity = '1';
         visible = true;
       }
