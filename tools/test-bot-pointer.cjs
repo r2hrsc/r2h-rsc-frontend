@@ -93,7 +93,25 @@ t('rail 120: parks BOTTOM at BOT_MAX (toward bot)', r.parked && r.edge === 'bott
   t('C5e: lock releases past 6 tiles', pr.bot.n === 'C');
 }
 
-// rim integration through tick()
+// ── REGRESSION v3.1: leader survives the 60-tile cull (the founder blank-rim
+//    bug: v3 hid EVERYTHING when no bot was within CULL_TILES) ──
+{
+  let shown31 = null;
+  const far = { n: 'farleader', x: 132, y: 150, cb: 65 }; // ~187 tiles away
+  const p31 = create({
+    now: () => clock,
+    fetchBots: () => Promise.resolve({ bots: [far] }),
+    show: (o) => { shown31 = o; },
+    hide: () => { shown31 = null; },
+    getViewport: () => vp
+  });
+  p31.tick({ fv: 1, bJ: 0, bK: 0, du: 200, dd: 300 });
+  setImmediate(() => {
+    p31.tick({ fv: 1, bJ: 0, bK: 0, du: 200, dd: 300 });
+    t('v3.1 REGRESSION: far-only bot still shows as leader (no blank rim)', shown31 && shown31.markers.length === 1 && shown31.markers[0].leader === true && shown31.markers[0].name === 'farleader', shown31);
+    t('v3.1 REGRESSION: far leader tiles banded (30+/40+/etc)', shown31 && /^[0-9]+\+$/.test(shown31.markers[0].tiles), shown31 && shown31.markers[0]);
+
+// ── rim integration through tick() ──
 let shown = null, hidden = 0;
 const bots5 = [
   { n: 'northbot', x: 200, y: 250, cb: 20 },
@@ -134,8 +152,10 @@ setImmediate(() => {
   t('tick: no marker intersects furniture', nogo === 0, { nogo: nogo });
   pt.tick({ fv: 1, bJ: 0, bK: 0, du: 200, dd: 300, ey: 64, p2: 0 });
   t('tick: camera east rotates rim (northbot -> left edge)', !!(shown && shown.markers.find(function(m){return m.name === 'northbot';}).edge === 'left'), shown && shown.markers);
-  done();
-});
+    done();
+  });
+  });
+}
 function done() {
   console.log('\n' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);

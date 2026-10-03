@@ -242,7 +242,16 @@
       }
       if (!bots || bots.length === 0) { deps.hide(); return; }
 
-      // candidates: in range, sorted by distance
+      // LEADER: chosen from ALL bots, never culled — the pointer's core job
+      // (v3.1 fix: v3 culled the leader too, so any spot with no bot within
+      // CULL_TILES showed NOTHING where v2 showed the far bot; the founder
+      // navigates by this pointer across empty wilderness).
+      var leader = pickLeader(me, bots.filter(function (b2) {
+        return typeof b2.x === 'number' && typeof b2.y === 'number';
+      }));
+      if (!leader) { deps.hide(); return; }
+
+      // candidates for ALTERNATES: in range only (rim-noise control)
       var cand = [], i, b, d;
       for (i = 0; i < bots.length; i++) {
         b = bots[i];
@@ -251,11 +260,8 @@
         if (d > CULL_TILES) continue;
         cand.push({ bot: b, dist: d });
       }
-      if (cand.length === 0) { deps.hide(); return; }
+      if (cand.length === 0) { cand = [{ bot: leader.bot, dist: leader.dist }]; } // leader alone: pointer never blanks
       cand.sort(function (a, b2) { return a.dist - b2.dist; });
-
-      var leader = pickLeader(me, cand.map(function (c) { return c.bot; }));
-      if (!leader) { deps.hide(); return; }
 
       // markers: leader first, then nearest alternates, max MAX_MARKERS
       var chosen = [];
