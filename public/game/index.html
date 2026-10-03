@@ -405,6 +405,96 @@
     })();
     </script>
 
+    <!-- R2H Arena Bot Pointer (v1, 2026-10-03).
+         Arena-only (world 2) mirror of the area popup: a compass arrow at the
+         very top-centre pointing at the NEAREST arena bot, visible only while
+         inside the Wilderness. Logic lives in r2h-bot-pointer.js (pure,
+         offline-tested in tools/test-bot-pointer.cjs); this block only wires
+         it to the DOM. Bot positions come from the sidecar
+         (GET /v1/arena/bots, roster-filtered read-only) because the client
+         cannot see players outside its viewport. READ-ONLY for the client:
+         one GET poll; never writes, never touches the game socket.
+         Guard is the INVERSE of the area popup: runs ONLY on the arena realm
+         (iframe hash carries ,43595,). Main worlds never execute this. -->
+    <script src="r2h-bot-pointer.js?v=1"></script>
+    <script>
+    (function() {
+      'use strict';
+
+      // ---- Arena-only guard (inverse of the area popup's guard) ----
+      if (!/,43595,/.test(window.location.hash)) { return; }
+
+      var el = null;
+      var arrowEl = null;
+      var labelEl = null;
+
+      function ensureEl() {
+        if (el) return el;
+        var d = document.createElement('div');
+        d.id = 'r2h-bot-pointer';
+        d.setAttribute('aria-hidden', 'true');
+        // Very top-centre of the game screen. pointer-events:none so it can
+        // NEVER block a game click/touch (same rule as the area popup).
+        d.style.cssText = 'position:absolute;top:4px;left:50%;'
+          + 'transform:translateX(-50%);'
+          + 'display:flex;align-items:center;gap:6px;'
+          + 'font-family:monospace;font-weight:bold;'
+          + 'color:#ffff00;text-shadow:1px 1px 0 #000;'
+          + 'background:rgba(0,0,0,0.45);'
+          + 'border:1px solid #5a4a1a;border-radius:4px;'
+          + 'padding:3px 8px;'
+          + 'pointer-events:none;z-index:6;'
+          + 'white-space:nowrap;opacity:0;transition:opacity .25s ease;'
+          + '-webkit-user-select:none;user-select:none;'
+          + 'font-size:clamp(11px, 2.6vmin, 15px);';
+        // CSS triangle arrow, points UP at 0deg; whole element stays fixed at
+        // top-centre and only the arrow rotates.
+        arrowEl = document.createElement('span');
+        arrowEl.style.cssText = 'display:inline-block;width:0;height:0;'
+          + 'border-left:6px solid transparent;'
+          + 'border-right:6px solid transparent;'
+          + 'border-bottom:10px solid #ffff00;'
+          + 'filter:drop-shadow(1px 1px 0 #000);'
+          + 'vertical-align:middle;';
+        labelEl = document.createElement('span');
+        d.appendChild(arrowEl);
+        d.appendChild(labelEl);
+        document.body.appendChild(d);
+        el = d;
+        return d;
+      }
+
+      var visible = false;
+      function show(o) {
+        var d = ensureEl();
+        arrowEl.style.transform = 'rotate(' + Math.round(o.deg) + 'deg)';
+        labelEl.textContent = o.name + (o.combat !== null ? ' · cb ' + o.combat : '') + ' · ' + o.dist + ' tiles';
+        d.style.opacity = '1';
+        visible = true;
+      }
+      function hide() {
+        if (!el) return;
+        el.style.opacity = '0';
+        visible = false;
+      }
+
+      var pointer = window.R2HBotPointer.create({
+        fetchBots: function() {
+          return fetch('https://api.r2hrsc.xyz/v1/arena/bots', {
+            credentials: 'omit'
+          }).then(function(r) { return r.json(); });
+        },
+        show: show,
+        hide: hide
+      });
+
+      setTimeout(function loop() {
+        try { pointer.tick(window.__r2h_mc); } catch (e) { /* never break game */ }
+        setTimeout(loop, pointer.TICK_MS);
+      }, 5000);
+    })();
+    </script>
+
 <!-- R2H Bot Engine: receives script commands from parent, automates character -->
     <script src="r2h-bot-engine.js?v=v423"></script>
   </head>
