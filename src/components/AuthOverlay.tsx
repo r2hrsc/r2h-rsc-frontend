@@ -58,12 +58,30 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser, wo
   const address = chain === 'evm' ? evmAccount.address : chain === 'solana' ? solAccount.address : undefined;
   const isConnected = chain !== null;
 
+  // WAIT FOR THE SIGNER, NOT JUST THE ACCOUNT.
+  //
+  // useAppKitAccount populates before useAppKitProvider does. This effect used
+  // to fire on the account alone, and handleWalletAuth throws immediately when
+  // walletProvider is missing — which calls rearmWallet() and DISCONNECTS the
+  // wallet. Symptom, reported by the founder: the first connect "doesn't take"
+  // and a hard refresh fixes it, because on reload the wallet is already
+  // connected and both hooks are populated by the time React runs.
+  //
+  // The race pre-existed, but registering the Solana adapter made AppKit's init
+  // heavier and widened the window enough to lose it most times. Gating on the
+  // matching provider — and listing it in the deps so this re-runs the moment it
+  // arrives — closes it without changing anything else.
+  const providerReady =
+    chain === 'evm' ? !!walletProvider
+    : chain === 'solana' ? !!solWalletProvider
+    : false;
+
   // Guard against double-firing when both isConnected and address update,
   // and against re-triggering the signature prompt for an already-handled address.
   const handledRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (isConnected && address) {
+    if (isConnected && address && providerReady) {
       if (handledRef.current === address) return;
       handledRef.current = address;
       console.log(`[Auth] Wallet connected (${chain}):`, address);
@@ -73,7 +91,7 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser, wo
     if (!isConnected) {
       handledRef.current = null;
     }
-  }, [isConnected, address, chain]);
+  }, [isConnected, address, chain, providerReady]);
 
   /** On any wallet-auth failure: re-arm so the user can simply tap Connect again. */
   const rearmWallet = (msg: string) => {
