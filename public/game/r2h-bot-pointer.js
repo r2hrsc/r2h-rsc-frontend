@@ -307,6 +307,12 @@
         // client's own wilderness formula (field drift after a rebuild)
         showable = !!(me && positionSelfCheck(mc, me) && wildernessLevel(me.y) > 0);
       }
+      // v4.2: expose live state for diagnostics - one console line grabs the
+      // exact executing version, position, level and last bot payload
+      lastState.t = now;
+      lastState.me = me;
+      lastState.wild = me ? wildernessLevel(me.y) : -1;
+      if (bots) { lastState.bots = { count: bots.length, nearest: bots.length ? bots.reduce(function (a, b) { var da = (a.x - me.x) * (a.x - me.x) + (a.y - me.y) * (a.y - me.y); var db = (b.x - me.x) * (b.x - me.x) + (b.y - me.y) * (b.y - me.y); return db < da ? b : a; }, bots[0]) : null }; }
       if (!showable) {
         stickyName = null; lockedName = null;
         deps.hide();
@@ -399,7 +405,10 @@
     };
   }
 
-  window.R2HBotPointer = { create: createR2HBotPointer };
+  var VERSION = 'v4.2';
+  var lastState = { version: VERSION, t: 0, me: null, wild: -1, bots: null };
+  window.R2HBotPointer = { create: createR2HBotPointer, version: VERSION, getState: function () { return lastState; } };
+  try { console.log('[r2h-bot-pointer] ' + VERSION + ' loaded (true screen rim + position self-check)'); } catch (e) {}
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = { create: createR2HBotPointer };
   }
