@@ -41,16 +41,42 @@
             ws.addEventListener("open", function() {
                 window._r2h_ws_open = true;
             });
+            // LOGOUT DETECTION. `wasClean` is useless here: the server ends a
+            // session with a bare channel.close() and never sends a websocket
+            // close frame, so EVERY close arrives as 1006/not-clean whether the
+            // player logged out or the link died. Checking it was my mistake.
+            //
+            // What IS reliable: the client announces a logout before the socket
+            // dies. The web client speaks Payload177 (Player.java picks it for
+            // clientVersion >= 10000 over websocket), where the outgoing opcodes
+            // are 6 = LOGOUT and 1 = CONFIRM_LOGOUT, framed as [length][opcode].
+            // A no-payload packet is therefore the two bytes [1][6] or [1][1].
+            var r2hLogoutSentAt = 0;
+            var nativeSend = ws.send.bind(ws);
+            ws.send = function(data) {
+                try {
+                    var b = null;
+                    if (data instanceof ArrayBuffer) b = new Uint8Array(data);
+                    else if (data && data.buffer instanceof ArrayBuffer) b = new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength);
+                    if (b && b.length === 2 && b[0] === 1 && (b[1] === 6 || b[1] === 1)) {
+                        r2hLogoutSentAt = Date.now();
+                    }
+                } catch (err) { /* never break the game over telemetry */ }
+                return nativeSend(data);
+            };
+
             ws.addEventListener("close", function(e) {
-                // Pass the close reason up. Without it the parent cannot tell a
-                // DELIBERATE logout (clean close, code 1000) from a dropped
-                // connection (abnormal, code 1006) — and it was auto-reconnecting
-                // players straight back into the game they had just left.
-                try { window.parent.postMessage({
-                    type: "RSC_DISCONNECT",
-                    code: e && e.code,
-                    wasClean: !!(e && e.wasClean)
-                }, "*"); } catch(err) {}
+                var info = { type: "RSC_DISCONNECT", code: e && e.code, wasClean: !!(e && e.wasClean) };
+                try {
+                    info.logoutSentMsAgo = r2hLogoutSentAt ? (Date.now() - r2hLogoutSentAt) : -1;
+                    // Second, independent signal: the client's own loggedIn flag.
+                    // 1 = still drawing the game world. A deliberate logout has
+                    // already moved it off the world; a surprise drop has not.
+                    var mc = window.__r2h_mc;
+                    info.fv = mc ? mc.fv : null;
+                } catch (err) { /* ignore */ }
+                try { console.log("[R2H] socket closed", JSON.stringify(info)); } catch (err) {}
+                try { window.parent.postMessage(info, "*"); } catch(err) {}
             });
             window._r2h_ws = ws;
             return ws;
@@ -413,18 +439,16 @@
     })();
     </script>
 
-    <!-- R2H Arena Bot Pointer (v3 "Target Rim", 2026-10-03).
-         Arena-only (world 2). Up to 5 markers ride the viewport rim at each
-         nearby bot's SCREEN bearing: the leader (hysteresis/engage-lock
-         winner) is 96x22, bright, chevroned, heat-coloured; up to 4
-         alternates are 68x22 at 0.62 opacity. Content "(level) tiles",
-         banded. Right edge is OPEN between the measured icon-strip and skull
-         blocks (see module header for the verified geometry). Camera-relative
-         bearing via mc.ey/p2. Behaviour lives in r2h-bot-pointer.js (pure,
-         32-case offline harness). READ-ONLY for the client: one GET poll to
-         /v1/arena/bots; never writes. Guard is the INVERSE of the area
-         popup: runs ONLY on the arena realm (hash carries ,43595,). -->
-    <script src="r2h-bot-pointer.js?v=3"></script>
+    <!-- R2H Arena Bot Pointer (v4 "True Screen Rim", 2026-10-03).
+         Arena-only (world 2). Markers read the RENDERER's own sprite screen
+         coords (mc.u.g4 + fe.cJ/dN): a visible bot gets its marker AT the
+         sprite; off-screen bots get the rim marker along the fitted camera
+         yaw (circular least squares over visible pairs). All markers 62x18,
+         10px monospace, four-way outline; no chevron; distance heat on the
+         BORDER; leader bright, alternates dim. READ-ONLY for the client: one
+         GET poll to /v1/arena/bots; never writes. Guard is the INVERSE of
+         the area popup: runs ONLY on the arena realm (hash ,43595,). -->
+    <script src="r2h-bot-pointer.js?v=4"></script>
     <script>
     (function() {
       'use strict';
@@ -434,7 +458,6 @@
 
       var layer = null;    // rim layer holding all markers
       var pool = [];       // recycled marker elements
-      var rotAcc = 0;      // leader chevron unwrapped rotation
 
       function ensureLayer() {
         if (layer) return layer;
@@ -447,85 +470,93 @@
         return layer;
       }
 
-      // Build (or reuse) marker i. Leader: 96x22 bright + chevron.
-      // Alternates: 68x22, dim. Fixed widths so digits never resize them.
+      // Build (or reuse) marker i. All markers 62x18 (worst case "(123) 40+");
+      // leader vs alternates differ ONLY by text colour/opacity. Distance
+      // heat is the BORDER colour.
       function ensureMarker(i, leader) {
-        var want = leader ? 96 : 68;
         var m = pool[i];
-        if (m && Number(m.getAttribute('data-w')) === want) return m;
-        if (m && m.parentNode) m.parentNode.removeChild(m);
+        if (m) return m;
         m = document.createElement('div');
-        m.setAttribute('data-w', String(want));
+        m.setAttribute('data-w', '62');
         m.style.cssText = 'position:absolute;'
-          + 'width:' + want + 'px;height:22px;'
-          + 'display:flex;align-items:center;' + (leader ? 'gap:4px;' : 'gap:3px;')
+          + 'width:62px;height:18px;'
+          + 'display:flex;align-items:center;'
           + 'background:rgba(4,4,2,0.82);'
-          + 'border:1px solid ' + (leader ? '#8a7a2a' : '#5f5424') + ';'
-          + 'padding:0 5px;box-sizing:border-box;'
-          + 'font-family:monospace;font-weight:bold;'
+          + 'border:1px solid #cfc98f;'
+          + 'padding:0 3px;box-sizing:border-box;'
+          + 'font-family:monospace;font-weight:bold;font-size:10px;'
           + 'pointer-events:none;'
-          + 'opacity:0;transition:opacity .25s ease, left .25s linear, top .25s linear;'
-          + '-webkit-user-select:none;user-select:none;'
-          + (leader ? '' : 'opacity:0.62;');
-        m._opacityTarget = leader ? '1' : '0.62';
+          + 'opacity:0;transition:opacity .25s ease, left .15s linear, top .15s linear;'
+          + '-webkit-user-select:none;user-select:none;';
         var txt = document.createElement('span');
         txt.style.cssText = 'flex-grow:1;text-align:center;'
-          + 'color:' + (leader ? '#ffff00' : '#cfc98f') + ';font-size:12px;'
+          + 'color:' + (leader ? '#ffff00' : '#cfc98f') + ';'
           + 'white-space:nowrap;overflow:hidden;'
           + 'text-shadow:1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;';
         m._txt = txt;
-        if (leader) {
-          var cw = document.createElement('span');
-          cw.style.cssText = 'display:inline-flex;width:14px;height:16px;flex:0 0 auto;';
-          var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-          svg.setAttribute('width', '12'); svg.setAttribute('height', '14');
-          svg.setAttribute('viewBox', '0 0 14 16');
-          var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-          p.setAttribute('d', 'M7 1 L13 12.5 L7 9 L1 12.5 Z');
-          p.setAttribute('stroke', '#000'); p.setAttribute('stroke-width', '2');
-          p.setAttribute('stroke-linejoin', 'miter');
-          p.setAttribute('fill', '#cfc98f');
-          svg.appendChild(p);
-          cw.appendChild(svg);
-          m._chev = svg;
-          m.insertBefore(txt, null);
-          m.appendChild(cw);
-        } else {
-          m.appendChild(txt);
-        }
+        m.appendChild(txt);
+        m._opacityTarget = leader ? '1' : '0.62';
         pool[i] = m;
         ensureLayer().appendChild(m);
         return m;
       }
 
       function show(o) {
-        var L = ensureLayer();
         var markers = o.markers || [];
         var i, m, mk;
         for (i = 0; i < markers.length; i++) {
           mk = markers[i];
           m = ensureMarker(i, mk.leader);
-          m.style.left = (mk.x - Number(m.getAttribute('data-w')) / 2) + 'px';
-          m.style.top = (mk.y - 11) + 'px';
+          m.style.left = (mk.x - 31) + 'px';
+          m.style.top = (mk.y - 9) + 'px';
           m._txt.textContent = '(' + (mk.combat !== null ? mk.combat : '?') + ') ' + mk.tiles;
-          if (mk.leader && m._chev) {
-            var d = ((((mk.deg - rotAcc) % 360) + 540) % 360) - 180;
-            rotAcc += d;
-            m._chev.parentNode.style.transform = 'rotate(' + Math.round(rotAcc) + 'deg)';
-            m._chev.firstChild.setAttribute('fill', mk.heat);
-          }
+          m.style.borderColor = mk.heat;
           m.style.opacity = m._opacityTarget;
         }
-        // hide surplus pool entries
         for (i = markers.length; i < pool.length; i++) {
           if (pool[i]) pool[i].style.opacity = '0';
         }
       }
 
       function hide() {
-        if (!layer) return;
         for (var i = 0; i < pool.length; i++) {
           if (pool[i]) pool[i].style.opacity = '0';
+        }
+      }
+
+      // Renderer ground-truth reader: every VISIBLE player's world 3D anchor
+      // and screen coords (512x345 surface), read from the scene drawables.
+      // Verified live: drawables (scene.g4) with hx === scene.fe are sprites;
+      // id 20000..29999 are players; vertex 0 of face hn carries cJ (screen x,
+      // centred) and dN (screen y at sprite base). tn/tm/tl = anchor x/y/z.
+      function getScene() {
+        try {
+          var mc = window.__r2h_mc;
+          if (!mc || !mc.u || !mc.u.fe) return null;
+          var sc = mc.u, fe = sc.fe;
+          if (!sc.g4 || !sc.g4.data || !fe.dt || !fe.cJ) return null;
+          var baseX = Number(mc.du) * 128, baseZ = Number(mc.dd) * 128;
+          var out = [];
+          var d2 = sc.d2 || 0;
+          for (var k = 0; k < d2; k++) {
+            var d = sc.g4.data[k];
+            if (!d || d.hx !== fe) continue;
+            var c = d.hn;
+            var id = sc.qG ? sc.qG.data[c] : -1;
+            if (!(id >= 20000 && id < 30000)) continue;
+            var face = fe.dt.data[c];
+            if (!face || !face.data || !face.data.length) continue;
+            var v0 = face.data[0];
+            out.push({
+              wx: sc.tn.data[c] + baseX,
+              wz: sc.tl.data[c] + baseZ,
+              sx: fe.cJ.data[v0],
+              sy: fe.dN.data[v0]
+            });
+          }
+          return out.length ? out : null;
+        } catch (e) {
+          return null;   // unreadable this tick: degrade to yaw estimate
         }
       }
 
@@ -537,6 +568,7 @@
         },
         show: show,
         hide: hide,
+        getScene: getScene,
         getViewport: function() {
           var c = document.querySelector('canvas');
           return c ? { w: c.clientWidth, h: c.clientHeight } : { w: 1280, h: 633 };

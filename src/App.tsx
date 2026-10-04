@@ -278,21 +278,33 @@ function AppContent() {
     const handler = (event: MessageEvent) => {
       if (event.data?.type === "RSC_DISCONNECT") {
         // A DELIBERATE LOGOUT IS NOT A DISCONNECT. Both arrive here, because
-        // both are just the websocket closing. Auto-reconnect then "rescued"
-        // the player from their own logout and put them straight back in the
-        // game — founder report: "when i log out of a game session it just
-        // takes me back in".
+        // both are just the websocket closing, and auto-reconnect was putting
+        // the player straight back into the game they had just left.
         //
-        // A clean close (code 1000, wasClean) means something intended it;
-        // a drop is abnormal (1006, wasClean false). `wasClean` is undefined
-        // when the game page predates this change, in which case we keep the
-        // old behaviour rather than refusing to reconnect anyone.
-        if (event.data.wasClean === true) {
-          console.log(
-            "[App] clean socket close (code " +
-              event.data.code +
-              ") — treating as a deliberate logout, not reconnecting",
-          );
+        // My first attempt tested `wasClean`, which NEVER fires here: the
+        // server ends a session with a bare channel.close() and sends no
+        // websocket close frame, so every close is 1006/not-clean regardless.
+        // I reasoned from the websocket spec instead of from this server.
+        //
+        // Two real signals now, either of which means "deliberate":
+        //   logoutSentMsAgo — the client sent opcode 6/1 (LOGOUT /
+        //     CONFIRM_LOGOUT, Payload177, the protocol the web client speaks)
+        //     just before the socket died. Deterministic when present.
+        //   fv === 0 — the client's own loggedIn flag already left the game
+        //     world. A surprise drop leaves it at 1 until the client notices.
+        //
+        // Both are advisory: if neither says logout we keep the old
+        // reconnect behaviour, so a wrong reading cannot strand a player who
+        // genuinely dropped. The raw values are logged either way.
+        const d = event.data as { code?: number; wasClean?: boolean; logoutSentMsAgo?: number; fv?: number | null };
+        const sentLogout = typeof d.logoutSentMsAgo === "number" && d.logoutSentMsAgo >= 0 && d.logoutSentMsAgo < 10000;
+        const leftWorld = d.fv === 0;
+        console.log(
+          "[App] RSC_DISCONNECT code=" + d.code + " wasClean=" + d.wasClean +
+            " logoutSentMsAgo=" + d.logoutSentMsAgo + " fv=" + d.fv +
+            " -> " + (sentLogout || leftWorld ? "LOGOUT" : "drop"),
+        );
+        if (sentLogout || leftWorld) {
           setAppState("auth");
           setRscCredentials(null);
           setAuthProvider("");
