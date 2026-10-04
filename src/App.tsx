@@ -375,9 +375,36 @@ function AppContent() {
             " bM=" + (d as any).bM + " sockState=" + (d as any).sockState +
             " diedRightAfterReconnect=" + diedRightAfterReconnect +
             " stillInWorldAtClose=" + stillInWorldAtClose +
+            " appState=" + appStateRef.current + " wasPlaying=" + (appStateRef.current === "playing") +
             " -> " + (sentLogout || leftWorld ? "LOGOUT" : "drop"),
         );
-        if (sentLogout || leftWorld) {
+        // Realm-switch window FIRST: the OLD iframe's WS death is expected,
+        // not an error. This guard existed for exactly that reason and I
+        // wrongly put the logout check above it, which broke world switching
+        // the same way it broke login.
+        if (Date.now() - worldSwitchAtRef.current < 20000) {
+          console.log("[App] RSC_DISCONNECT during realm switch — ignored");
+          return;
+        }
+
+        // ONLY A SESSION THAT WAS ACTUALLY BEING PLAYED CAN BE LOGGED OUT OF.
+        //
+        // This is the bug that stopped the founder signing in at all. During
+        // login the client sits on its OWN login screen, so fv is 0 — not 1 —
+        // and my "anything not definitely in-world goes home" rule fired on
+        // every socket close in the login sequence, bouncing him back to the
+        // home page mid-sign-in. appState is 'loading' throughout login, world
+        // entry and reconnect; a close during any of those is part of getting
+        // IN, never a logout.
+        //
+        // This gates ONLY the logout branch, deliberately. An earlier draft
+        // returned outright for any non-playing state, which would also have
+        // skipped the retry below — leaving a failed reconnect stuck on
+        // "Reconnecting..." forever. Connection failures while loading must
+        // still retry exactly as they always did.
+        const wasPlaying = appStateRef.current === "playing";
+
+        if (wasPlaying && (sentLogout || leftWorld)) {
           setAppState("auth");
           setRscCredentials(null);
           setAuthProvider("");
@@ -385,12 +412,6 @@ function AppContent() {
           setRegistrationToken("");
           logoutRef.current?.();
           disconnectWalletRef.current?.();
-          return;
-        }
-        // Realm-switch window: the OLD iframe's WS death is expected, not an
-        // error — skip auto-reconnect/auth-reset entirely.
-        if (Date.now() - worldSwitchAtRef.current < 20000) {
-          console.log("[App] RSC_DISCONNECT during realm switch — ignored");
           return;
         }
         const creds = rscCredentialsRef.current;
