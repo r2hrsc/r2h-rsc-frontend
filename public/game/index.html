@@ -41,8 +41,112 @@
             ws.addEventListener("open", function() {
                 window._r2h_ws_open = true;
             });
-            ws.addEventListener("close", function() {
-                try { window.parent.postMessage({ type: "RSC_DISCONNECT" }, "*"); } catch(e) {}
+            // LOGOUT DETECTION. `wasClean` is useless here: the server ends a
+            // session with a bare channel.close() and never sends a websocket
+            // close frame, so EVERY close arrives as 1006/not-clean whether the
+            // player logged out or the link died. Checking it was my mistake.
+            //
+            // What IS reliable: the client announces a logout before the socket
+            // dies. The web client speaks Payload177 (Player.java picks it for
+            // clientVersion >= 10000 over websocket), where the outgoing opcodes
+            // are 6 = LOGOUT and 1 = CONFIRM_LOGOUT, framed as [length][opcode].
+            // A no-payload packet is therefore the two bytes [1][6] or [1][1].
+            // ORDERING, NOT A SNAPSHOT. The discriminator between a logout and
+            // a drop is WHICH HAPPENED FIRST: on a logout the client leaves the
+            // world (fv 1 -> 0) and then the socket dies; on a drop the socket
+            // dies first and the client only notices later. Sampling fv at the
+            // close event is racy — if both land in the same tick the answer is
+            // arbitrary. So record the transition and compare timestamps.
+            if (!window.__r2hFvWatch) {
+                window.__r2hFvWatch = { zeroAt: 0, lastOne: 0 };
+                setInterval(function () {
+                    try {
+                        var m = window.__r2h_mc;
+                        if (!m) return;
+                        if (m.fv === 1) {
+                            window.__r2hFvWatch.lastOne = Date.now();
+                            window.__r2hFvWatch.zeroAt = 0;
+                            window.__r2hFvWatch.leftWhileOpen = false;
+                        } else if (!window.__r2hFvWatch.zeroAt && window.__r2hFvWatch.lastOne) {
+                            window.__r2hFvWatch.zeroAt = Date.now();
+                            // TELL THE PARENT IMMEDIATELY, INDEPENDENT OF THE SOCKET.
+                            // This is the gap that made four previous fixes useless:
+                            // the only message this page ever sent was RSC_DISCONNECT,
+                            // fired from the websocket close handler. If logging out
+                            // does not close the socket — or closes it late, or never —
+                            // the parent was never told anything at all and sat there
+                            // in "playing" state while the client showed its own login
+                            // screen inside the frame. fv going 1 -> 0 means the client
+                            // has LEFT THE GAME WORLD, which is the thing that actually
+                            // matters, and it is true for a logout and for a drop the
+                            // client has noticed.
+                            try {
+                                window.parent.postMessage({
+                                    type: "RSC_LEFT_WORLD",
+                                    sockState: (window._r2h_ws ? window._r2h_ws.readyState : null),
+                                    bM: (window.__r2h_mc ? window.__r2h_mc.bM : null)
+                                }, "*");
+                                console.log("[R2H] client left the game world (fv 1->0)");
+                            } catch (e4) { /* never break the game over telemetry */ }
+                            // THE AIRTIGHT ONE. A network failure cannot make the
+                            // client leave the game world while the socket is
+                            // still OPEN — only the client deciding to leave can
+                            // do that, i.e. the player logging out, or the
+                            // client's own 2-minute idle logout (mc.d4 > 4500).
+                            // If the socket is already closing/closed, the client
+                            // is merely reacting to a drop.
+                            try {
+                                var sock = window._r2h_ws;
+                                window.__r2hFvWatch.leftWhileOpen =
+                                    !!sock && sock.readyState === 1; // 1 = OPEN
+                            } catch (e2) { window.__r2hFvWatch.leftWhileOpen = false; }
+                        }
+                    } catch (err) { /* ignore */ }
+                }, 150);
+            }
+
+            var r2hLogoutSentAt = 0;
+            var nativeSend = ws.send.bind(ws);
+            ws.send = function(data) {
+                try {
+                    var b = null;
+                    if (data instanceof ArrayBuffer) b = new Uint8Array(data);
+                    else if (data && data.buffer instanceof ArrayBuffer) b = new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength);
+                    if (b && b.length === 2 && b[0] === 1 && (b[1] === 6 || b[1] === 1)) {
+                        r2hLogoutSentAt = Date.now();
+                    }
+                } catch (err) { /* never break the game over telemetry */ }
+                return nativeSend(data);
+            };
+
+            ws.addEventListener("close", function(e) {
+                var info = { type: "RSC_DISCONNECT", code: e && e.code, wasClean: !!(e && e.wasClean) };
+                try {
+                    info.logoutSentMsAgo = r2hLogoutSentAt ? (Date.now() - r2hLogoutSentAt) : -1;
+                    // Second, independent signal: the client's own loggedIn flag.
+                    // 1 = still drawing the game world. A deliberate logout has
+                    // already moved it off the world; a surprise drop has not.
+                    var mc = window.__r2h_mc;
+                    info.fv = mc ? mc.fv : null;
+                    var w = window.__r2hFvWatch;
+                    // How long the client had ALREADY left the world before this
+                    // close. >0 means fv hit 0 first => deliberate. 0/-1 means the
+                    // socket died while the client still believed it was playing.
+                    info.fvZeroMsBeforeClose = (w && w.zeroAt) ? (Date.now() - w.zeroAt) : -1;
+                    info.fvLastOneMsAgo = (w && w.lastOne) ? (Date.now() - w.lastOne) : -1;
+                    info.leftWorldWhileSocketOpen = !!(w && w.leftWhileOpen);
+                    // Belt and braces: bM is the client's login-screen state
+                    // (this file's own overlay logic reads bM === 0 || bM === 2
+                    // as "logo visible"). If fv ever turns out not to move on
+                    // logout, bM is the fallback discriminator and one round of
+                    // real data settles which to trust.
+                    info.bM = mc ? mc.bM : null;
+                    info.sockState = (function () {
+                        try { return window._r2h_ws ? window._r2h_ws.readyState : null; } catch (e3) { return null; }
+                    })();
+                } catch (err) { /* ignore */ }
+                try { console.log("[R2H] socket closed", JSON.stringify(info)); } catch (err) {}
+                try { window.parent.postMessage(info, "*"); } catch(err) {}
             });
             window._r2h_ws = ws;
             return ws;
@@ -402,6 +506,149 @@
         x.onerror = function() { /* no areas = no popup */ };
         x.send();
       } catch (e) { /* fail safe */ }
+    })();
+    </script>
+
+    <!-- R2H Arena Bot Pointer (v4 "True Screen Rim", 2026-10-03).
+         Arena-only (world 2). Markers read the RENDERER's own sprite screen
+         coords (mc.u.g4 + fe.cJ/dN): a visible bot gets its marker AT the
+         sprite; off-screen bots get the rim marker along the fitted camera
+         yaw (circular least squares over visible pairs). All markers 62x18,
+         10px monospace, four-way outline; no chevron; distance heat on the
+         BORDER; leader bright, alternates dim. READ-ONLY for the client: one
+         GET poll to /v1/arena/bots; never writes. Guard is the INVERSE of
+         the area popup: runs ONLY on the arena realm (hash ,43595,). -->
+    <script src="r2h-bot-pointer.js?v=4"></script>
+    <script>
+    (function() {
+      'use strict';
+
+      // ---- Arena-only guard (inverse of the area popup's guard) ----
+      if (!/,43595,/.test(window.location.hash)) { return; }
+
+      var layer = null;    // rim layer holding all markers
+      var pool = [];       // recycled marker elements
+
+      function ensureLayer() {
+        if (layer) return layer;
+        layer = document.createElement('div');
+        layer.id = 'r2h-bot-rim';
+        layer.setAttribute('aria-hidden', 'true');
+        layer.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;'
+          + 'pointer-events:none;z-index:6;overflow:hidden;';
+        document.body.appendChild(layer);
+        return layer;
+      }
+
+      // Build (or reuse) marker i. All markers 62x18 (worst case "(123) 40+");
+      // leader vs alternates differ ONLY by text colour/opacity. Distance
+      // heat is the BORDER colour.
+      function ensureMarker(i, leader) {
+        var m = pool[i];
+        if (m) return m;
+        m = document.createElement('div');
+        m.setAttribute('data-w', '62');
+        m.style.cssText = 'position:absolute;'
+          + 'width:62px;height:18px;'
+          + 'display:flex;align-items:center;'
+          + 'background:rgba(4,4,2,0.82);'
+          + 'border:1px solid #cfc98f;'
+          + 'padding:0 3px;box-sizing:border-box;'
+          + 'font-family:monospace;font-weight:bold;font-size:10px;'
+          + 'pointer-events:none;'
+          + 'opacity:0;transition:opacity .25s ease, left .15s linear, top .15s linear;'
+          + '-webkit-user-select:none;user-select:none;';
+        var txt = document.createElement('span');
+        txt.style.cssText = 'flex-grow:1;text-align:center;'
+          + 'color:' + (leader ? '#ffff00' : '#cfc98f') + ';'
+          + 'white-space:nowrap;overflow:hidden;'
+          + 'text-shadow:1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;';
+        m._txt = txt;
+        m.appendChild(txt);
+        m._opacityTarget = leader ? '1' : '0.62';
+        pool[i] = m;
+        ensureLayer().appendChild(m);
+        return m;
+      }
+
+      function show(o) {
+        var markers = o.markers || [];
+        var i, m, mk;
+        for (i = 0; i < markers.length; i++) {
+          mk = markers[i];
+          m = ensureMarker(i, mk.leader);
+          m.style.left = (mk.x - 31) + 'px';
+          m.style.top = (mk.y - 9) + 'px';
+          m._txt.textContent = '(' + (mk.combat !== null ? mk.combat : '?') + ') ' + mk.tiles;
+          m.style.borderColor = mk.heat;
+          m.style.opacity = m._opacityTarget;
+        }
+        for (i = markers.length; i < pool.length; i++) {
+          if (pool[i]) pool[i].style.opacity = '0';
+        }
+      }
+
+      function hide() {
+        for (var i = 0; i < pool.length; i++) {
+          if (pool[i]) pool[i].style.opacity = '0';
+        }
+      }
+
+      // Renderer ground-truth reader: every VISIBLE player's world 3D anchor
+      // and screen coords (512x345 surface), read from the scene drawables.
+      // Verified live: drawables (scene.g4) with hx === scene.fe are sprites;
+      // id 20000..29999 are players; vertex 0 of face hn carries cJ (screen x,
+      // centred) and dN (screen y at sprite base). tn/tm/tl = anchor x/y/z.
+      function getScene() {
+        try {
+          var mc = window.__r2h_mc;
+          if (!mc || !mc.u || !mc.u.fe) return null;
+          var sc = mc.u, fe = sc.fe;
+          if (!sc.g4 || !sc.g4.data || !fe.dt || !fe.cJ) return null;
+          var baseX = Number(mc.du) * 128, baseZ = Number(mc.dd) * 128;
+          var out = [];
+          var d2 = sc.d2 || 0;
+          for (var k = 0; k < d2; k++) {
+            var d = sc.g4.data[k];
+            if (!d || d.hx !== fe) continue;
+            var c = d.hn;
+            var id = sc.qG ? sc.qG.data[c] : -1;
+            if (!(id >= 20000 && id < 30000)) continue;
+            var face = fe.dt.data[c];
+            if (!face || !face.data || !face.data.length) continue;
+            var v0 = face.data[0];
+            out.push({
+              wx: sc.tn.data[c] + baseX,
+              wz: sc.tl.data[c] + baseZ,
+              sx: fe.cJ.data[v0],
+              sy: fe.dN.data[v0]
+            });
+          }
+          return out.length ? out : null;
+        } catch (e) {
+          return null;   // unreadable this tick: degrade to yaw estimate
+        }
+      }
+
+      var pointer = window.R2HBotPointer.create({
+        fetchBots: function() {
+          return fetch('https://api.r2hrsc.xyz/v1/arena/bots', {
+            credentials: 'omit'
+          }).then(function(r) { return r.json(); });
+        },
+        show: show,
+        hide: hide,
+        getScene: getScene,
+        getViewport: function() {
+          var c = document.querySelector('canvas');
+          return c ? { w: c.clientWidth, h: c.clientHeight } : { w: 1280, h: 633 };
+        }
+      });
+
+      setTimeout(function loop() {
+        try { pointer.tick(window.__r2h_mc); } catch (e) { /* never break game */ }
+        setTimeout(loop, pointer.TICK_MS);
+      }, 5000);
     })();
     </script>
 

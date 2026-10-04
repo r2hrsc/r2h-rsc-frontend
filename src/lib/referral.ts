@@ -60,6 +60,12 @@ export function saveAccessToken(token: unknown): void {
   } catch { /* storage blocked — panel still works with public counts */ }
 }
 
+/** The stored access token, or null. Exported because the payout-wallet
+ *  linking flow must authenticate as the signed-in player. */
+export function readAccessToken(): string | null {
+  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+}
+
 export function clearAccessToken(): void {
   try { localStorage.removeItem(TOKEN_KEY); } catch { /* ignore */ }
 }

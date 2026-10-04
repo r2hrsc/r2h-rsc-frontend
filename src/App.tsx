@@ -45,6 +45,7 @@ import { initWalletKit } from "./lib/walletKit";
 import { useDisconnect as useAppKitDisconnect } from "@reown/appkit/react";
 import "./index.css";
 import "./layout.css";
+import LinkPayoutWallet from "./components/LinkPayoutWallet";
 
 const API_URL = import.meta.env.VITE_API_URL || "https://api.r2hrsc.xyz";
 const WS_URL = import.meta.env.VITE_WS_URL || "wss://game.r2hrsc.xyz";
@@ -63,7 +64,14 @@ type AppState = "auth" | "username" | "loading" | "playing";
 // pointerEvents: 'none' so the overlay doesn't block touch/click events
 // from reaching the game iframe's hidden TeaVM inputs underneath.
 // The overlay is purely visual (spinner + text), events pass through to the game.
-function LoadingOverlay({ text }: { text: string }) {
+/** `onCancel`, when given, renders a way out of an auto-reconnect.
+ *
+ *  Classifying a disconnect is not always possible — this server closes the
+ *  socket identically for a logout and a dropped link, and the client's own
+ *  state flags are the only hint. Rather than pretend otherwise, when the app
+ *  decides to reconnect it now SAYS SO and lets the player refuse. A wrong
+ *  guess becomes one tap instead of being dragged back into the game. */
+function LoadingOverlay({ text, onCancel }: { text: string; onCancel?: () => void }) {
   return (
     <div
       style={{
@@ -77,7 +85,7 @@ function LoadingOverlay({ text }: { text: string }) {
         background: "rgba(0,0,0,0.8)",
         backdropFilter: "blur(4px)",
         gap: 16,
-        pointerEvents: "none",
+        pointerEvents: onCancel ? "auto" : "none",
       }}
     >
       <div
@@ -100,6 +108,25 @@ function LoadingOverlay({ text }: { text: string }) {
       >
         {text}
       </p>
+      {onCancel && (
+        <button
+          onClick={onCancel}
+          style={{
+            marginTop: 4,
+            background: "transparent",
+            border: "1px solid #555",
+            color: "#bbb",
+            padding: "8px 16px",
+            borderRadius: 6,
+            fontSize: 13,
+            cursor: "pointer",
+            minHeight: 44,
+            touchAction: "manipulation",
+          }}
+        >
+          Cancel — back to home screen
+        </button>
+      )}
     </div>
   );
 }
@@ -218,6 +245,15 @@ function AppContent() {
     password: string;
   } | null>(null);
   const [loadingText, setLoadingText] = useState("Loading game...");
+  /** True while the current loading screen is an AUTO-RECONNECT rather than a
+   *  normal login, so the overlay can offer a way out of it. */
+  const [reconnecting, setReconnecting] = useState(false);
+  /** When the last auto-reconnect was started. A session that dies again within
+   *  seconds of being reconnected is not a recoverable drop — either the player
+   *  logged out and we dragged them back, or reconnecting is not working. Either
+   *  way, stop and show the home screen instead of looping. This is the
+   *  backstop that holds even if the logout/drop classification is wrong. */
+  const lastReconnectAtRef = useRef(0);
 
   // Listen for RSC_DISCONNECT from the game iframe
   // v358 AUTO-RECONNECT: a mid-session WS close (e.g. server reaper kick,
@@ -275,11 +311,161 @@ function AppContent() {
   }, [appState]);
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      // THE CLIENT LEFT THE GAME WORLD. This is the signal that actually
+      // corresponds to "I logged out", and it does not depend on the websocket
+      // closing — which is why four previous attempts failed. The page used to
+      // hear nothing at all unless the socket died, so a logout that keeps the
+      // socket open (or closes it late) left the app sitting in "playing" while
+      // the client showed its own login screen inside the frame.
+      //
+      // fv 1 -> 0 is the client leaving the world. True for a deliberate logout,
+      // and true for a drop it has noticed — both should land on the home
+      // screen, which is what was asked for.
+      if (event.data?.type === "RSC_LEFT_WORLD") {
+        if (appStateRef.current !== "playing") return; // mid-login, not a logout
+        if (Date.now() - worldSwitchAtRef.current < 20000) return; // realm switch
+        console.log(
+          "[App] client left the game world (sockState=" +
+            event.data.sockState + " bM=" + event.data.bM + ") -> home screen",
+        );
+        setReconnecting(false);
+        setAppState("auth");
+        setRscCredentials(null);
+        setAuthProvider("");
+        setAuthExternalId("");
+        setRegistrationToken("");
+        logoutRef.current?.();
+        disconnectWalletRef.current?.();
+        return;
+      }
       if (event.data?.type === "RSC_DISCONNECT") {
-        // Realm-switch window: the OLD iframe's WS death is expected, not an
-        // error — skip auto-reconnect/auth-reset entirely.
+        // A DELIBERATE LOGOUT IS NOT A DISCONNECT. Both arrive here, because
+        // both are just the websocket closing, and auto-reconnect was putting
+        // the player straight back into the game they had just left.
+        //
+        // My first attempt tested `wasClean`, which NEVER fires here: the
+        // server ends a session with a bare channel.close() and sends no
+        // websocket close frame, so every close is 1006/not-clean regardless.
+        // I reasoned from the websocket spec instead of from this server.
+        //
+        // Two real signals now, either of which means "deliberate":
+        //   logoutSentMsAgo — the client sent opcode 6/1 (LOGOUT /
+        //     CONFIRM_LOGOUT, Payload177, the protocol the web client speaks)
+        //     just before the socket died. Deterministic when present.
+        //   fv === 0 — the client's own loggedIn flag already left the game
+        //     world. A surprise drop leaves it at 1 until the client notices.
+        //
+        // Both are advisory: if neither says logout we keep the old
+        // reconnect behaviour, so a wrong reading cannot strand a player who
+        // genuinely dropped. The raw values are logged either way.
+        const d = event.data as {
+          code?: number; wasClean?: boolean; logoutSentMsAgo?: number;
+          fv?: number | null; leftWorldWhileSocketOpen?: boolean; fvZeroMsBeforeClose?: number;
+        };
+        // PRIMARY, and the only one of these that cannot be ambiguous: the
+        // client left the game world while its socket was still OPEN. A network
+        // failure cannot do that — only the client deciding to leave can, which
+        // means the player logged out (or the client's own 2-minute idle logout
+        // fired, which should also return them to the sign-in screen rather than
+        // be silently undone).
+        const leftWhileOpen = d.leftWorldWhileSocketOpen === true;
+        // Secondary: fv had already gone 0 before the close arrived.
+        const leftFirst = typeof d.fvZeroMsBeforeClose === "number" && d.fvZeroMsBeforeClose > 0;
+        // Dead signal, kept only as diagnostic output: opcodes are ISAAC-
+        // encrypted after login (RSCProtocolDecoder.java:102), so the logout
+        // opcode is a different byte every packet and this never matches.
+        const sentLogout = typeof d.logoutSentMsAgo === "number" && d.logoutSentMsAgo >= 0 && d.logoutSentMsAgo < 10000;
+        // Backstop: did this session die almost immediately after we
+        // reconnected it? Then reconnecting again just repeats the loop.
+        const RECONNECT_LOOP_WINDOW_MS = 25000;
+        const diedRightAfterReconnect =
+          lastReconnectAtRef.current > 0 &&
+          Date.now() - lastReconnectAtRef.current < RECONNECT_LOOP_WINDOW_MS;
+        // DEFAULT TO THE HOME SCREEN. The founder's words: "when i log out if
+        // anything i should go back to the home screen." Since this server
+        // cannot distinguish a logout from a drop (see the three dead signals
+        // above), "unknown" must fall on the side he asked for, not on the side
+        // that drags him back into the game.
+        //
+        // So auto-reconnect now requires POSITIVE evidence of a drop — the
+        // client was still drawing the game world when the socket died. Anything
+        // else, including not knowing, goes home. A genuine drop with a readable
+        // client still reconnects exactly as before.
+        const stillInWorldAtClose = d.fv === 1;
+        const leftWorld =
+          leftWhileOpen || leftFirst || diedRightAfterReconnect || !stillInWorldAtClose;
+        console.log(
+          "[App] RSC_DISCONNECT code=" + d.code + " wasClean=" + d.wasClean +
+            " logoutSentMsAgo=" + d.logoutSentMsAgo + " fv=" + d.fv +
+            " leftWhileOpen=" + d.leftWorldWhileSocketOpen +
+            " fvZeroMsBeforeClose=" + d.fvZeroMsBeforeClose +
+            " bM=" + (d as any).bM + " sockState=" + (d as any).sockState +
+            " diedRightAfterReconnect=" + diedRightAfterReconnect +
+            " stillInWorldAtClose=" + stillInWorldAtClose +
+            " appState=" + appStateRef.current + " wasPlaying=" + (appStateRef.current === "playing") +
+            " -> " + (appStateRef.current === "playing"
+                ? "playing session ended -> HOME"
+                : "still connecting -> retry"),
+        );
+        // Realm-switch window FIRST: the OLD iframe's WS death is expected,
+        // not an error. This guard existed for exactly that reason and I
+        // wrongly put the logout check above it, which broke world switching
+        // the same way it broke login.
         if (Date.now() - worldSwitchAtRef.current < 20000) {
           console.log("[App] RSC_DISCONNECT during realm switch — ignored");
+          return;
+        }
+
+        // ONLY A SESSION THAT WAS ACTUALLY BEING PLAYED CAN BE LOGGED OUT OF.
+        //
+        // This is the bug that stopped the founder signing in at all. During
+        // login the client sits on its OWN login screen, so fv is 0 — not 1 —
+        // and my "anything not definitely in-world goes home" rule fired on
+        // every socket close in the login sequence, bouncing him back to the
+        // home page mid-sign-in. appState is 'loading' throughout login, world
+        // entry and reconnect; a close during any of those is part of getting
+        // IN, never a logout.
+        //
+        // This gates ONLY the logout branch, deliberately. An earlier draft
+        // returned outright for any non-playing state, which would also have
+        // skipped the retry below — leaving a failed reconnect stuck on
+        // "Reconnecting..." forever. Connection failures while loading must
+        // still retry exactly as they always did.
+        const wasPlaying = appStateRef.current === "playing";
+
+        // A SESSION THAT WAS BEING PLAYED AND ENDED GOES TO THE HOME SCREEN.
+        // No classification, no signal, no inference.
+        //
+        // I have now failed four times trying to tell a logout from a drop on
+        // this server — clean-close, the logout opcode, the client's loggedIn
+        // flag at close time, and the flag's transition ordering. Each one was
+        // shipped on reasoning and each was wrong, and the last attempt broke
+        // sign-in entirely. The honest conclusion is that this distinction is
+        // not reliably available to the browser here, so the behaviour must not
+        // depend on it.
+        //
+        // The founder asked for this outcome twice, in these words: "when i log
+        // out if anything i should go back to the home screen." So: it does.
+        // Every time. A genuine drop costs one click to come back, which is a
+        // real cost and a deliberate trade — predictable beats clever, and
+        // nothing here can drag him into a game he chose to leave.
+        //
+        // The signals are still computed and logged (leftWhileOpen, fv,
+        // fvZeroMsBeforeClose, bM) so the data keeps accumulating. If it ever
+        // shows one of them is trustworthy, auto-reconnect can be restored on
+        // evidence instead of on hope.
+        //
+        // Crucially this does NOT touch the loading path below: closes while
+        // connecting, entering a world, or mid-retry still retry exactly as
+        // before, which is what getting IN depends on.
+        if (wasPlaying) {
+          setAppState("auth");
+          setRscCredentials(null);
+          setAuthProvider("");
+          setAuthExternalId("");
+          setRegistrationToken("");
+          logoutRef.current?.();
+          disconnectWalletRef.current?.();
           return;
         }
         const creds = rscCredentialsRef.current;
@@ -297,6 +483,9 @@ function AppContent() {
           setGameSessionKey((k) => k + 1);
           setAppState("loading");
           setLoadingText("Reconnecting...");
+      setReconnecting(true);
+      lastReconnectAtRef.current = Date.now();
+          setReconnecting(true);
           // NOTE: Privy session intentionally kept — no logout() here.
           // gameSessionKey++ (below) remounts GameCanvas: its credsSentRef
           // one-shot guard means a fresh mount is REQUIRED for RSC_LOGIN
@@ -321,12 +510,12 @@ function AppContent() {
   // client_activity_timeout, and a backgrounded browser tab is throttled hard —
   // rAF stops entirely and timers fall to roughly one call a minute — so the
   // game client goes quiet within seconds of losing focus. Come back from a
-  // long tab-away and the session is very likely already gone, but the iframe
-  // can take a while to notice: the game just sits there looking frozen until
-  // its socket finally errors.
+  // long tab-away CAN leave the session dead while the iframe sits there
+  // looking frozen until its socket finally errors.
   //
-  // Rather than wait for that, remount as soon as we return from a hide long
-  // enough to have been dropped.
+  // But "hidden for a while" does not mean "dropped" — see the in-world check
+  // below. Remount only when the client itself no longer believes it is in the
+  // game world.
   useEffect(() => {
     const TAB_AWAY_RECONNECT_MS = 110000; // just under the server's 120s
     let hiddenAt = 0;
@@ -341,6 +530,37 @@ function AppContent() {
       if (away < TAB_AWAY_RECONNECT_MS) return;
       if (!rscCredentialsRef.current) return;
       if (appStateRef.current !== "playing") return;
+
+      // ASK THE CLIENT INSTEAD OF ASSUMING. The original version of this
+      // handler remounted unconditionally after a long hide, on the reasoning
+      // that the session "is very likely already gone". That reasoning was
+      // wrong in the one case players care about most: someone running a
+      // script. The script loop keeps ticking while hidden (throttled by the
+      // browser, but alive), the server's activity timeout is now 120s rather
+      // than 30s, and so the session is frequently still healthy — and we
+      // killed it, losing their script, every single time they tabbed away for
+      // two minutes and came back.
+      //
+      // The iframe is same-origin, so the client's own state is readable.
+      // mc.fv is its loggedIn flag: 1 = drawing the game world. If it still
+      // believes it is in the world, leave it alone. If the socket really did
+      // die, the client's own error path fires and the existing reconnect
+      // logic picks it up — slower than remounting blind, but it no longer
+      // destroys working sessions to save a broken one.
+      try {
+        const frame = gameIframeRef.current;
+        const mc = (frame?.contentWindow as any)?.__r2h_mc;
+        if (mc && mc.fv === 1) {
+          console.log(
+            "[App] back after " +
+              Math.round(away / 1000) +
+              "s hidden — client still in-world, leaving the session alone",
+          );
+          return;
+        }
+      } catch {
+        // Cross-origin or the frame is gone: fall through and remount.
+      }
       // Do not fight a realm switch that is already in flight.
       if (Date.now() - worldSwitchAtRef.current < 20000) return;
       console.log(
@@ -396,6 +616,7 @@ function AppContent() {
       setAuthExternalId(externalId);
       setRscCredentials({ username: rscUsername, password: rscPassword });
       setLoadingText("Connecting to game...");
+      setReconnecting(false);
       setAppState("loading");
     },
     [],
@@ -406,6 +627,7 @@ function AppContent() {
       console.log("[App] Username selected:", rscUsername);
       setRscCredentials({ username: rscUsername, password: rscPassword });
       setLoadingText("Entering world...");
+      setReconnecting(false);
       setAppState("loading");
     },
     [],
@@ -671,6 +893,14 @@ function AppContent() {
         {/* Game account credentials — lets Gmail/wallet users see + copy their
               real in-game username/password (works with the classic login screen
               and external clients). Rendered only when signed in. */}
+        {/* Rewards nudge. The Game Account panel also carries this, but that
+            panel opens from the gear menu only — a player with $RUNE waiting
+            would never find a button they do not know exists. In 'banner' mode
+            this renders NOTHING unless rewards are actually pending, so it only
+            ever interrupts someone who is owed money. */}
+        {rscCredentials && !isAuthScreen && (
+          <LinkPayoutWallet username={rscCredentials.username} variant="banner" />
+        )}
         {rscCredentials && !isAuthScreen && accountOpen && (
           <AccountCredentials
             username={rscCredentials.username}
@@ -831,7 +1061,28 @@ function AppContent() {
       {/* AD BEZEL REMOVED 9/6: right/bottom ad bars + wrapper deleted (user: no longer needed) */}
 
       {/* Loading overlay on top of game while it connects */}
-      {showLoadingOverlay && <LoadingOverlay text={loadingText} />}
+      {showLoadingOverlay && (
+        <LoadingOverlay
+          text={loadingText}
+          onCancel={
+            reconnecting
+              ? () => {
+                  // The player is telling us this disconnect was intended.
+                  // Believe them over any inference we made.
+                  console.log("[App] reconnect cancelled by player — going to auth screen");
+                  setReconnecting(false);
+                  setAppState("auth");
+                  setRscCredentials(null);
+                  setAuthProvider("");
+                  setAuthExternalId("");
+                  setRegistrationToken("");
+                  logoutRef.current?.();
+                  disconnectWalletRef.current?.();
+                }
+              : undefined
+          }
+        />
+      )}
 
       {/* RESTORED (9/6, July-13 fix): AuthOverlay OUTSIDE the game frame at top level —
           position:fixed full-viewport (card 340px no longer clipped by the small game

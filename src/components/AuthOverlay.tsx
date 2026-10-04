@@ -2,6 +2,22 @@ import { useState, useEffect, useRef } from 'react';
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { modal as walletModal, useAppKitAccount, useAppKitProvider, useDisconnect } from '@reown/appkit/react';
 import type { Eip1193Provider } from 'ethers';
+
+/** Minimal shape of the Solana wallet provider AppKit hands back. */
+interface SolanaSigner { signMessage(message: Uint8Array): Promise<Uint8Array>; }
+
+const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+/** Encode a signature as base58, the form Solana tooling expects.
+ *  The sidecar accepts base58 or base64; base58 keeps parity with every other
+ *  Solana client the player might compare against. */
+function b58encode(bytes: Uint8Array): string {
+  let n = 0n;
+  for (const b of bytes) n = n * 256n + BigInt(b);
+  let out = '';
+  while (n > 0n) { out = B58_ALPHABET[Number(n % 58n)] + out; n /= 58n; }
+  for (const b of bytes) { if (b === 0) out = '1' + out; else break; }
+  return out || '1';
+}
 import { Landing } from './landing/Landing';
 import { saveAccessToken, clearAccessToken } from '../lib/referral';
 
@@ -21,27 +37,61 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser, wo
   // initWalletKit() is now called in AppContent — during the loading screen,
   // before ad zones render, to prevent the w3m-modal initialization flash.
 
-  // Track wallet connection state via Reown hooks
-  const { address, isConnected } = useAppKitAccount();
-  const { walletProvider } = useAppKitProvider('eip155');
+  // Track wallet connection state via Reown hooks, per chain namespace.
+  // Two adapters are registered (see lib/walletKit.ts), so the namespace must
+  // be explicit — an unqualified useAppKitAccount() returns whichever chain is
+  // "active", which is not something login should depend on.
+  const evmAccount = useAppKitAccount({ namespace: 'eip155' });
+  const solAccount = useAppKitAccount({ namespace: 'solana' });
+  const { walletProvider } = useAppKitProvider<Eip1193Provider>('eip155');
+  const { walletProvider: solWalletProvider } = useAppKitProvider<SolanaSigner>('solana');
   const { disconnect } = useDisconnect();
+
+  // EVM wins when both are somehow connected. An existing player's account is
+  // keyed to their 0x identity, and silently signing them into a different
+  // (Solana) account would look like their characters vanished. New players
+  // connecting Phantom as a Solana wallet land on the Solana path.
+  const chain: 'evm' | 'solana' | null =
+    evmAccount.isConnected && evmAccount.address ? 'evm'
+    : solAccount.isConnected && solAccount.address ? 'solana'
+    : null;
+  const address = chain === 'evm' ? evmAccount.address : chain === 'solana' ? solAccount.address : undefined;
+  const isConnected = chain !== null;
+
+  // WAIT FOR THE SIGNER, NOT JUST THE ACCOUNT.
+  //
+  // useAppKitAccount populates before useAppKitProvider does. This effect used
+  // to fire on the account alone, and handleWalletAuth throws immediately when
+  // walletProvider is missing — which calls rearmWallet() and DISCONNECTS the
+  // wallet. Symptom, reported by the founder: the first connect "doesn't take"
+  // and a hard refresh fixes it, because on reload the wallet is already
+  // connected and both hooks are populated by the time React runs.
+  //
+  // The race pre-existed, but registering the Solana adapter made AppKit's init
+  // heavier and widened the window enough to lose it most times. Gating on the
+  // matching provider — and listing it in the deps so this re-runs the moment it
+  // arrives — closes it without changing anything else.
+  const providerReady =
+    chain === 'evm' ? !!walletProvider
+    : chain === 'solana' ? !!solWalletProvider
+    : false;
 
   // Guard against double-firing when both isConnected and address update,
   // and against re-triggering the signature prompt for an already-handled address.
   const handledRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (isConnected && address) {
+    if (isConnected && address && providerReady) {
       if (handledRef.current === address) return;
       handledRef.current = address;
-      console.log('[Auth] Wallet connected:', address);
-      handleWalletAuth(address);
+      console.log(`[Auth] Wallet connected (${chain}):`, address);
+      handleWalletAuth(address, chain!);
     }
     // If fully disconnected, allow a fresh attempt next connect
     if (!isConnected) {
       handledRef.current = null;
     }
-  }, [isConnected, address]);
+  }, [isConnected, address, chain, providerReady]);
 
   /** On any wallet-auth failure: re-arm so the user can simply tap Connect again. */
   const rearmWallet = (msg: string) => {
@@ -51,10 +101,17 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser, wo
     try { disconnect(); } catch { /* already disconnected */ }
   };
 
-  // Wallet login: nonce → personal_sign → server verifies signature.
-  // EVM personal_sign covers MetaMask, Phantom (EVM) and Trust — injected on
-  // desktop, deep-linked on mobile via the Reown modal.
-  const handleWalletAuth = async (walletAddress: string) => {
+  // Wallet login: nonce → sign → server verifies signature.
+  //
+  // EVM uses EIP-191 personal_sign (MetaMask, Trust, Phantom-as-EVM, and every
+  // WalletConnect EVM wallet). Solana uses an ed25519 detached signature.
+  // The sidecar picks the scheme from the address format and stores the
+  // identity as provider 'wallet' or 'solana' respectively.
+  //
+  // Why Solana matters: $RUNE is an SPL token, so a proven Solana identity is
+  // ALSO the payout destination. A player who signs in with Phantom on Solana
+  // is paid for wilderness kills with no extra setup.
+  const handleWalletAuth = async (walletAddress: string, walletChain: 'evm' | 'solana') => {
     setSigningIn(true);
     setStatusText('Requesting signature...');
     clearAccessToken();
@@ -69,20 +126,34 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser, wo
       if (!nonceRes.ok || !nonceData.ok) throw new Error(nonceData.error || 'Could not get login nonce');
       const nonce = nonceData.nonce as string;
 
-      // 2. Ask the wallet to sign the login message (EIP-191 personal_sign)
-      if (!walletProvider) throw new Error('Wallet provider not available — reconnect your wallet');
-      const { BrowserProvider } = await import('ethers');
-      const provider = new BrowserProvider(walletProvider as Eip1193Provider);
-      const signer = await provider.getSigner();
-      const message = [
-        'R2H RSC wallet login', // must match sidecar buildWalletLoginMessage — do NOT rebrand
-        `Address: ${walletAddress.toLowerCase()}`,
-        `Nonce: ${nonce}`,
-        '',
-        'Signing proves you own this wallet. This request will not trigger a blockchain transaction.',
-      ].join('\n');
-      setStatusText('Confirm the signature in your wallet...');
-      const signature = await signer.signMessage(message);
+      // 2. Sign the login message. The EVM branch rebuilds the string locally,
+      //    exactly as it always has — do NOT rebrand it, it must match the
+      //    sidecar's buildWalletLoginMessage byte for byte. The Solana branch
+      //    signs the server-supplied `message` instead, so there is no second
+      //    copy of the format to drift out of sync.
+      let signature: string;
+      if (walletChain === 'evm') {
+        if (!walletProvider) throw new Error('Wallet provider not available — reconnect your wallet');
+        const { BrowserProvider } = await import('ethers');
+        const provider = new BrowserProvider(walletProvider as Eip1193Provider);
+        const signer = await provider.getSigner();
+        const message = [
+          'R2H RSC wallet login', // must match sidecar buildWalletLoginMessage — do NOT rebrand
+          `Address: ${walletAddress.toLowerCase()}`,
+          `Nonce: ${nonce}`,
+          '',
+          'Signing proves you own this wallet. This request will not trigger a blockchain transaction.',
+        ].join('\n');
+        setStatusText('Confirm the signature in your wallet...');
+        signature = await signer.signMessage(message);
+      } else {
+        if (!solWalletProvider) throw new Error('Wallet provider not available — reconnect your wallet');
+        const message = nonceData.message as string;
+        if (!message) throw new Error('Server did not return a message to sign');
+        setStatusText('Confirm the signature in your wallet...');
+        const sigBytes = await solWalletProvider.signMessage(new TextEncoder().encode(message));
+        signature = b58encode(sigBytes);
+      }
 
       // 3. Verify on backend → existing user logs in, new user gets a registration token
       const res = await fetch(`${apiUrl}/auth/wallet`, {
@@ -93,10 +164,15 @@ export default function AuthOverlay({ apiUrl, onAuthComplete, onExistingUser, wo
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.error || 'Wallet login failed');
       saveAccessToken(data.accessToken);
+      // Use the identity the SERVER settled on. Solana base58 is case-sensitive
+      // and must not be lowercased the way EVM hex is; echoing the server's
+      // values keeps both chains correct without a second case rule here.
+      const provider: string = data.provider ?? 'wallet';
+      const externalId: string = data.externalId ?? walletAddress;
       if (data.existing) {
-        onExistingUser('wallet', walletAddress.toLowerCase(), data.rscUsername, data.rscPassword);
+        onExistingUser(provider, externalId, data.rscUsername, data.rscPassword);
       } else {
-        onAuthComplete('wallet', walletAddress.toLowerCase(), data.registrationToken);
+        onAuthComplete(provider, externalId, data.registrationToken);
       }
     } catch (err: any) {
       console.error('[Auth] Wallet auth error:', err);
