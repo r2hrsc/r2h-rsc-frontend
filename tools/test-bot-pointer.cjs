@@ -28,6 +28,11 @@ t('bearing N E S W',
   p0._bearingDeg({x:200,y:300},{x:200,y:350}) === 180 &&
   p0._bearingDeg({x:200,y:300},{x:250,y:300}) === 270);
 t('readPosition safety', p0._readPosition(null) === null && p0._readPosition({bJ:1}) === null && p0._readPosition({bJ:'x',bK:0,du:0,dd:0}) === null);
+// v4.1: self-check uses the client's ABSOLUTE formula (i2 = surface origin)
+t('self-check: agree on surface (i2=1776, local y=402 -> lvl 5)', p0._positionSelfCheck({bK:66, i2:1776, dd:336}, {x:236, y:402}) === true);
+t('self-check: disagree hides (simulated field drift)', p0._positionSelfCheck({bK:66, i2:1776, dd:336}, {x:236, y:100}) === false);
+t('self-check: both zero-level agree (town)', p0._positionSelfCheck({bK:34, i2:1776, dd:384}, {x:220, y:418}) === true);
+t('readPosition: n7/i2 NOT applied (surface origin, not plane delta)', p0._readPosition({bJ:10, bK:20, du:100, dd:200, n7:2304, i2:1776}).x === 110);
 t('cameraDeg fallback: ey=64 -> 90', p0._cameraDeg({ ey: 64, p2: 0 }) === 90);
 t('cameraDeg fallback: null when ey absent', p0._cameraDeg({}) === null);
 

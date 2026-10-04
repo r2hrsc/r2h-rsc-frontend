@@ -52,6 +52,14 @@
     var stickyName = null;
     var lockedName = null;
 
+    // Returns {x, y} or null on ANY doubt (same safety rule as the popup).
+    // LOCAL SURFACE coords (bJ+du, bK+dd) - the same base the server DB and
+    // the bot list use. VERIFIED against arena.db on both axes with correct
+    // signs (2026-10-04: walked 20 tiles W and 20 tiles S, client matched DB
+    // exactly at every sample). Do NOT add n7/i2 here: they are the SURFACE
+    // PLANE ORIGIN constants (2304, 1776), i.e. absolute-coord offsets the
+    // client uses only for its own display math - adding them to local coords
+    // puts x out of bounds and hides the rim (v4.1 regression, fixed same day).
     function readPosition(mc) {
       if (!mc) return null;
       var bJ = mc.bJ, bK = mc.bK, du = mc.du, dd = mc.dd;
@@ -61,6 +69,28 @@
       if (!isFinite(x) || !isFinite(y)) return null;
       if (x < 0 || y < 0 || x >= 944 || y >= 4 * FLOOR_STRIDE) return null;
       return { x: x, y: y };
+    }
+
+    // RUNTIME SELF-CHECK (2026-10-04 review): the client computes its
+    // wilderness display from ABSOLUTE coords as d = 2203-((bK+i2)+dd) with
+    // level = d>0 ? 1+floor(d/6) : 0 (no floor-stride term; i2 is the surface
+    // origin 1776). Our wildernessLevel() works on LOCAL y and gives the same
+    // level on the surface. If they disagree, bJ/bK/du/dd have drifted after
+    // a classes.js rebuild - hide rather than render a confident wrong marker.
+    function positionSelfCheck(mc, me) {
+      if (!mc || !me) return false;
+      // Cannot compute the client's own level (field absent in this build) -
+      // nothing to compare; the range checks in readPosition still apply.
+      if (mc.i2 === undefined || mc.i2 === null) return true;
+      var clientAbsY = (Number(mc.bK) || 0) + (Number(mc.i2) || 0) + (Number(mc.dd) || 0);
+      var d = 2203 - clientAbsY;
+      var clientLevel = d > 0 ? 1 + Math.floor(d / 6) : 0;
+      var ourLevel = wildernessLevel(me.y);
+      if (clientLevel !== ourLevel) {
+        try { console.warn('[r2h-bot-pointer] position self-check FAILED: client level ' + clientLevel + ' vs module ' + ourLevel + ' - hiding markers'); } catch (e) {}
+        return false;
+      }
+      return true;
     }
 
     function inWorld(mc) {
@@ -273,7 +303,9 @@
       var showable = false;
       if (inWorld(mc)) {
         me = readPosition(mc);
-        showable = !!(me && wildernessLevel(me.y) > 0);
+        // v4.1: refuse to render if our position read disagrees with the
+        // client's own wilderness formula (field drift after a rebuild)
+        showable = !!(me && positionSelfCheck(mc, me) && wildernessLevel(me.y) > 0);
       }
       if (!showable) {
         stickyName = null; lockedName = null;
@@ -360,7 +392,7 @@
     return {
       tick: tick, TICK_MS: TICK_MS,
       _wildernessLevel: wildernessLevel, _bearingDeg: bearingDeg,
-      _readPosition: readPosition, _cameraDeg: cameraDeg,
+      _readPosition: readPosition, _cameraDeg: cameraDeg, _positionSelfCheck: positionSelfCheck,
       _pickLeader: pickLeader, _railPoint: railPoint,
       _spreadByEdge: spreadByEdge, _heat: heat, _tileLabel: tileLabel,
       _matchScene: matchScene, _fitYaw: fitYaw, _screenAzimuth: screenAzimuth
