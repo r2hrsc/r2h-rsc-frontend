@@ -35,6 +35,9 @@ t('self-check: both zero-level agree (town)', p0._positionSelfCheck({bK:34, i2:1
 t('readPosition: n7/i2 NOT applied (surface origin, not plane delta)', p0._readPosition({bJ:10, bK:20, du:100, dd:200, n7:2304, i2:1776}).x === 110);
 t('cameraDeg fallback: ey=64 -> 90', p0._cameraDeg({ ey: 64, p2: 0 }) === 90);
 t('cameraDeg fallback: null when ey absent', p0._cameraDeg({}) === null);
+// 2026-10-04: the minimap-term bug - cameraDeg must IGNORE p2 (minimapRandom_1)
+t('cameraDeg ignores p2: ey=64 p2=128 -> 90, not 270', p0._cameraDeg({ ey: 64, p2: 128 }) === 90 && p0._cameraDeg({ ey: 64, p2: 128 }) !== ((64 + 128) & 255) * 360 / 256);
+t('cameraDeg ignores p2: ey=64 p2=200 -> 90', p0._cameraDeg({ ey: 64, p2: 200 }) === 90);
 
 // ── screenAzimuth + fitYaw: the v4 core ──
 t('screenAzimuth: up=0 right=90 down=180 left=270',
@@ -171,6 +174,25 @@ setImmediate(() => {
     pf.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 415 });
     t('tick: far-only leader still shows (v3.1 regression held)', shown && shown.markers.length === 1 && shown.markers[0].leader === true, shown);
     t('tick: no scene + no ey -> yaw null, world-absolute degrade (no crash)', shown !== null && shown.yaw === null);
+    // ── 2026-10-04: ZERO-SPRITE fallback path (the founder's condition) ──
+    // No sprites in view at all -> fitYaw null -> cameraDeg fallback must
+    // carry the marker, and the rim bearing must equal worldBearing - cameraDeg.
+    // RSC axes: x WEST, y SOUTH. Bot at LARGER x = due WEST of me = brg 270.
+    {
+      const meF = { x: 220, y: 418 };
+      const botF = { n: 'lonebot', x: 223, y: 418, cb: 55 };   // due WEST (brg 270)
+      t('zero-sprite: fitYaw null on empty pairs', p0._fitYaw(meF, []) === null);
+      t('zero-sprite: fallback yaw = ey alone (p2 ignored)', p0._cameraDeg({ ey: 64, p2: 128 }) === 90);
+      // camera facing EAST (ey=64): west bot is BEHIND -> screen 180 -> bottom
+      const rimBehind = p0._railPoint((p0._bearingDeg(meF, botF) - 90 + 360) % 360, 1280, 633);
+      t('zero-sprite: bot behind (camera east, bot west) -> BOTTOM rail', rimBehind.edge === 'bottom', rimBehind);
+      // camera facing WEST (ey=192): same bot is AHEAD -> screen 0 -> top
+      const rimAhead = p0._railPoint((p0._bearingDeg(meF, botF) - 270 + 360) % 360, 1280, 633);
+      t('zero-sprite: bot ahead (camera west) -> TOP rail', rimAhead.edge === 'top', rimAhead);
+      // camera facing NORTH (ey=0): west bot is to the LEFT -> screen 270 -> left
+      const rimLeft = p0._railPoint((p0._bearingDeg(meF, botF) - 0 + 360) % 360, 1280, 633);
+      t('zero-sprite: bot left (camera north) -> LEFT rail', rimLeft.edge === 'left', rimLeft);
+    }
     done();
   });
 });

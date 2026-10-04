@@ -115,9 +115,17 @@
     }
 
     // Legacy estimate; FALLBACK ONLY when no visible sprites exist to fit.
+    // 2026-10-04 fix: use cameraRotation ALONE (ey). The old form added p2 -
+    // that is minimapRandom_1 from mudclient.java:9064, the MINIMAP rotation
+    // line (255 & cameraRotation + minimapRandom_1). The camera itself uses
+    // cameraRotation only (setCamera(..., cameraRotation*4, ...) :5217), and
+    // facing quantisation ((cameraRotation+16)/32)&7 at :6386/:6642 confirms
+    // 256 units per full turn. Adding p2 offset the fallback heading by an
+    // arbitrary amount (~180deg worst case) - the founder's "pointed exactly
+    // backwards" condition, live only when NO bot sprite was ever visible.
     function cameraDeg(mc) {
       if (!mc || mc.ey === undefined) return null;
-      var r = (Number(mc.ey) + (Number(mc.p2) || 0)) & 255;
+      var r = Number(mc.ey) & 255;          // cameraRotation ONLY. NOT + p2.
       if (!isFinite(r)) return null;
       return r * 360 / 256;
     }
@@ -405,7 +413,7 @@
     };
   }
 
-  var VERSION = 'v4.2';
+  var VERSION = 'v4.3';
   var lastState = { version: VERSION, t: 0, me: null, wild: -1, bots: null };
   window.R2HBotPointer = { create: createR2HBotPointer, version: VERSION, getState: function () { return lastState; } };
   try { console.log('[r2h-bot-pointer] ' + VERSION + ' loaded (true screen rim + position self-check)'); } catch (e) {}
