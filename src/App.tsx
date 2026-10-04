@@ -354,7 +354,19 @@ function AppContent() {
         const diedRightAfterReconnect =
           lastReconnectAtRef.current > 0 &&
           Date.now() - lastReconnectAtRef.current < RECONNECT_LOOP_WINDOW_MS;
-        const leftWorld = leftWhileOpen || leftFirst || d.fv === 0 || diedRightAfterReconnect;
+        // DEFAULT TO THE HOME SCREEN. The founder's words: "when i log out if
+        // anything i should go back to the home screen." Since this server
+        // cannot distinguish a logout from a drop (see the three dead signals
+        // above), "unknown" must fall on the side he asked for, not on the side
+        // that drags him back into the game.
+        //
+        // So auto-reconnect now requires POSITIVE evidence of a drop — the
+        // client was still drawing the game world when the socket died. Anything
+        // else, including not knowing, goes home. A genuine drop with a readable
+        // client still reconnects exactly as before.
+        const stillInWorldAtClose = d.fv === 1;
+        const leftWorld =
+          leftWhileOpen || leftFirst || diedRightAfterReconnect || !stillInWorldAtClose;
         console.log(
           "[App] RSC_DISCONNECT code=" + d.code + " wasClean=" + d.wasClean +
             " logoutSentMsAgo=" + d.logoutSentMsAgo + " fv=" + d.fv +
@@ -362,6 +374,7 @@ function AppContent() {
             " fvZeroMsBeforeClose=" + d.fvZeroMsBeforeClose +
             " bM=" + (d as any).bM + " sockState=" + (d as any).sockState +
             " diedRightAfterReconnect=" + diedRightAfterReconnect +
+            " stillInWorldAtClose=" + stillInWorldAtClose +
             " -> " + (sentLogout || leftWorld ? "LOGOUT" : "drop"),
         );
         if (sentLogout || leftWorld) {
