@@ -319,6 +319,7 @@ function AppContent() {
             " logoutSentMsAgo=" + d.logoutSentMsAgo + " fv=" + d.fv +
             " leftWhileOpen=" + d.leftWorldWhileSocketOpen +
             " fvZeroMsBeforeClose=" + d.fvZeroMsBeforeClose +
+            " bM=" + (d as any).bM + " sockState=" + (d as any).sockState +
             " -> " + (sentLogout || leftWorld ? "LOGOUT" : "drop"),
         );
         if (sentLogout || leftWorld) {

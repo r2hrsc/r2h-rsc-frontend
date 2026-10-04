@@ -116,6 +116,15 @@
                     info.fvZeroMsBeforeClose = (w && w.zeroAt) ? (Date.now() - w.zeroAt) : -1;
                     info.fvLastOneMsAgo = (w && w.lastOne) ? (Date.now() - w.lastOne) : -1;
                     info.leftWorldWhileSocketOpen = !!(w && w.leftWhileOpen);
+                    // Belt and braces: bM is the client's login-screen state
+                    // (this file's own overlay logic reads bM === 0 || bM === 2
+                    // as "logo visible"). If fv ever turns out not to move on
+                    // logout, bM is the fallback discriminator and one round of
+                    // real data settles which to trust.
+                    info.bM = mc ? mc.bM : null;
+                    info.sockState = (function () {
+                        try { return window._r2h_ws ? window._r2h_ws.readyState : null; } catch (e3) { return null; }
+                    })();
                 } catch (err) { /* ignore */ }
                 try { console.log("[R2H] socket closed", JSON.stringify(info)); } catch (err) {}
                 try { window.parent.postMessage(info, "*"); } catch(err) {}
