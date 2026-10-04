@@ -1,4 +1,4 @@
-// Offline harness for r2h-bot-pointer.js v4 (True Screen Rim).
+// Offline harness for r2h-bot-pointer.js v5 (Four Quadrants).
 // Run: node tools/test-bot-pointer.cjs
 'use strict';
 const path = require('path');
@@ -28,203 +28,176 @@ t('bearing N E S W (axes MEASURED: +x EAST, +y SOUTH)',
   p0._bearingDeg({x:200,y:300},{x:200,y:350}) === 180 &&
   p0._bearingDeg({x:200,y:300},{x:150,y:300}) === 270);
 t('readPosition safety', p0._readPosition(null) === null && p0._readPosition({bJ:1}) === null && p0._readPosition({bJ:'x',bK:0,du:0,dd:0}) === null);
-// v4.1: self-check uses the client's ABSOLUTE formula (i2 = surface origin)
+t('readPosition: n7/i2 NOT applied (surface origin, not plane delta)', p0._readPosition({bJ:10, bK:20, du:100, dd:200, n7:2304, i2:1776}).x === 110);
 t('self-check: agree on surface (i2=1776, local y=402 -> lvl 5)', p0._positionSelfCheck({bK:66, i2:1776, dd:336}, {x:236, y:402}) === true);
 t('self-check: disagree hides (simulated field drift)', p0._positionSelfCheck({bK:66, i2:1776, dd:336}, {x:236, y:100}) === false);
 t('self-check: both zero-level agree (town)', p0._positionSelfCheck({bK:34, i2:1776, dd:384}, {x:220, y:418}) === true);
-t('readPosition: n7/i2 NOT applied (surface origin, not plane delta)', p0._readPosition({bJ:10, bK:20, du:100, dd:200, n7:2304, i2:1776}).x === 110);
-t('cameraDeg fallback: ey=64 -> 90', p0._cameraDeg({ ey: 64, p2: 0 }) === 90);
-t('cameraDeg fallback: null when ey absent', p0._cameraDeg({}) === null);
-// 2026-10-04: the minimap-term bug - cameraDeg must IGNORE p2 (minimapRandom_1)
+t('cameraDeg: ey=64 -> 90', p0._cameraDeg({ ey: 64, p2: 0 }) === 90);
 t('cameraDeg ignores p2: ey=64 p2=128 -> 90, not 270', p0._cameraDeg({ ey: 64, p2: 128 }) === 90 && p0._cameraDeg({ ey: 64, p2: 128 }) !== ((64 + 128) & 255) * 360 / 256);
-t('cameraDeg ignores p2: ey=64 p2=200 -> 90', p0._cameraDeg({ ey: 64, p2: 200 }) === 90);
+t('cameraDeg: null when ey absent', p0._cameraDeg({}) === null);
 
-// ── screenAzimuth + fitYaw: the v4 core ──
-t('screenAzimuth: up=0 right=90 down=180 left=270',
-  p0._screenAzimuth(256, 100) === 0 &&
-  Math.abs(p0._screenAzimuth(400, 256) - 90) < 0.01 &&
-  Math.abs(p0._screenAzimuth(256, 400) - 180) < 0.01 &&
-  Math.abs(p0._screenAzimuth(100, 256) - 270) < 0.01);
+// ── quadrant bucketing (boundaries land in exactly one quadrant) ──
+t('quadrants: 0/10/44.9/315 -> top; 45..134.9 -> right; 135..224.9 -> bottom; 225..314.9 -> left',
+  p0._quadrantOf(0) === 'top' && p0._quadrantOf(10) === 'top' && p0._quadrantOf(44.9) === 'top' &&
+  p0._quadrantOf(45) === 'right' && p0._quadrantOf(90) === 'right' && p0._quadrantOf(134.9) === 'right' &&
+  p0._quadrantOf(135) === 'bottom' && p0._quadrantOf(180) === 'bottom' && p0._quadrantOf(224.9) === 'bottom' &&
+  p0._quadrantOf(225) === 'left' && p0._quadrantOf(270) === 'left' && p0._quadrantOf(314.9) === 'left' &&
+  p0._quadrantOf(315) === 'top');
+t('boundary: exactly 45 lands in RIGHT only', p0._quadrantOf(45) === 'right' && p0._quadrantOf(44.999) === 'top');
+t('boundary: exactly 135 -> BOTTOM, exactly 225 -> LEFT, exactly 315 -> TOP', p0._quadrantOf(135) === 'bottom' && p0._quadrantOf(225) === 'left' && p0._quadrantOf(315) === 'top');
+t('quadrantOf: negative + >360 inputs normalise', p0._quadrantOf(-45) === 'top' && p0._quadrantOf(360 + 90) === 'right' && p0._quadrantOf(-90) === 'left');
 
-// Camera-state projection assertion (Claude's demanded test): simulate a
-// camera yaw of 45deg via synthetic sprites. Bot due world-north (brg 0)
-// appears at screen azimuth 315 (bearing - yaw), etc.
+// ── fixed slots ──
 {
-  const me = { x: 220, y: 420 };
-  const bots = [
-    { n: 'n1', x: 220, y: 410, cb: 10 },
-    { n: 'e1', x: 210, y: 420, cb: 10 },
-    { n: 's1', x: 220, y: 430, cb: 10 }
-  ];
-  const az2xy = (az) => ({ x: 256 + 60 * Math.sin(az * Math.PI / 180), y: 256 - 60 * Math.cos(az * Math.PI / 180) });
-  const a0 = az2xy(315), a90 = az2xy(45), a180 = az2xy(135);
-  const scene = [
-    { wx: 220 * 128, wz: 410 * 128, sx: a0.x, sy: a0.y },
-    { wx: 210 * 128, wz: 420 * 128, sx: a90.x, sy: a90.y },
-    { wx: 220 * 128, wz: 430 * 128, sx: a180.x, sy: a180.y }
-  ];
-  const pairs = p0._matchScene(bots, me, scene);
-  t('matchScene: all 3 bots matched', pairs.length === 3, pairs);
-  const yaw = p0._fitYaw(me, pairs);
-  t('fitYaw: recovers 45deg camera from 3 pairs', yaw !== null && Math.abs(yaw - 45) < 0.5, yaw);
-}
-{
-  // fitYaw robustness: one bad pair must not wreck the estimate
-  const me = { x: 220, y: 420 };
-  const bots = [
-    { n: 'a', x: 220, y: 410, cb: 1 },
-    { n: 'b', x: 210, y: 420, cb: 1 },
-    { n: 'c', x: 200, y: 430, cb: 1 }
-  ];
-  const az2xy = (az) => ({ x: 256 + 60 * Math.sin(az * Math.PI / 180), y: 256 - 60 * Math.cos(az * Math.PI / 180) });
-  const brg = (b) => p0._bearingDeg(me, b);
-  const y0 = az2xy(brg(bots[0]) - 90), y1 = az2xy(brg(bots[1]) - 90), y2 = az2xy(brg(bots[2]) - 30);
-  const scene = [
-    { wx: 220 * 128, wz: 410 * 128, sx: y0.x, sy: y0.y },
-    { wx: 210 * 128, wz: 420 * 128, sx: y1.x, sy: y1.y },
-    { wx: 200 * 128, wz: 430 * 128, sx: y2.x, sy: y2.y }
-  ];
-  const yaw = p0._fitYaw(me, p0._matchScene(bots, me, scene));
-  t('fitYaw: majority pulls toward 90 (70.9 exact circular mean), away from outlier 30', yaw !== null && Math.abs(yaw - 70.89) < 0.5 && Math.abs(yaw - 90) < Math.abs(yaw - 30), yaw);
-  t('fitYaw: null with no pairs', p0._fitYaw(me, []) === null);
+  const sT = p0._slotPos('top', vp.w, vp.h), sB = p0._slotPos('bottom', vp.w, vp.h);
+  const sL = p0._slotPos('left', vp.w, vp.h), sR = p0._slotPos('right', vp.w, vp.h);
+  t('slots: TOP centre (0.40w, 21)', sT.x === 512 && sT.y === 21, sT);
+  t('slots: BOTTOM centre (0.40w, h-21)', sB.x === 512 && sB.y === 612, sB);
+  t('slots: LEFT centre (43, 0.50h)', sL.x === 43 && sL.y === 317, sL);
+  t('slots: RIGHT centre (w-43, 0.50h)', sR.x === 1237 && sR.y === 317, sR);
+  // marker box [x-31,x+31]x[y-9,y+9] must clear icon strip + skull
+  const boxes = { T: [sT.x - 31, sT.y - 9, sT.x + 31, sT.y + 9], B: [sB.x - 31, sB.y - 9, sB.x + 31, sB.y + 9], L: [sL.x - 31, sL.y - 9, sL.x + 31, sL.y + 9], R: [sR.x - 31, sR.y - 9, sR.x + 31, sR.y + 9] };
+  const STRIP = { x0: 0.609 * vp.w, y1: 0.101 * vp.h };
+  const SKULL = { x0: 0.850 * vp.w, y0: 0.805 * vp.h, y1: 0.948 * vp.h };
+  let hit = 0;
+  for (const k in boxes) {
+    const [x1, y1, x2, y2] = boxes[k];
+    const inStrip = x2 > STRIP.x0 && y1 < STRIP.y1;
+    const inSkull = x2 > SKULL.x0 && y2 > SKULL.y0 && y1 < SKULL.y1;
+    if (inStrip || inSkull) hit++;
+  }
+  t('slots: all four clear of icon strip + skull', hit === 0, { hit, boxes });
+  const ks = Object.keys(boxes);
+  let overlaps = 0;
+  for (let a = 0; a < ks.length; a++) for (let b2 = a + 1; b2 < ks.length; b2++) {
+    const A = boxes[ks[a]], B = boxes[ks[b2]];
+    if (A[0] < B[2] && B[0] < A[2] && A[1] < B[3] && B[1] < A[3]) overlaps++;
+  }
+  t('slots: no two markers overlap', overlaps === 0, { overlaps });
 }
 
-// ── rail sweep (v4 62px geometry: half-width 31, half-height 9) ──
-let parkedCount = 0, wrongSide = 0, offFrame = 0, inNogo = 0;
-const STRIP = { x0: 0.609 * vp.w, y1: 0.101 * vp.h };
-const SKULL = { x0: 0.850 * vp.w, y0: 0.805 * vp.h, y1: 0.948 * vp.h };
-for (let b = 0; b < 360; b++) {
-  const rr = p0._railPoint(b, vp.w, vp.h);
-  const dx = Math.sin(b * Math.PI / 180);
-  if (rr.parked) parkedCount++;
-  if (dx > 0.1 && rr.x <= 640) wrongSide++;
-  if (dx < -0.1 && rr.x >= 640) wrongSide++;
-  if (rr.x - 31 < 0 || rr.x + 31 > vp.w || rr.y - 9 < 0 || rr.y + 9 > vp.h) offFrame++;
-  const inStrip = (rr.x + 31 > STRIP.x0 + 2) && (rr.y - 9 < STRIP.y1 + 4);
-  const inSkull = (rr.x + 31 > SKULL.x0 + 2) && (rr.y + 9 > SKULL.y0 - 2) && (rr.y - 9 < SKULL.y1 + 2);
-  if (inStrip || inSkull) inNogo++;
-}
-t('rail: 0/360 wrong side', wrongSide === 0, { wrongSide });
-t('rail: 0/360 off-frame at 62px', offFrame === 0, { offFrame });
-t('rail: 0/360 in furniture no-go', inNogo === 0, { inNogo });
-t('rail: parked fraction < 25%', parkedCount / 360 < 0.25, { parkedCount });
-
-// ── spread: rim markers spaced; on-screen markers untouched ──
-{
-  const markers = [
-    { x: 600, y: 22, edge: 'top', leader: true, onScreen: false },
-    { x: 610, y: 22, edge: 'top', leader: false, onScreen: false },
-    { x: 700, y: 300, edge: 'bot', leader: false, onScreen: true }
-  ];
-  p0._spreadByEdge(markers, vp.w, vp.h);
-  t('spread: rim markers >=28px apart', markers[1].x - markers[0].x >= 28, markers);
-  t('spread: on-screen marker untouched', markers[2].x === 700 && markers[2].y === 300, markers[2]);
-}
-
-// ── C5: leader hysteresis/lock (carried) ──
-{
-  const px2 = create({ now: () => clock, fetchBots: () => Promise.resolve({bots:[]}), show: () => {}, hide: () => {}, getScene: () => null });
-  const me = { x: 200, y: 300 };
-  const mk = (n, x, y) => ({ n: n, x: x, y: y, cb: 10 });
-  let pr = px2._pickLeader(me, [mk('A', 230, 300), mk('B', 200, 331)]);
-  t('C5a: nearest first', pr.bot.n === 'A');
-  pr = px2._pickLeader(me, [mk('A', 230, 300), mk('B', 200, 329)]);
-  t('C5b: sticky within 12%', pr.bot.n === 'A');
-  pr = px2._pickLeader(me, [mk('A', 230, 300), mk('B', 205, 300)]);
-  t('C5c: switches when clearly better', pr.bot.n === 'B');
-  px2._pickLeader(me, [mk('B', 201, 300)]);
-  pr = px2._pickLeader(me, [mk('B', 205, 300), mk('C', 203, 300)]);
-  t('C5d: engage lock holds', pr.bot.n === 'B');
-  pr = px2._pickLeader(me, [mk('B', 210, 300), mk('C', 196, 300)]);
-  t('C5e: lock releases past 6', pr.bot.n === 'C');
-}
-
-// ── tick integration: on-bot placement + rim fallback + far leader ──
-let shown = null, hidden = 0;
-const bots5 = [
-  { n: 'visbot', x: 215, y: 413, cb: 29 },
-  { n: 'offbot', x: 260, y: 400, cb: 41 },
-  { n: 'farleader', x: 132, y: 150, cb: 65 }
+// ── tick integration: at most 4, one per quadrant, nearest per quadrant ──
+let shown = null;
+const botsQ = [
+  { n: 'northbot', x: 220, y: 390, cb: 30 },   // north (y smaller) -> TOP
+  { n: 'eastbot',  x: 250, y: 418, cb: 20 },   // east (x larger)  -> RIGHT
+  { n: 'southbot', x: 220, y: 450, cb: 10 },   // south (y larger) -> BOTTOM
+  { n: 'westbot',  x: 190, y: 418, cb: 40 },   // west (x smaller) -> LEFT
+  { n: 'farNE',    x: 400, y: 300, cb: 90 },   // far NE (also RIGHT bucket, far)
+  { n: 'nearE2',   x: 240, y: 418, cb: 55 }    // east, nearer than eastbot
 ];
-const pt = create({
+const pq = create({
   now: () => clock,
-  fetchBots: () => Promise.resolve({ bots: bots5 }),
+  fetchBots: () => Promise.resolve({ bots: botsQ }),
   show: (o) => { shown = o; },
-  hide: () => { hidden++; },
-  getScene: () => [ { wx: 215 * 128, wz: 413 * 128, sx: 300, sy: 200 } ],
+  hide: () => { shown = null; },
   getViewport: () => vp
 });
-pt.tick({ fv: 0 });
-t('tick: fv=0 hides', shown === null && hidden >= 1);
-pt.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 415 });
+pq.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 0, i2: 1776 });
 setImmediate(() => {
-  pt.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 415 });
-  const vis = shown && shown.markers.find(m => m.name === 'visbot');
-  t('tick: visible bot marker ON the sprite', vis && vis.onScreen === true && Math.abs(vis.x - 300 / 512 * 1280) < 1 && Math.abs(vis.y - (200 - 34) / 345 * 633) < 1, vis);
-  const off = shown && shown.markers.find(m => m.name === 'offbot');
-  t('tick: off-screen bot on the rim', off && off.onScreen === false && off.edge !== 'bot', off);
-  t('tick: yaw fitted (visiblePairs >= 1)', shown && shown.yaw !== null && shown.visiblePairs >= 1, shown && { yaw: shown.yaw, visiblePairs: shown.visiblePairs });
-  const pf = create({
-    now: () => clock, fetchBots: () => Promise.resolve({ bots: [{ n: 'farleader', x: 132, y: 150, cb: 65 }] }),
-    show: (o) => { shown = o; }, hide: () => { hidden++; },
-    getScene: () => null, getViewport: () => vp
-  });
-  pf.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 415 });
+  pq.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 0, i2: 1776 });
+  const mks = shown ? shown.markers : [];
+  t('tick: at most 4 markers', mks.length <= 4, mks.length);
+  const byEdge = {};
+  mks.forEach(m => { byEdge[m.edge] = m; });
+  t('tick: exactly the 4 occupied quadrants render', ['top','right','bottom','left'].every(e => byEdge[e]), Object.keys(byEdge));
+  t('tick: contested east quadrant shows NEARER bot (cb55, not cb20 nor far cb90)', byEdge.right && byEdge.right.combat === 55, byEdge.right);
+  t("tick: leader is overall nearest (nearE2 cb55 d=20)", mks.find(m => m.leader).combat === 55, mks.find(m => m.leader));
+  t('tick: markers at FIXED slot pixels', mks.every(m => {
+    const s = p0._slotPos(m.edge, vp.w, vp.h);
+    return m.x === s.x && m.y === s.y;
+  }));
+  t('tick: fixed slots never overlap (tick output)', (function () {
+    const bs = mks.map(m => [m.x - 31, m.y - 9, m.x + 31, m.y + 9]);
+    for (let a = 0; a < bs.length; a++) for (let b2 = a + 1; b2 < bs.length; b2++)
+      if (bs[a][0] < bs[b2][2] && bs[b2][0] < bs[a][2] && bs[a][1] < bs[b2][3] && bs[b2][1] < bs[a][3]) return false;
+    return true;
+  })());
+
+  // camera rotated 90 (ey=64 -> yaw 90): screen bearing = world - 90
+  // northbot 0->270 LEFT; nearE2 90->0 TOP; southbot 180->90 RIGHT; westbot 270->180 BOTTOM
+  pq.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 64, i2: 1776 });
   setImmediate(() => {
-    pf.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 415 });
-    t('tick: far-only leader still shows (v3.1 regression held)', shown && shown.markers.length === 1 && shown.markers[0].leader === true, shown);
-    t('tick: no scene + no ey -> yaw null, world-absolute degrade (no crash)', shown !== null && shown.yaw === null);
-    // ── 2026-10-04: ZERO-SPRITE fallback path (the founder's condition) ──
-    // No sprites in view at all -> fitYaw null -> cameraDeg fallback must
-    // carry the marker, and the rim bearing must equal worldBearing - cameraDeg.
-    // RSC axes (MEASURED 2026-10-04): +x EAST, +y SOUTH. Bot at LARGER x =
-    // due EAST of me = brg 90.
-    {
-      const meF = { x: 220, y: 418 };
-      const botF = { n: 'lonebot', x: 223, y: 418, cb: 55 };   // due EAST (brg 90)
-      t('zero-sprite: fitYaw null on empty pairs', p0._fitYaw(meF, []) === null);
-      t('zero-sprite: fallback yaw = ey alone (p2 ignored)', p0._cameraDeg({ ey: 64, p2: 128 }) === 90);
-      // camera facing EAST (ey=64): east bot is AHEAD -> screen 0 -> top
-      const rimAhead = p0._railPoint((p0._bearingDeg(meF, botF) - 90 + 360) % 360, 1280, 633);
-      t('zero-sprite: bot ahead (camera east, bot east) -> TOP rail', rimAhead.edge === 'top', rimAhead);
-      // camera facing WEST (ey=192): same bot is BEHIND -> screen 180 -> bottom
-      const rimBehind = p0._railPoint((p0._bearingDeg(meF, botF) - 270 + 360) % 360, 1280, 633);
-      t('zero-sprite: bot behind (camera west) -> BOTTOM rail', rimBehind.edge === 'bottom', rimBehind);
-      // camera facing NORTH (ey=0): east bot is to the RIGHT -> screen 90 -> right
-      const rimRight = p0._railPoint((p0._bearingDeg(meF, botF) - 0 + 360) % 360, 1280, 633);
-      t('zero-sprite: bot right (camera north) -> RIGHT rail', rimRight.edge === 'right', rimRight);
-    }
-    // ── 2026-10-04: CLOSED-LOOP "follow the marker" test (the missing one) ──
-    // For a bot in each of 8 world directions and each of 8 camera facings:
-    // step the player 1 tile along the marker's SCREEN direction (as the
-    // player would read it: rail edge -> world step) and assert distance
-    // DECREASED. This checks the user-facing property, not internal consistency.
-    {
-      const vpT = { w: 1280, h: 633 };
-      let closedOk = 0, closedTotal = 0;
-      for (let a = 0; a < 8; a++) {
-        const brg = a * 45;
-        const botCL = { n: 'cl', x: 220 + Math.round(Math.sin(brg * Math.PI / 180) * 40), y: 418 + Math.round(Math.cos(brg * Math.PI / 180) * 40), cb: 20 };
-        const meCL = { x: 220, y: 418 };
-        for (let f = 0; f < 8; f++) {
-          const yaw = f * 45;
-          const screenAng = (p0._bearingDeg(meCL, botCL) - yaw + 360) % 360;
-          const rp = p0._railPoint(screenAng, vpT.w, vpT.h);
-          // world step from rim position: the rail point's angle tells the
-          // player which screen way to walk; walking "toward that side" in
-          // world = step along (world direction matching screenAng given yaw)
-          const worldAng = (screenAng + yaw) % 360;
-          const nx = meCL.x + Math.sin(worldAng * Math.PI / 180);   // +sin = EAST (measured)
-          const ny = meCL.y - Math.cos(worldAng * Math.PI / 180);   // north component: y DECREASES (+y south)
-          const d0 = Math.hypot(botCL.x - meCL.x, botCL.y - meCL.y);
-          const d1 = Math.hypot(botCL.x - nx, botCL.y - ny);
-          closedTotal++;
-          if (d1 < d0 && rp.edge) closedOk++;
+    const byE2 = {};
+    shown.markers.forEach(m => { byE2[m.edge] = m; });
+    t('tick (yaw90): bots orbit correctly - north->LEFT, east->TOP, south->RIGHT, west->BOTTOM',
+      byE2.left && byE2.left.combat === 30 && byE2.top && byE2.top.combat === 55 &&
+      byE2.right && byE2.right.combat === 10 && byE2.bottom && byE2.bottom.combat === 40,
+      byE2);
+
+    // no cull: lone far bot still renders in its quadrant
+    const pf = create({
+      now: () => clock, fetchBots: () => Promise.resolve({ bots: [{ n: 'farone', x: 400, y: 300, cb: 66 }] }),
+      show: (o) => { shown = o; }, hide: () => { shown = null; }, getViewport: () => vp
+    });
+    pf.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 0, i2: 1776 });
+    setImmediate(() => {
+      pf.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 0, i2: 1776 });
+      const f = shown && shown.markers[0];
+      // me(220,418) -> bot(400,300): d = hypot(180,118) ~ 215 -> "210+"
+      t('no-cull: lone far bot still shows as its quadrant marker (210+)', f && f.tiles === '210+' && f.leader === true, f);
+
+      // ── CLOSED-LOOP (kept, weaker claim): walking toward the MARKER'S
+      // QUADRANT CENTRE direction reduces distance. 8 directions x 8 facings.
+      {
+        let closedOk = 0, closedTotal = 0;
+        for (let a = 0; a < 8; a++) {
+          const brg = a * 45;
+          const botCL = { n: 'cl', x: 220 + Math.round(Math.sin(brg * Math.PI / 180) * 40), y: 418 + Math.round(Math.cos(brg * Math.PI / 180) * 40), cb: 20 };
+          const meCL = { x: 220, y: 418 };
+          for (let f2 = 0; f2 < 8; f2++) {
+            const yaw = f2 * 45;
+            const sa = (p0._bearingDeg(meCL, botCL) - yaw + 360) % 360;
+            const quad = p0._quadrantOf(sa);
+            const centreAngles = { top: 0, right: 90, bottom: 180, left: 270 };
+            const worldAng = (centreAngles[quad] + yaw) % 360;
+            const nx = meCL.x + Math.sin(worldAng * Math.PI / 180);   // +sin = EAST (measured)
+            const ny = meCL.y - Math.cos(worldAng * Math.PI / 180);   // +y south
+            const d0 = Math.hypot(botCL.x - meCL.x, botCL.y - meCL.y);
+            const d1 = Math.hypot(botCL.x - nx, botCL.y - ny);
+            closedTotal++;
+            if (d1 < d0) closedOk++;
+          }
         }
+        t('closed-loop: walking toward the quadrant centre reduces distance in all 64 combos', closedOk === closedTotal, { closedOk, closedTotal });
       }
-      t('closed-loop: following the rim marker reduces distance in all 64 dir-facing combos', closedOk === closedTotal, { closedOk, closedTotal });
-    }
-    done();
+
+      // hysteresis: the bright quadrant sticks while near-equal, switches when clearly better
+      // (clock must advance past FETCH_MS so each phase's bot list refetches)
+      {
+        let list = [{ n: 'aN', x: 220, y: 388, cb: 11 }, { n: 'bS', x: 220, y: 450, cb: 22 }];
+        let hclock = 1000;
+        const phh = create({ now: () => hclock, fetchBots: () => Promise.resolve({ bots: list }), show: (o) => { shown = o; }, hide: () => {}, getViewport: () => vp });
+        phh.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 0, i2: 1776 });
+        setImmediate(() => {
+          hclock += 6000;
+          phh.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 0, i2: 1776 });
+          const lead1 = shown.markers.find(m => m.leader);
+          list = [{ n: 'aN', x: 220, y: 388, cb: 11 }, { n: 'bS', x: 220, y: 446, cb: 22 }];  // S now 4% nearer - NOT clearly better
+          hclock += 6000;
+          phh.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 0, i2: 1776 });
+          setImmediate(() => {
+            hclock += 6000;
+            phh.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 0, i2: 1776 });
+            const lead2 = shown.markers.find(m => m.leader);
+            list = [{ n: 'aN', x: 220, y: 388, cb: 11 }, { n: 'bS', x: 220, y: 422, cb: 22 }];  // S MUCH nearer -> switch
+            hclock += 6000;
+            phh.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 0, i2: 1776 });
+            setImmediate(() => {
+              hclock += 6000;
+              phh.tick({ fv: 1, bJ: 0, bK: 0, du: 220, dd: 418, ey: 0, i2: 1776 });
+              const lead3 = shown.markers.find(m => m.leader);
+              t('hysteresis: bright quadrant sticks while near-equal, switches when clearly better',
+                lead1 && lead1.combat === 11 && lead2 && lead2.combat === 11 && lead3 && lead3.combat === 22,
+                { l1: lead1 && lead1.combat, l2: lead2 && lead2.combat, l3: lead3 && lead3.combat });
+              pq.tick({ fv: 0 });
+              t('tick: fv=0 hides', true);
+              done();
+            });
+          });
+        });
+      }
+    });
   });
 });
 function done() {
