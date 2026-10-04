@@ -51,6 +51,41 @@
             // clientVersion >= 10000 over websocket), where the outgoing opcodes
             // are 6 = LOGOUT and 1 = CONFIRM_LOGOUT, framed as [length][opcode].
             // A no-payload packet is therefore the two bytes [1][6] or [1][1].
+            // ORDERING, NOT A SNAPSHOT. The discriminator between a logout and
+            // a drop is WHICH HAPPENED FIRST: on a logout the client leaves the
+            // world (fv 1 -> 0) and then the socket dies; on a drop the socket
+            // dies first and the client only notices later. Sampling fv at the
+            // close event is racy — if both land in the same tick the answer is
+            // arbitrary. So record the transition and compare timestamps.
+            if (!window.__r2hFvWatch) {
+                window.__r2hFvWatch = { zeroAt: 0, lastOne: 0 };
+                setInterval(function () {
+                    try {
+                        var m = window.__r2h_mc;
+                        if (!m) return;
+                        if (m.fv === 1) {
+                            window.__r2hFvWatch.lastOne = Date.now();
+                            window.__r2hFvWatch.zeroAt = 0;
+                            window.__r2hFvWatch.leftWhileOpen = false;
+                        } else if (!window.__r2hFvWatch.zeroAt && window.__r2hFvWatch.lastOne) {
+                            window.__r2hFvWatch.zeroAt = Date.now();
+                            // THE AIRTIGHT ONE. A network failure cannot make the
+                            // client leave the game world while the socket is
+                            // still OPEN — only the client deciding to leave can
+                            // do that, i.e. the player logging out, or the
+                            // client's own 2-minute idle logout (mc.d4 > 4500).
+                            // If the socket is already closing/closed, the client
+                            // is merely reacting to a drop.
+                            try {
+                                var sock = window._r2h_ws;
+                                window.__r2hFvWatch.leftWhileOpen =
+                                    !!sock && sock.readyState === 1; // 1 = OPEN
+                            } catch (e2) { window.__r2hFvWatch.leftWhileOpen = false; }
+                        }
+                    } catch (err) { /* ignore */ }
+                }, 150);
+            }
+
             var r2hLogoutSentAt = 0;
             var nativeSend = ws.send.bind(ws);
             ws.send = function(data) {
@@ -74,6 +109,13 @@
                     // already moved it off the world; a surprise drop has not.
                     var mc = window.__r2h_mc;
                     info.fv = mc ? mc.fv : null;
+                    var w = window.__r2hFvWatch;
+                    // How long the client had ALREADY left the world before this
+                    // close. >0 means fv hit 0 first => deliberate. 0/-1 means the
+                    // socket died while the client still believed it was playing.
+                    info.fvZeroMsBeforeClose = (w && w.zeroAt) ? (Date.now() - w.zeroAt) : -1;
+                    info.fvLastOneMsAgo = (w && w.lastOne) ? (Date.now() - w.lastOne) : -1;
+                    info.leftWorldWhileSocketOpen = !!(w && w.leftWhileOpen);
                 } catch (err) { /* ignore */ }
                 try { console.log("[R2H] socket closed", JSON.stringify(info)); } catch (err) {}
                 try { window.parent.postMessage(info, "*"); } catch(err) {}

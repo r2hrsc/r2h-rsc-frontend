@@ -296,12 +296,29 @@ function AppContent() {
         // Both are advisory: if neither says logout we keep the old
         // reconnect behaviour, so a wrong reading cannot strand a player who
         // genuinely dropped. The raw values are logged either way.
-        const d = event.data as { code?: number; wasClean?: boolean; logoutSentMsAgo?: number; fv?: number | null };
+        const d = event.data as {
+          code?: number; wasClean?: boolean; logoutSentMsAgo?: number;
+          fv?: number | null; leftWorldWhileSocketOpen?: boolean; fvZeroMsBeforeClose?: number;
+        };
+        // PRIMARY, and the only one of these that cannot be ambiguous: the
+        // client left the game world while its socket was still OPEN. A network
+        // failure cannot do that — only the client deciding to leave can, which
+        // means the player logged out (or the client's own 2-minute idle logout
+        // fired, which should also return them to the sign-in screen rather than
+        // be silently undone).
+        const leftWhileOpen = d.leftWorldWhileSocketOpen === true;
+        // Secondary: fv had already gone 0 before the close arrived.
+        const leftFirst = typeof d.fvZeroMsBeforeClose === "number" && d.fvZeroMsBeforeClose > 0;
+        // Dead signal, kept only as diagnostic output: opcodes are ISAAC-
+        // encrypted after login (RSCProtocolDecoder.java:102), so the logout
+        // opcode is a different byte every packet and this never matches.
         const sentLogout = typeof d.logoutSentMsAgo === "number" && d.logoutSentMsAgo >= 0 && d.logoutSentMsAgo < 10000;
-        const leftWorld = d.fv === 0;
+        const leftWorld = leftWhileOpen || leftFirst || d.fv === 0;
         console.log(
           "[App] RSC_DISCONNECT code=" + d.code + " wasClean=" + d.wasClean +
             " logoutSentMsAgo=" + d.logoutSentMsAgo + " fv=" + d.fv +
+            " leftWhileOpen=" + d.leftWorldWhileSocketOpen +
+            " fvZeroMsBeforeClose=" + d.fvZeroMsBeforeClose +
             " -> " + (sentLogout || leftWorld ? "LOGOUT" : "drop"),
         );
         if (sentLogout || leftWorld) {
