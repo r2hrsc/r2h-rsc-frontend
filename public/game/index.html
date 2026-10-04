@@ -69,6 +69,25 @@
                             window.__r2hFvWatch.leftWhileOpen = false;
                         } else if (!window.__r2hFvWatch.zeroAt && window.__r2hFvWatch.lastOne) {
                             window.__r2hFvWatch.zeroAt = Date.now();
+                            // TELL THE PARENT IMMEDIATELY, INDEPENDENT OF THE SOCKET.
+                            // This is the gap that made four previous fixes useless:
+                            // the only message this page ever sent was RSC_DISCONNECT,
+                            // fired from the websocket close handler. If logging out
+                            // does not close the socket — or closes it late, or never —
+                            // the parent was never told anything at all and sat there
+                            // in "playing" state while the client showed its own login
+                            // screen inside the frame. fv going 1 -> 0 means the client
+                            // has LEFT THE GAME WORLD, which is the thing that actually
+                            // matters, and it is true for a logout and for a drop the
+                            // client has noticed.
+                            try {
+                                window.parent.postMessage({
+                                    type: "RSC_LEFT_WORLD",
+                                    sockState: (window._r2h_ws ? window._r2h_ws.readyState : null),
+                                    bM: (window.__r2h_mc ? window.__r2h_mc.bM : null)
+                                }, "*");
+                                console.log("[R2H] client left the game world (fv 1->0)");
+                            } catch (e4) { /* never break the game over telemetry */ }
                             // THE AIRTIGHT ONE. A network failure cannot make the
                             // client leave the game world while the socket is
                             // still OPEN — only the client deciding to leave can

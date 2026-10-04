@@ -311,6 +311,33 @@ function AppContent() {
   }, [appState]);
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      // THE CLIENT LEFT THE GAME WORLD. This is the signal that actually
+      // corresponds to "I logged out", and it does not depend on the websocket
+      // closing — which is why four previous attempts failed. The page used to
+      // hear nothing at all unless the socket died, so a logout that keeps the
+      // socket open (or closes it late) left the app sitting in "playing" while
+      // the client showed its own login screen inside the frame.
+      //
+      // fv 1 -> 0 is the client leaving the world. True for a deliberate logout,
+      // and true for a drop it has noticed — both should land on the home
+      // screen, which is what was asked for.
+      if (event.data?.type === "RSC_LEFT_WORLD") {
+        if (appStateRef.current !== "playing") return; // mid-login, not a logout
+        if (Date.now() - worldSwitchAtRef.current < 20000) return; // realm switch
+        console.log(
+          "[App] client left the game world (sockState=" +
+            event.data.sockState + " bM=" + event.data.bM + ") -> home screen",
+        );
+        setReconnecting(false);
+        setAppState("auth");
+        setRscCredentials(null);
+        setAuthProvider("");
+        setAuthExternalId("");
+        setRegistrationToken("");
+        logoutRef.current?.();
+        disconnectWalletRef.current?.();
+        return;
+      }
       if (event.data?.type === "RSC_DISCONNECT") {
         // A DELIBERATE LOGOUT IS NOT A DISCONNECT. Both arrive here, because
         // both are just the websocket closing, and auto-reconnect was putting
