@@ -64,7 +64,14 @@ type AppState = "auth" | "username" | "loading" | "playing";
 // pointerEvents: 'none' so the overlay doesn't block touch/click events
 // from reaching the game iframe's hidden TeaVM inputs underneath.
 // The overlay is purely visual (spinner + text), events pass through to the game.
-function LoadingOverlay({ text }: { text: string }) {
+/** `onCancel`, when given, renders a way out of an auto-reconnect.
+ *
+ *  Classifying a disconnect is not always possible — this server closes the
+ *  socket identically for a logout and a dropped link, and the client's own
+ *  state flags are the only hint. Rather than pretend otherwise, when the app
+ *  decides to reconnect it now SAYS SO and lets the player refuse. A wrong
+ *  guess becomes one tap instead of being dragged back into the game. */
+function LoadingOverlay({ text, onCancel }: { text: string; onCancel?: () => void }) {
   return (
     <div
       style={{
@@ -78,7 +85,7 @@ function LoadingOverlay({ text }: { text: string }) {
         background: "rgba(0,0,0,0.8)",
         backdropFilter: "blur(4px)",
         gap: 16,
-        pointerEvents: "none",
+        pointerEvents: onCancel ? "auto" : "none",
       }}
     >
       <div
@@ -101,6 +108,25 @@ function LoadingOverlay({ text }: { text: string }) {
       >
         {text}
       </p>
+      {onCancel && (
+        <button
+          onClick={onCancel}
+          style={{
+            marginTop: 4,
+            background: "transparent",
+            border: "1px solid #555",
+            color: "#bbb",
+            padding: "8px 16px",
+            borderRadius: 6,
+            fontSize: 13,
+            cursor: "pointer",
+            minHeight: 44,
+            touchAction: "manipulation",
+          }}
+        >
+          Cancel — back to home screen
+        </button>
+      )}
     </div>
   );
 }
@@ -219,6 +245,15 @@ function AppContent() {
     password: string;
   } | null>(null);
   const [loadingText, setLoadingText] = useState("Loading game...");
+  /** True while the current loading screen is an AUTO-RECONNECT rather than a
+   *  normal login, so the overlay can offer a way out of it. */
+  const [reconnecting, setReconnecting] = useState(false);
+  /** When the last auto-reconnect was started. A session that dies again within
+   *  seconds of being reconnected is not a recoverable drop — either the player
+   *  logged out and we dragged them back, or reconnecting is not working. Either
+   *  way, stop and show the home screen instead of looping. This is the
+   *  backstop that holds even if the logout/drop classification is wrong. */
+  const lastReconnectAtRef = useRef(0);
 
   // Listen for RSC_DISCONNECT from the game iframe
   // v358 AUTO-RECONNECT: a mid-session WS close (e.g. server reaper kick,
@@ -313,13 +348,20 @@ function AppContent() {
         // encrypted after login (RSCProtocolDecoder.java:102), so the logout
         // opcode is a different byte every packet and this never matches.
         const sentLogout = typeof d.logoutSentMsAgo === "number" && d.logoutSentMsAgo >= 0 && d.logoutSentMsAgo < 10000;
-        const leftWorld = leftWhileOpen || leftFirst || d.fv === 0;
+        // Backstop: did this session die almost immediately after we
+        // reconnected it? Then reconnecting again just repeats the loop.
+        const RECONNECT_LOOP_WINDOW_MS = 25000;
+        const diedRightAfterReconnect =
+          lastReconnectAtRef.current > 0 &&
+          Date.now() - lastReconnectAtRef.current < RECONNECT_LOOP_WINDOW_MS;
+        const leftWorld = leftWhileOpen || leftFirst || d.fv === 0 || diedRightAfterReconnect;
         console.log(
           "[App] RSC_DISCONNECT code=" + d.code + " wasClean=" + d.wasClean +
             " logoutSentMsAgo=" + d.logoutSentMsAgo + " fv=" + d.fv +
             " leftWhileOpen=" + d.leftWorldWhileSocketOpen +
             " fvZeroMsBeforeClose=" + d.fvZeroMsBeforeClose +
             " bM=" + (d as any).bM + " sockState=" + (d as any).sockState +
+            " diedRightAfterReconnect=" + diedRightAfterReconnect +
             " -> " + (sentLogout || leftWorld ? "LOGOUT" : "drop"),
         );
         if (sentLogout || leftWorld) {
@@ -353,6 +395,9 @@ function AppContent() {
           setGameSessionKey((k) => k + 1);
           setAppState("loading");
           setLoadingText("Reconnecting...");
+      setReconnecting(true);
+      lastReconnectAtRef.current = Date.now();
+          setReconnecting(true);
           // NOTE: Privy session intentionally kept — no logout() here.
           // gameSessionKey++ (below) remounts GameCanvas: its credsSentRef
           // one-shot guard means a fresh mount is REQUIRED for RSC_LOGIN
@@ -483,6 +528,7 @@ function AppContent() {
       setAuthExternalId(externalId);
       setRscCredentials({ username: rscUsername, password: rscPassword });
       setLoadingText("Connecting to game...");
+      setReconnecting(false);
       setAppState("loading");
     },
     [],
@@ -493,6 +539,7 @@ function AppContent() {
       console.log("[App] Username selected:", rscUsername);
       setRscCredentials({ username: rscUsername, password: rscPassword });
       setLoadingText("Entering world...");
+      setReconnecting(false);
       setAppState("loading");
     },
     [],
@@ -926,7 +973,28 @@ function AppContent() {
       {/* AD BEZEL REMOVED 9/6: right/bottom ad bars + wrapper deleted (user: no longer needed) */}
 
       {/* Loading overlay on top of game while it connects */}
-      {showLoadingOverlay && <LoadingOverlay text={loadingText} />}
+      {showLoadingOverlay && (
+        <LoadingOverlay
+          text={loadingText}
+          onCancel={
+            reconnecting
+              ? () => {
+                  // The player is telling us this disconnect was intended.
+                  // Believe them over any inference we made.
+                  console.log("[App] reconnect cancelled by player — going to auth screen");
+                  setReconnecting(false);
+                  setAppState("auth");
+                  setRscCredentials(null);
+                  setAuthProvider("");
+                  setAuthExternalId("");
+                  setRegistrationToken("");
+                  logoutRef.current?.();
+                  disconnectWalletRef.current?.();
+                }
+              : undefined
+          }
+        />
+      )}
 
       {/* RESTORED (9/6, July-13 fix): AuthOverlay OUTSIDE the game frame at top level —
           position:fixed full-viewport (card 340px no longer clipped by the small game
