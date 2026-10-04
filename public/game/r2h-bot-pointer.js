@@ -103,9 +103,16 @@
       return wild > 0 ? 1 + Math.floor(wild / 6) : 0;
     }
 
+    // World bearing, degrees clockwise from north. AXES MEASURED IN-WORLD
+    // 2026-10-04 (camera ey=32/yaw45, renderer p6 readout): sprites at pure
+    // +dx landed screen-RIGHT (p6 +205/+133 for dx +12.5/+7.7) -> +x is EAST.
+    // +y is SOUTH (anchored by the wilderness formula). Therefore:
+    // bearing = atan2(dx, -dy). The v1 comment "x increases WEST" was WRONG
+    // and mirrored every marker's east/west since the first deploy - the
+    // founder's "closer I walk, further it gets".
     function bearingDeg(me, bot) {
       var north = -(bot.y - me.y);
-      var east = -(bot.x - me.x);
+      var east = (bot.x - me.x);
       var deg = Math.atan2(east, north) * 180 / Math.PI;
       return (deg + 360) % 360;
     }
@@ -413,7 +420,7 @@
     };
   }
 
-  var VERSION = 'v4.3';
+  var VERSION = 'v4.4';
   var lastState = { version: VERSION, t: 0, me: null, wild: -1, bots: null };
   window.R2HBotPointer = { create: createR2HBotPointer, version: VERSION, getState: function () { return lastState; } };
   try { console.log('[r2h-bot-pointer] ' + VERSION + ' loaded (true screen rim + position self-check)'); } catch (e) {}

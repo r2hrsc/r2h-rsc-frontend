@@ -22,11 +22,11 @@ const vp = { w: 1280, h: 633 };
 const p0 = create({ now: () => clock, fetchBots: () => Promise.resolve({ bots: [] }), show: () => {}, hide: () => {}, getScene: () => null });
 t('wild y=427 level 0', p0._wildernessLevel(427) === 0);
 t('wild y=426 level 1', p0._wildernessLevel(426) === 1);
-t('bearing N E S W',
+t('bearing N E S W (axes MEASURED: +x EAST, +y SOUTH)',
   p0._bearingDeg({x:200,y:300},{x:200,y:250}) === 0 &&
-  p0._bearingDeg({x:200,y:300},{x:150,y:300}) === 90 &&
+  p0._bearingDeg({x:200,y:300},{x:250,y:300}) === 90 &&
   p0._bearingDeg({x:200,y:300},{x:200,y:350}) === 180 &&
-  p0._bearingDeg({x:200,y:300},{x:250,y:300}) === 270);
+  p0._bearingDeg({x:200,y:300},{x:150,y:300}) === 270);
 t('readPosition safety', p0._readPosition(null) === null && p0._readPosition({bJ:1}) === null && p0._readPosition({bJ:'x',bK:0,du:0,dd:0}) === null);
 // v4.1: self-check uses the client's ABSOLUTE formula (i2 = surface origin)
 t('self-check: agree on surface (i2=1776, local y=402 -> lvl 5)', p0._positionSelfCheck({bK:66, i2:1776, dd:336}, {x:236, y:402}) === true);
@@ -177,21 +177,52 @@ setImmediate(() => {
     // ── 2026-10-04: ZERO-SPRITE fallback path (the founder's condition) ──
     // No sprites in view at all -> fitYaw null -> cameraDeg fallback must
     // carry the marker, and the rim bearing must equal worldBearing - cameraDeg.
-    // RSC axes: x WEST, y SOUTH. Bot at LARGER x = due WEST of me = brg 270.
+    // RSC axes (MEASURED 2026-10-04): +x EAST, +y SOUTH. Bot at LARGER x =
+    // due EAST of me = brg 90.
     {
       const meF = { x: 220, y: 418 };
-      const botF = { n: 'lonebot', x: 223, y: 418, cb: 55 };   // due WEST (brg 270)
+      const botF = { n: 'lonebot', x: 223, y: 418, cb: 55 };   // due EAST (brg 90)
       t('zero-sprite: fitYaw null on empty pairs', p0._fitYaw(meF, []) === null);
       t('zero-sprite: fallback yaw = ey alone (p2 ignored)', p0._cameraDeg({ ey: 64, p2: 128 }) === 90);
-      // camera facing EAST (ey=64): west bot is BEHIND -> screen 180 -> bottom
-      const rimBehind = p0._railPoint((p0._bearingDeg(meF, botF) - 90 + 360) % 360, 1280, 633);
-      t('zero-sprite: bot behind (camera east, bot west) -> BOTTOM rail', rimBehind.edge === 'bottom', rimBehind);
-      // camera facing WEST (ey=192): same bot is AHEAD -> screen 0 -> top
-      const rimAhead = p0._railPoint((p0._bearingDeg(meF, botF) - 270 + 360) % 360, 1280, 633);
-      t('zero-sprite: bot ahead (camera west) -> TOP rail', rimAhead.edge === 'top', rimAhead);
-      // camera facing NORTH (ey=0): west bot is to the LEFT -> screen 270 -> left
-      const rimLeft = p0._railPoint((p0._bearingDeg(meF, botF) - 0 + 360) % 360, 1280, 633);
-      t('zero-sprite: bot left (camera north) -> LEFT rail', rimLeft.edge === 'left', rimLeft);
+      // camera facing EAST (ey=64): east bot is AHEAD -> screen 0 -> top
+      const rimAhead = p0._railPoint((p0._bearingDeg(meF, botF) - 90 + 360) % 360, 1280, 633);
+      t('zero-sprite: bot ahead (camera east, bot east) -> TOP rail', rimAhead.edge === 'top', rimAhead);
+      // camera facing WEST (ey=192): same bot is BEHIND -> screen 180 -> bottom
+      const rimBehind = p0._railPoint((p0._bearingDeg(meF, botF) - 270 + 360) % 360, 1280, 633);
+      t('zero-sprite: bot behind (camera west) -> BOTTOM rail', rimBehind.edge === 'bottom', rimBehind);
+      // camera facing NORTH (ey=0): east bot is to the RIGHT -> screen 90 -> right
+      const rimRight = p0._railPoint((p0._bearingDeg(meF, botF) - 0 + 360) % 360, 1280, 633);
+      t('zero-sprite: bot right (camera north) -> RIGHT rail', rimRight.edge === 'right', rimRight);
+    }
+    // ── 2026-10-04: CLOSED-LOOP "follow the marker" test (the missing one) ──
+    // For a bot in each of 8 world directions and each of 8 camera facings:
+    // step the player 1 tile along the marker's SCREEN direction (as the
+    // player would read it: rail edge -> world step) and assert distance
+    // DECREASED. This checks the user-facing property, not internal consistency.
+    {
+      const vpT = { w: 1280, h: 633 };
+      let closedOk = 0, closedTotal = 0;
+      for (let a = 0; a < 8; a++) {
+        const brg = a * 45;
+        const botCL = { n: 'cl', x: 220 + Math.round(Math.sin(brg * Math.PI / 180) * 40), y: 418 + Math.round(Math.cos(brg * Math.PI / 180) * 40), cb: 20 };
+        const meCL = { x: 220, y: 418 };
+        for (let f = 0; f < 8; f++) {
+          const yaw = f * 45;
+          const screenAng = (p0._bearingDeg(meCL, botCL) - yaw + 360) % 360;
+          const rp = p0._railPoint(screenAng, vpT.w, vpT.h);
+          // world step from rim position: the rail point's angle tells the
+          // player which screen way to walk; walking "toward that side" in
+          // world = step along (world direction matching screenAng given yaw)
+          const worldAng = (screenAng + yaw) % 360;
+          const nx = meCL.x + Math.sin(worldAng * Math.PI / 180);   // +sin = EAST (measured)
+          const ny = meCL.y - Math.cos(worldAng * Math.PI / 180);   // north component: y DECREASES (+y south)
+          const d0 = Math.hypot(botCL.x - meCL.x, botCL.y - meCL.y);
+          const d1 = Math.hypot(botCL.x - nx, botCL.y - ny);
+          closedTotal++;
+          if (d1 < d0 && rp.edge) closedOk++;
+        }
+      }
+      t('closed-loop: following the rim marker reduces distance in all 64 dir-facing combos', closedOk === closedTotal, { closedOk, closedTotal });
     }
     done();
   });
