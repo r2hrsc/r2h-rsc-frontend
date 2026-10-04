@@ -376,7 +376,9 @@ function AppContent() {
             " diedRightAfterReconnect=" + diedRightAfterReconnect +
             " stillInWorldAtClose=" + stillInWorldAtClose +
             " appState=" + appStateRef.current + " wasPlaying=" + (appStateRef.current === "playing") +
-            " -> " + (sentLogout || leftWorld ? "LOGOUT" : "drop"),
+            " -> " + (appStateRef.current === "playing"
+                ? "playing session ended -> HOME"
+                : "still connecting -> retry"),
         );
         // Realm-switch window FIRST: the OLD iframe's WS death is expected,
         // not an error. This guard existed for exactly that reason and I
@@ -404,7 +406,32 @@ function AppContent() {
         // still retry exactly as they always did.
         const wasPlaying = appStateRef.current === "playing";
 
-        if (wasPlaying && (sentLogout || leftWorld)) {
+        // A SESSION THAT WAS BEING PLAYED AND ENDED GOES TO THE HOME SCREEN.
+        // No classification, no signal, no inference.
+        //
+        // I have now failed four times trying to tell a logout from a drop on
+        // this server — clean-close, the logout opcode, the client's loggedIn
+        // flag at close time, and the flag's transition ordering. Each one was
+        // shipped on reasoning and each was wrong, and the last attempt broke
+        // sign-in entirely. The honest conclusion is that this distinction is
+        // not reliably available to the browser here, so the behaviour must not
+        // depend on it.
+        //
+        // The founder asked for this outcome twice, in these words: "when i log
+        // out if anything i should go back to the home screen." So: it does.
+        // Every time. A genuine drop costs one click to come back, which is a
+        // real cost and a deliberate trade — predictable beats clever, and
+        // nothing here can drag him into a game he chose to leave.
+        //
+        // The signals are still computed and logged (leftWhileOpen, fv,
+        // fvZeroMsBeforeClose, bM) so the data keeps accumulating. If it ever
+        // shows one of them is trustworthy, auto-reconnect can be restored on
+        // evidence instead of on hope.
+        //
+        // Crucially this does NOT touch the loading path below: closes while
+        // connecting, entering a world, or mid-retry still retry exactly as
+        // before, which is what getting IN depends on.
+        if (wasPlaying) {
           setAppState("auth");
           setRscCredentials(null);
           setAuthProvider("");
